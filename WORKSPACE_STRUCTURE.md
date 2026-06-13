@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-13 10:40:00 CST
+更新日期：2026-06-13 11:05:00 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -125,8 +125,8 @@ visual_router_experiments/
 | `visual_router_experiments/README.md` | 正式实验代码目录说明 | 记录按 stage 建二级目录、跨阶段公共代码和输出目录约定 |
 | `visual_router_experiments/common/` | 跨阶段公共代码目录 | 保存 prediction cache schema、item-channel-window key、指标、伪图像张量构造、视觉 embedding 缓存和通用评估工具；当前已有 `prediction_cache_schema.py` |
 | `visual_router_experiments/stage0_oracle_audit/` | 上限审计阶段目录 | 承接专家互补性和 oracle 上限审计；当前 README 索引已有审计脚本与输出，后续扩展专家池或 window-level oracle 可在此补充正式脚本 |
-| `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 后续保存 vali 训练 router、test 测试 router 的 prediction cache、embedding、训练、评估和汇总脚本；当前已有 `prediction_cache_design.md`、`stage1_cache_contract.md`、`stage1_protocol_and_plan.md`、`evaluate_router_baselines.py`、`pilot/` 和 package 初始化文件；baseline evaluator 默认按 `config_name` 独立训练和汇总 |
-| `visual_router_experiments/stage1_vali_test_router/pilot/` | Stage 1 pilot 脚本目录 | 保存 `build_prediction_cache_pilot.py`、`compute_window_oracle_from_cache.py`、`enrich_cache_with_tsf_cell.py` 等小规模验证脚本；用于打通 cache/oracle/enrichment 流程，不作为正式实验入口 |
+| `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 后续保存 vali 训练 router、test 测试 router 的 prediction cache、embedding、训练、评估和汇总脚本；当前已有 `prediction_cache_design.md`、`feature_and_rl_extension_notes.md`、`stage1_cache_contract.md`、`stage1_protocol_and_plan.md`、`evaluate_router_baselines.py`、`pilot/` 和 package 初始化文件；baseline evaluator 默认按 `config_name` 独立训练和汇总 |
+| `visual_router_experiments/stage1_vali_test_router/pilot/` | Stage 1 pilot 脚本目录 | 保存 `build_prediction_cache_pilot.py`、`build_structure_feature_cache_pilot.py`、`train_structure_router_pilot.py`、`compute_window_oracle_from_cache.py`、`enrich_cache_with_tsf_cell.py` 等小规模验证脚本；用于打通 cache/oracle/enrichment/feature/router 流程，不作为正式实验入口 |
 | `visual_router_experiments/stage2_heldout_cell/` | Stage 2 泛化实验目录 | 后续保存 7-cell 训练、held-out cell 测试的 zero-shot 泛化实验脚本 |
 
 ## 3. QuitoBench / Quito 代码与实验层

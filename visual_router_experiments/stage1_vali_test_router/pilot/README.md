@@ -12,5 +12,7 @@
 | 文件 | 功能 |
 | --- | --- |
 | `build_prediction_cache_pilot.py` | 小规模生成 window-level prediction cache，验证专家预测、窗口 key、数组落盘和 MAE/MSE 对齐 |
+| `build_structure_feature_cache_pilot.py` | 基于 TimeFuse 单变量元特征生成 window-level 数值结构 feature cache；删除多变量/跨变量特征，仅作为非视觉 router baseline 输入 |
 | `compute_window_oracle_from_cache.py` | 基于 pilot manifest 计算 window-level oracle label、expert regret 和 best-single-vs-oracle 汇总 |
 | `enrich_cache_with_tsf_cell.py` | 为 pilot manifest/oracle labels 合并 TSF cell 元信息，并生成分层 oracle summary |
+| `train_structure_router_pilot.py` | 使用 TimeFuse 单变量元特征训练最小 LogisticRegression router；vali fit scaler/router，test 评估专家选择 MAE |
