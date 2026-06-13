@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-13 11:05:00 CST
+更新日期：2026-06-14 01:09:37 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -20,6 +20,7 @@
 /home/shiyuhong/Time
 ├── .gitignore
 ├── AGENTS.md
+├── EXTERNAL_OUTPUTS.md
 ├── WORKSPACE_STRUCTURE.md
 ├── experiment_scripts/
 ├── experiment_logs/
@@ -36,7 +37,8 @@
 | 路径 | 功能 | 维护要求 |
 | --- | --- | --- |
 | `.gitignore` | 根仓库忽略规则；排除嵌套外部仓库、本地 agent 状态、大规模数据、checkpoint、cache、运行日志和密钥环境文件 | 新增长期输出根目录或大规模生成物类型时更新 |
-| `AGENTS.md` | 项目级 agent 工作规范，记录实验日志、中文计划、中文代码注释、工作区结构文档维护等长期要求 | 修改协作规则时更新 |
+| `AGENTS.md` | 项目级 agent 工作规范，记录实验日志、默认 conda `quito` 实验环境、中文计划、中文代码注释、工作区结构文档维护等长期要求 | 修改协作规则时更新 |
+| `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
 
 ### 1.2 根目录隐藏目录
@@ -67,6 +69,10 @@ experiment_logs/
 ├── 2026-06-12_*.md
 ├── 2026-06-13_*.md
 └── run_outputs/
+
+/data2/syh/Time/
+├── run_outputs/
+└── cache_shards/
 ```
 
 ### 2.1 `experiment_scripts/`
@@ -89,8 +95,11 @@ experiment_logs/
 | `experiment_logs/2026-06-10_*.md` | 正式实验日志 | 记录 cluster 信息整理、smoke test、baseline 编排、MSE-best 复盘、统计基线启动等步骤 |
 | `experiment_logs/2026-06-11_*.md` | 正式实验日志 | 记录 2026-06-11 之后的结构文档维护、结果汇总或后续实验步骤 |
 | `experiment_logs/2026-06-12_*.md` | 正式实验日志 | 记录视觉结构先验 Router/MoE 研究路线制定和 Visual Router Phase 1 oracle 审计 |
-| `experiment_logs/2026-06-13_*.md` | 正式实验日志 | 记录 GitHub SSH key 配置、后续根仓库初始化和 Stage 1 结构特征 pilot 等 2026-06-13 后续步骤 |
+| `experiment_logs/2026-06-13_*.md` | 正式实验日志 | 记录 GitHub SSH key 配置、根仓库初始化、AGENTS 实验环境规范补充、Stage 1 结构特征/在线伪图像/ViT 成本估算、外部输出根目录接入、近期工作梳理、下一步计划更新和 HF ViT normalization 实现等 2026-06-13 后续步骤 |
+| `experiment_logs/2026-06-14_*.md` | 正式实验日志 | 记录 Stage 1 ViT embedding 与 Visual Router MLP smoke 的实现、运行结果和后续计划 |
 | `experiment_logs/run_outputs/` | 脚本运行输出根目录 | 保存每次编排脚本的 `status.json`、生成配置、运行日志、汇总 CSV 和部分 cluster/TSF cell 分析产物 |
+| `/data2/syh/Time/run_outputs/` | 外部大盘运行输出根目录 | 用于后续大规模实验输出，避免继续占用 `/home`；仓库内通过 `EXTERNAL_OUTPUTS.md` 和实验日志记录索引 |
+| `/data2/syh/Time/cache_shards/` | 外部临时 cache shard 根目录 | 用于抽样或短生命周期 shard；视觉路线默认不全量缓存伪图像或 ViT embedding，除非先证明缓存带来显著端到端加速 |
 
 ### 2.3 `experiment_logs/run_outputs/`
 
@@ -102,6 +111,10 @@ experiment_logs/
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_five_model_three_config_summary/` | 五模型三配置汇总目录 | 保存 overall mean MAE、TSF cell MAE、per-item 明细、checkpoint lineage 和 Markdown 汇总 |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_phase1_oracle_audit/` | Visual Router Phase 1 专家互补性审计目录 | 保存配置级 oracle gap、TSF cell oracle gap、专家胜率、per-item oracle 选择明细和中文摘要；当前口径为 per-item top-1 oracle，不含窗口级 top-k 或 soft fusion |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_prediction_cache_pilot/` | Stage 1 prediction cache 小规模试运行目录 | 保存 window-level manifest、metadata、`y_true/y_pred` 数组、window oracle labels、TSF cell enrichment 结果和非视觉 router baseline 汇总；用于验证 cache schema、数组对齐和 Stage 1 baseline 口径，不作为全量正式结果 |
+| `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_structure_feature_pilot/` | Stage 1 结构特征 router 试运行目录 | 保存 TimeFuse-derived 单变量 `feature_cache.csv`、结构特征 router predictions/summary/metadata；用于建立轻量非视觉数值 baseline，不作为视觉主线正式结果 |
+| `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_online_pseudo_image_pilot/` | Stage 1 在线伪图像化试运行目录 | 保存 `imageization_index.csv`、`latency_summary.csv`、`metadata.json`、`summary.md` 和少量 `debug_preview/*.png`；用于验证 Quito 历史窗口 x 到 3view/top3fold 视觉输入的在线 tensor-first 路径，不保存全量图像或 tensor cache，不作为 router 训练结果 |
+| `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_vit_embedding_smoke/` | Stage 1 ViT embedding smoke 目录 | 保存 `embedding_manifest.csv`、`embedding_latency_summary.csv`、`embedding_metadata.json`、`embedding_summary.md` 和小规模 embedding npy；当前 2026-06-14 版本覆盖 120 个 `96_48_S metric=mae` sample_key，`google/vit-base-patch16-224` CLS embedding 维度为 768 |
+| `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_visual_router_smoke/` | Stage 1 Visual Router smoke 目录 | 保存 `visual_router_predictions.csv`、`visual_router_summary.csv`、`visual_router_soft_fusion_predictions.csv`、`visual_router_soft_fusion_summary.csv`、`visual_router_comparison.csv`、`visual_router_metadata.json` 和中文摘要；当前 2026-06-14 版本为 120 sample_key 小型 MLP smoke，不作为三 config 正式结论 |
 | `experiment_logs/run_outputs/*/generated_configs/` | 派生配置 | 保存脚本实际写出的配置，便于复现实验参数 |
 | `experiment_logs/run_outputs/*/logs/` | 子任务日志 | 保存单任务 stdout/stderr 或运行日志 |
 | `experiment_logs/run_outputs/*/cluster_analysis/` | 分组分析结果 | 保存 cluster/TSF cell 等分层评估产物 |
@@ -123,10 +136,10 @@ visual_router_experiments/
 | 路径 | 层级角色 | 功能 |
 | --- | --- | --- |
 | `visual_router_experiments/README.md` | 正式实验代码目录说明 | 记录按 stage 建二级目录、跨阶段公共代码和输出目录约定 |
-| `visual_router_experiments/common/` | 跨阶段公共代码目录 | 保存 prediction cache schema、item-channel-window key、指标、伪图像张量构造、视觉 embedding 缓存和通用评估工具；当前已有 `prediction_cache_schema.py` |
+| `visual_router_experiments/common/` | 跨阶段公共代码目录 | 保存 prediction cache schema、item-channel-window key、指标、伪图像张量构造、视觉 embedding 缓存和通用评估工具；当前已有 `prediction_cache_schema.py` 和 `pseudo_imageization.py`，后者已支持 `hf_vit_0_5` 与 `torchvision_imagenet` encoder normalization |
 | `visual_router_experiments/stage0_oracle_audit/` | 上限审计阶段目录 | 承接专家互补性和 oracle 上限审计；当前 README 索引已有审计脚本与输出，后续扩展专家池或 window-level oracle 可在此补充正式脚本 |
-| `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 后续保存 vali 训练 router、test 测试 router 的 prediction cache、embedding、训练、评估和汇总脚本；当前已有 `prediction_cache_design.md`、`feature_and_rl_extension_notes.md`、`stage1_cache_contract.md`、`stage1_protocol_and_plan.md`、`evaluate_router_baselines.py`、`pilot/` 和 package 初始化文件；baseline evaluator 默认按 `config_name` 独立训练和汇总 |
-| `visual_router_experiments/stage1_vali_test_router/pilot/` | Stage 1 pilot 脚本目录 | 保存 `build_prediction_cache_pilot.py`、`build_structure_feature_cache_pilot.py`、`train_structure_router_pilot.py`、`compute_window_oracle_from_cache.py`、`enrich_cache_with_tsf_cell.py` 等小规模验证脚本；用于打通 cache/oracle/enrichment/feature/router 流程，不作为正式实验入口 |
+| `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 保存 vali 训练 router、test 测试 router 的 prediction cache、embedding、训练、评估和汇总脚本；当前已有 `prediction_cache_design.md`、`feature_and_rl_extension_notes.md`、`stage1_cache_contract.md`、`stage1_protocol_and_plan.md`、`evaluate_router_baselines.py`、`build_vit_embeddings.py`、`train_visual_router.py`、`pilot/` 和 package 初始化文件；baseline evaluator、ViT embedding smoke 和 Visual Router MLP smoke 均默认按 `config_name` 独立训练和汇总 |
+| `visual_router_experiments/stage1_vali_test_router/pilot/` | Stage 1 pilot 脚本目录 | 保存 `build_prediction_cache_pilot.py`、`build_online_pseudo_image_pilot.py`、`build_structure_feature_cache_pilot.py`、`train_structure_router_pilot.py`、`compute_window_oracle_from_cache.py`、`enrich_cache_with_tsf_cell.py` 等小规模验证脚本；用于打通 cache/oracle/enrichment/feature/router 流程，不作为正式实验入口 |
 | `visual_router_experiments/stage2_heldout_cell/` | Stage 2 泛化实验目录 | 后续保存 7-cell 训练、held-out cell 测试的 zero-shot 泛化实验脚本 |
 
 ## 3. QuitoBench / Quito 代码与实验层

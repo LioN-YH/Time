@@ -58,6 +58,19 @@
 2. 重要数据处理结果应尽量保留可复核来源、生成路径和校验结果。
 3. 对可能影响后续实验复现的操作，应在实验日志中明确记录。
 
+## 实验环境规范
+
+1. 本工作区实验、数据处理、Quito 脚本运行和与 `torch`/`quito`/`omegaconf`/`sklearn` 等依赖相关的验证，默认使用 conda 环境 `quito`。
+2. 推荐直接使用解释器绝对路径执行，避免 shell 未激活环境导致依赖或包版本不一致：
+
+   ```text
+   /home/shiyuhong/application/miniconda3/envs/quito/bin/python
+   ```
+
+3. 仅做纯文本检查、`rg` 搜索、`ls`、`sed`、`git`、`date` 或不依赖实验 Python 包的操作时，可以使用系统 shell/Python。
+4. 如果某项验证因系统 Python 缺少实验依赖失败，应优先在 `quito` conda 环境下复验，并在实验日志中记录实际使用的环境和结果。
+5. 新增长期脚本、README、实验协议或日志中涉及可复现实验命令时，应优先写明 `quito` 环境下的执行命令。
+
 ## 正式视觉路由实验代码目录规范
 
 1. Visual Router、Visual-Conditioned PatchTST、Visual-Conditioned MoE 等正式实验代码应优先放在 `visual_router_experiments/` 下，而不是继续追加到通用的 `experiment_scripts/`。

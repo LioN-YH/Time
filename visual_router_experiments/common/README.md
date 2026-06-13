@@ -17,3 +17,4 @@
 | --- | --- |
 | `__init__.py` | 将 `common/` 标记为可导入 Python package |
 | `prediction_cache_schema.py` | 定义 item-channel-window 级 prediction cache key、manifest record、窗口级 MAE/MSE 计算和基础一致性校验工具 |
+| `pseudo_imageization.py` | 定义在线 tensor-first 伪图像化工具，包括 per-window normalization、FFT top3 周期选择、3view/top3fold 语义通道构造，以及 encoder 前 `hf_vit_0_5` / `torchvision_imagenet` normalization |

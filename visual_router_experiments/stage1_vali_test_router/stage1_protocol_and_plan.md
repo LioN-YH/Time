@@ -2,6 +2,8 @@
 
 记录日期：2026-06-12 23:35:44 CST
 
+最近更新：2026-06-14 01:09:37 CST
+
 ## 目标
 
 Stage 1 验证同分布设置下的 visual router 是否能在冻结专家之间做有效选择或融合。训练 split 为 `vali`，评估 split 为 `test`，路由粒度为 `item_id + channel_id + window_index`。
@@ -73,85 +75,141 @@ router_1024_512_S
 
 ## 已完成
 
-当前已完成 pilot 级别流程：
+当前已完成的 Stage 1 前置链路和 pilot 级别流程：
 
 - Stage 1 代码目录和 `pilot/` 子目录整理；
 - prediction cache schema 设计；
-- `96_48_S` 小规模五专家 `vali/test` prediction cache pilot；
+- `96_48_S` 小规模到扩大版五专家 `vali/test` prediction cache pilot；
 - window-level oracle label 和 regret 计算；
 - TSF cell enrichment；
 - 非视觉 router baseline 评估；
 - baseline 输出包括整体、dataset、TSF cell、dataset+TSF cell 汇总。
 - `evaluate_router_baselines.py` 已更新为按 `config_name` 独立训练 baseline，并输出 config-level 主汇总与 macro average。
 - `stage1_cache_contract.md` 已固定正式 prediction cache、oracle labels、feature cache 和 router evaluation 的字段契约。
+- TimeFuse-derived 单变量结构特征 cache pilot 已完成，覆盖当前 `96_48_S` pilot 的 120 个 `metric=mae` sample_key。
+- TimeFuse-derived 结构特征 LogisticRegression router pilot 已完成，可作为轻量非视觉对照。
+- 在线伪图像化 pilot 已完成，可从 Quito 历史窗口 `x` 在线生成 `variant_a=3view` 和 `variant_b=top3fold`，并记录 index、metadata、latency 和少量 debug PNG。
+- ViT embedding cache 成本已估算，确认不应在 `/home` 直接做全量 embedding cache。
+- `/data2/syh/Time/run_outputs/` 和 `/data2/syh/Time/cache_shards/` 已接入为后续大规模输出或临时 shard 的可选位置。
+- `build_vit_embeddings.py` 已实现为 Stage 1 根目录正式入口，默认使用 `google/vit-base-patch16-224`、direct `pixel_values`、`hf_vit_0_5` normalization 和 `last_hidden_state[:, 0]` CLS token 输出 768 维视觉特征。
+- `train_visual_router.py` 已实现为 Stage 1 根目录正式入口，参考 TimeFuse fusor 设计，用 `StandardScaler` + 小型 MLP 输出五专家 softmax 权重，并同时评估 hard top-1 routing 与 soft fusion。
+- 当前 120 个 `96_48_S metric=mae` sample_key 的 ViT embedding smoke 已完成，manifest 与 oracle labels 的 sample_key 集合完全一致。
+- 当前 120 个 sample_key 的最小 visual router smoke 已完成，训练 split 为 60 个 vali window，测试 split 为 60 个 test window。
 
 当前关键 pilot 结果：
 
 - 可部署非视觉 baseline 中 `global_best_single` 最好，test MAE 为 `1.055190`；
 - `oracle_top1` test MAE 为 `0.805392`；
 - 当前 pilot 中 dataset/TSF-cell shortcut 未超过全局单专家。
+- TimeFuse 单变量结构特征 router test MAE 为 `1.079743`，略弱于 `global_best_single`，不应继续作为主线投入复杂特征工程。
+- 在线伪图像化 120 个 sample_key 全部通过 shape/range/finite 校验，默认 `image_size=224`、`norm_mode=revin_aux`、`pixel_mode=vision`、`clip=5.0`。
+- 三组 config 的 vali/test 共 `60,743,910` 个 window；单 variant fp16 ViT embedding 全量约 `93.3GB`，双 variant fp16 约 `186.6GB`。
+- ViT embedding smoke 输出 `120` 行 manifest，`embedding_dim=768`，`variant=variant_a_3view`，`pooling=cls`，`forward_dtype=float16`，`saved_dtype=float32`。
+- Visual Router hard top-1 在当前 60 个 test window 上 MAE 为 `1.013099`，oracle MAE 为 `0.805392`，regret 为 `0.207707`，oracle label accuracy 为 `0.350000`。
+- Visual Router soft fusion MAE 为 `1.022590`，略弱于 hard top-1，但仍优于当前 `global_best_single=1.055190`。
 
 ## 未完成
 
 主实验仍未完成以下部分：
 
 1. 正式 per-config cache builder；
-2. visual/structure feature 或 pseudo-image tensor 构造；
-3. embedding cache；
-4. per-config router 训练；
-5. hard top-1 routing 评估；
-6. softmax fusion 评估；
-7. Stage 1B 迁移学习和 leave-one-config-out 评估；
-8. 正式 summary/report 脚本。
+2. processor/direct-forward 双路径的统一测试仍不完整，目前已跑通的是 direct `pixel_values` + `hf_vit_0_5`；
+3. MAE/CLIP embedding smoke 尚未完成，当前只完成 HF ViT smoke；
+4. soft fusion 权重校准仍粗糙，当前 `soft_fusion_mae=1.022590` 弱于 hard top-1；
+5. Stage 1 正式脚本仍缺 prediction cache builder、统一 evaluator 和 summarizer；
+6. 扩展到三个 config 的正式 summary/report；
+7. Stage 1B 迁移学习和 leave-one-config-out 评估。
 
-## 下一步任务
+## 下一步任务与状态
 
-### 1. 更新 Baseline Evaluator（已完成）
+### 1. 明确视觉 encoder 输入路径
 
-修改 `evaluate_router_baselines.py`，使其支持并默认保护 config 分层：
+状态：direct `pixel_values` 路径已用于 2026-06-14 smoke；HF processor / `processor_uint8` 路径仍待补充单元级 smoke。
 
-- 按 `config_name` 分开学习 `global_best_single`、`dataset_only`、`tsf_cell_only`、`dataset_tsf_cell` 等规则；
-- 新增 `baseline_summary_by_config.csv`；
-- 多 config 输入时不允许把不同 config 的专家动作空间混为一个全局选择；
-- 输出整体汇总时保留 `config_name`，必要时另给 macro average。
+目标：先消除伪图像 `[0, 1]`、TimeVLM-style `0..255 uint8`、HF processor 和 direct `pixel_values` 之间的口径歧义。
 
-当前实现已完成以上要求：
+推荐实现：
 
-- `baseline_summary.csv` 与 `baseline_summary_by_config.csv` 均为按 `config_name` 的主汇总；
-- `baseline_summary_macro.csv` 为跨 config macro average；
-- `baseline_summary_by_dataset.csv`、`baseline_summary_by_tsf_cell.csv` 和 `baseline_summary_by_dataset_tsf_cell.csv` 均包含 `config_name`；
-- 已用当前单 config pilot 和合成双 config labels 验证不会跨 config 学同一个动作空间。
+- 保持 `pseudo_imageization.py` 的图像化本体输出为 float `[0, 1]`；
+- 新增或扩展 encoder normalization 工具，显式区分：
+  - `hf_vit_0_5`：用于 `google/vit-base-patch16-224` direct forward，执行 `(x - 0.5) / 0.5`；
+  - `torchvision_imagenet`：用于 torchvision/MAE/timm ImageNet mean/std 口径；
+  - `openai_clip`：用于 OpenAI CLIP mean/std 口径；
+  - `processor_uint8`：用于 TimeVLM-style 路径，先把 `[0, 1]` 转 `0..255 uint8`，再交给 HF processor 处理。
+- 如果把 float `[0, 1]` 直接传给 HF processor，必须显式设置 `do_rescale=False`，避免 processor 再除以 255。
 
-### 2. 固定正式 Cache 口径（已完成）
+验收标准：
 
-正式 cache 中必须明确：
+- 单元级 smoke 覆盖 direct-forward 和 processor 两条路径；
+- metadata 记录 `encoder_name`、`input_mode`、`normalization_preset`、`processor_do_rescale`；
+- 不再把 `imagenet_normalize()` 当作所有 encoder 的默认入口。
 
-- `sample_key` 包含 `config_name`；
-- oracle label 在同一 `config_name` 的五专家内计算；
-- 不跨 config 比较 MAE/MSE 作为可部署动作；
-- 多 config 可以同目录保存，但所有训练、baseline 和 summary 必须按 config 分层。
+### 2. 实现 `96_48_S` HF ViT Embedding Smoke
 
-当前实现已完成以上要求：
+状态：已完成 `variant_a=3view` + `google/vit-base-patch16-224` + CLS pooling smoke，输出目录为 `experiment_logs/run_outputs/2026-06-14_010821_165988_visual_router_stage1_vit_embedding_smoke/`。
 
-- `stage1_cache_contract.md` 已记录 manifest、oracle labels、TSF cell enrichment、feature cache 和 router evaluation 的字段契约；
-- `prediction_cache_schema.py` 已补强 `validate_manifest_frame()`，校验 `sample_key` 与字段一致性，以及同一 `sample_key` 下稳定元信息一致性；`y_true_path` 共享作为可选严格校验项。
+目标：基于当前 120 个 sample_key 的在线伪图像化结果，跑通冻结视觉 encoder embedding。
 
-### 3. 先跑通 `96_48_S` Visual Feature 链路
+第一版范围：
 
-第一版不要立即扩全量。先用当前 pilot：
+- config：`96_48_S`；
+- 样本：当前扩大版 pilot 的 120 个 `metric=mae` sample_key；
+- encoder：优先 `google/vit-base-patch16-224`；
+- variant：先做 `variant_a=3view`，再可选 `variant_b=top3fold`；
+- dtype：优先 fp16；
+- 输出根目录：默认 `experiment_logs/run_outputs/`，可通过 `--output-root` 写到 `/data2/syh/Time/run_outputs/`；
+- cache 根目录：如需写 shard，通过 `--cache-root` 指向 `/data2/syh/Time/cache_shards/`。
 
-- 从 window 历史序列构造结构输入或 2D tensor；
-- 写出 feature/embedding cache；
-- 校验 feature cache 与 `window_oracle_labels_with_tsf_cell.csv` 按 `sample_key` 对齐。
+验收标准：
 
-### 4. 训练最小 Per-Config Router
+- 输出 embedding manifest，字段包含 `sample_key`、`config_name`、`split`、`variant`、`encoder_name`、`embedding_path`、`embedding_dim`、`dtype`；
+- embedding shape 与 encoder hidden size 一致，`google/vit-base-patch16-224` 预期为 768；
+- 所有 embedding finite；
+- 与 `window_oracle_labels_with_tsf_cell.csv` 的 `sample_key` 集合完全一致；
+- 输出 latency summary，区分 imageization、encoder forward、write/read。
+
+### 3. 训练最小 Per-Config Visual Router
+
+状态：已完成小型 MLP 版本，输出目录为 `experiment_logs/run_outputs/2026-06-14_010907_224073_visual_router_stage1_visual_router_smoke/`。
 
 先做 `96_48_S`：
 
-- 输入：`vali` feature/embedding；
+- 输入：`vali` visual embedding；
 - 标签：同 config 内 `oracle_model`；
 - 输出：五专家概率或 top-1；
 - 评估：`test` hard top-1 MAE、oracle label accuracy、regret。
+
+第一版模型建议：
+
+- `StandardScaler + LogisticRegression(class_weight='balanced')` 或小型 MLP；
+- scaler 和 router 只能在 `vali` split fit；
+- test 只做 transform/predict/evaluate；
+- 若 `vali` label 类别过少，必须在 summary 中显式记录，不能静默退化。
+
+验收标准：
+
+- 输出 `visual_router_predictions.csv`；
+- 输出 `visual_router_summary.csv`；
+- summary 至少包含 `selected_value`、`oracle_value`、`regret_to_oracle`、`oracle_label_accuracy`；
+- 结果与非视觉 baseline 同表比较。
+
+### 4. 增加 Softmax Fusion 评估
+
+状态：已完成基于 router softmax 权重的五专家预测数组加权融合 smoke；当前 soft fusion 弱于 hard top-1，需要后续做温度、正则化或 reward-aware 目标诊断。
+
+目标：不只评估 hard top-1，还评估 router 概率对五专家预测的加权融合是否能降低 MAE/MSE。
+
+约束：
+
+- soft fusion 只能融合同一 `config_name`、同一 `sample_key` 下五专家的 `y_pred`；
+- 融合权重来自 vali 训练出的 router 在 test 上的输出概率；
+- 不允许使用 test oracle error 调整权重。
+
+验收标准：
+
+- 输出 `soft_fusion_predictions.csv` 或等价文件；
+- 对每个 test sample 记录五专家权重、融合后 MAE/MSE、hard top-1 MAE/MSE、oracle MAE/MSE；
+- summary 同时给出 hard top-1 和 soft fusion。
 
 ### 5. 同表报告
 
@@ -162,12 +220,30 @@ router_1024_512_S
 - `tsf_cell_only`
 - `dataset_tsf_cell`
 - `global_majority_label`
+- `timefuse_single_variable_logistic_regression`
 - `oracle_top1`
 - `visual_router_top1`
+- `visual_router_soft_fusion`
 
 如果 visual router 没有超过 `global_best_single`，优先诊断 feature、label 分布和 shortcut，而不是扩大规模。
 
-### 6. 扩展到三个 Config
+### 6. 正式化 Stage 1 脚本
+
+当前很多流程仍在 `pilot/`。在 `96_48_S` 最小闭环跑通后，应把长期复用逻辑迁出或重写为正式入口：
+
+- `build_visual_embeddings.py`
+- `train_router.py`
+- `evaluate_router.py`
+- `summarize_results.py`
+
+正式脚本要求：
+
+- 支持 `--config-name`；
+- 支持 `--labels-path`、`--manifest-path`、`--output-root`、`--cache-root`；
+- 所有输出写入 `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_*/` 或 `/data2/syh/Time/run_outputs/`；
+- 代码目录只保存源码、协议文档、README 和小型 schema 文档。
+
+### 7. 扩展到三个 Config
 
 在 `96_48_S` 链路稳定后，扩展到：
 
@@ -176,13 +252,21 @@ router_1024_512_S
 
 每个 config 单独训练和评估，同时保留同一套 summary schema。
 
-### 7. 设计 Stage 1B 迁移实验
+扩展前置条件：
+
+- `96_48_S` visual router 至少完成 hard top-1 和 soft fusion 两种评估；
+- 与 `global_best_single`、TimeFuse 结构特征 router 和 `oracle_top1` 的差距已经诊断清楚；
+- embedding 路径已经证明不会因 normalization 或 processor rescale 造成输入尺度错误。
+
+### 8. 设计 Stage 1B 迁移实验
 
 主实验稳定后再做：
 
 - shared encoder + config-specific heads；
 - freeze encoder，只训练留出 config head；
 - leave-one-config-out 诊断。
+
+Stage 1B 不作为当前最近任务，除非三个 config 的 Stage 1 主实验已经有稳定结果。
 
 ## 输出要求
 
