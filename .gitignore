@@ -1,0 +1,49 @@
+# 本仓库只跟踪项目级实验代码、协议文档、轻量日志和结构说明。
+# Quito、TimeFuse 是带独立 .git 的外部代码库，首版根仓库不直接 vendor。
+/quito/
+/TimeFuse/
+
+# 本地 agent / 编辑器状态，不具备跨机器复现价值。
+/.agents/
+/.codex/
+/.vscode/
+
+# 实验运行输出、大规模缓存和模型产物保留在本机或外部存储。
+/experiment_logs/run_outputs/
+**/outputs/
+**/data/hf/
+**/wandb/
+**/lightning_logs/
+**/tensorboard/
+
+# Python 和 notebook 运行缓存。
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# 常见大规模数据、数组和 checkpoint 文件。
+*.ckpt
+*.pt
+*.pth
+*.npy
+*.npz
+*.parquet
+*.h5
+*.hdf5
+
+# 运行日志和临时文件。
+*.log
+*.tmp
+*.swp
+*.swo
+
+# 本地密钥和环境变量文件不得进入仓库。
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*

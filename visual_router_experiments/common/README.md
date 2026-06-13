@@ -1,0 +1,19 @@
+# common
+
+本目录用于保存 Visual Router 各阶段共享代码。
+
+后续建议放置：
+
+- prediction cache schema 和读写工具；
+- item-channel-window sample key 工具；
+- MAE/MSE/regret/oracle label 计算函数；
+- 伪图像 2D 堆叠张量构造函数；
+- ViT/视觉 encoder embedding 缓存工具；
+- 通用评估和汇总表生成工具。
+
+当前已有文件：
+
+| 文件 | 功能 |
+| --- | --- |
+| `__init__.py` | 将 `common/` 标记为可导入 Python package |
+| `prediction_cache_schema.py` | 定义 item-channel-window 级 prediction cache key、manifest record、窗口级 MAE/MSE 计算和基础一致性校验工具 |
