@@ -8,7 +8,7 @@
 - item-channel-window sample key 工具；
 - MAE/MSE/regret/oracle label 计算函数；
 - 伪图像 2D 堆叠张量构造函数；
-- ViT/视觉 encoder embedding 缓存工具；
+- ViT/视觉 encoder 运行内 embedding 工具；
 - 通用评估和汇总表生成工具。
 
 当前已有文件：
@@ -18,3 +18,4 @@
 | `__init__.py` | 将 `common/` 标记为可导入 Python package |
 | `prediction_cache_schema.py` | 定义 item-channel-window 级 prediction cache key、manifest record、窗口级 MAE/MSE 计算和基础一致性校验工具 |
 | `pseudo_imageization.py` | 定义在线 tensor-first 伪图像化工具，包括 per-window normalization、FFT top3 周期选择、3view/top3fold 语义通道构造，以及 encoder 前 `hf_vit_0_5` / `torchvision_imagenet` normalization |
+| `vit_embedding_utils.py` | 定义 online Visual Router 与历史离线 embedding pilot 共用的 ViT `pixel_values` 构造、CLS/patch pooling、dtype 解析和窗口 batch 索引工具；不保存 `.npy` 或长期 embedding cache |

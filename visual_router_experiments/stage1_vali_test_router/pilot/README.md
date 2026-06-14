@@ -12,8 +12,11 @@
 | 文件 | 功能 |
 | --- | --- |
 | `build_prediction_cache_pilot.py` | 小规模生成 window-level prediction cache，验证专家预测、窗口 key、数组落盘和 MAE/MSE 对齐 |
+| `build_vit_embeddings_pilot.py` | 历史离线 ViT embedding cache smoke / 小规模缓存对照脚本；会输出 embedding manifest 和 `.npy`，当前 online 主线不依赖它 |
 | `build_online_pseudo_image_pilot.py` | 基于已有 oracle label 样本清单重新加载 Quito 历史窗口 x，在线生成 3view/top3fold 伪图像并记录 index、metadata、latency 和少量 debug PNG；不保存全量 tensor cache |
 | `build_structure_feature_cache_pilot.py` | 基于 TimeFuse 单变量元特征生成 window-level 数值结构 feature cache；删除多变量/跨变量特征，仅作为非视觉 router baseline 输入 |
 | `compute_window_oracle_from_cache.py` | 基于 pilot manifest 计算 window-level oracle label、expert regret 和 best-single-vs-oracle 汇总 |
 | `enrich_cache_with_tsf_cell.py` | 为 pilot manifest/oracle labels 合并 TSF cell 元信息，并生成分层 oracle summary |
+| `launch_96_48_s_1k_prediction_cache_pilot.py` | 生成 `96_48_S` 1k prediction cache 后台 launcher；三深度专家分 GPU，统计专家走 CPU；属于固定规模资源编排脚本，默认不自动启动 |
+| `launch_96_48_s_1k_vit_embedding_pilot.py` | 生成 `96_48_S` 1k ViT embedding cache smoke launcher；当前 online 路线下暂不启动，避免先长期保存 ViT embedding `.npy` |
 | `train_structure_router_pilot.py` | 使用 TimeFuse 单变量元特征训练最小 LogisticRegression router；vali fit scaler/router，test 评估专家选择 MAE |

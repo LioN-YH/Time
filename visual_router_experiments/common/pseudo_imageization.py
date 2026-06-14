@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -102,7 +102,91 @@ def normalize_window(x: torch.Tensor, norm_mode: str = "revin_aux") -> Tuple[tor
     return normalized.unsqueeze(-1), metadata
 
 
-def select_fft_periods(x: torch.Tensor, top_k: int = 3) -> torch.Tensor:
+def make_default_period_candidates(history_length: int, *, device: torch.device) -> torch.Tensor:
+    """
+    函数功能：
+        为 GPU-first 伪图像化构造固定候选周期桶。
+
+    输入：
+        history_length: 历史窗口长度。
+        device: 候选周期所在设备，通常与历史窗口相同。
+
+    输出：
+        一维 int64 tensor，元素落在 [2, history_length]。
+
+    设计说明：
+        动态 FFT top-k 会产生每个样本不同的周期，后续 fold 必须逐样本 reshape，
+        容易触发 `.item()`/`.tolist()` 同步。固定候选桶让同周期样本可以批处理，
+        只在少量周期桶上做 Python 级调度，减少 CPU/GPU 往返。
+    """
+    if history_length < 2:
+        raise ValueError(f"history_length 必须 >= 2，实际为 {history_length}")
+
+    base_periods = torch.arange(2, history_length + 1, device=device, dtype=torch.long)
+    divisor_periods = base_periods[history_length % base_periods == 0]
+    anchor_values = [
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        10,
+        12,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128,
+        168,
+        192,
+        256,
+        288,
+        336,
+        512,
+        576,
+        720,
+        1024,
+    ]
+    anchor_periods = torch.tensor(anchor_values, device=device, dtype=torch.long)
+    anchor_periods = anchor_periods[(anchor_periods >= 2) & (anchor_periods <= history_length)]
+    candidates = torch.cat([divisor_periods, anchor_periods, torch.tensor([history_length], device=device, dtype=torch.long)])
+    return torch.unique(candidates, sorted=True)
+
+
+def parse_period_candidates(
+    period_candidates: Optional[Union[Sequence[int], torch.Tensor]],
+    *,
+    history_length: int,
+    device: torch.device,
+) -> Optional[torch.Tensor]:
+    """
+    函数功能：
+        将外部传入的候选周期解析为设备上的唯一 int64 tensor。
+
+    约束：
+        返回 None 表示继续使用动态 FFT top-k；否则所有周期都会被裁剪到合法范围。
+    """
+    if period_candidates is None:
+        return None
+    if torch.is_tensor(period_candidates):
+        candidates = period_candidates.to(device=device, dtype=torch.long)
+    else:
+        candidates = torch.tensor(list(period_candidates), device=device, dtype=torch.long)
+    if candidates.numel() == 0:
+        raise ValueError("period_candidates 不能为空")
+    candidates = candidates.clamp(min=2, max=history_length)
+    return torch.unique(candidates, sorted=True)
+
+
+def select_fft_periods(
+    x: torch.Tensor,
+    top_k: int = 3,
+    *,
+    period_candidates: Optional[Union[Sequence[int], torch.Tensor]] = None,
+) -> torch.Tensor:
     """
     函数功能：
         基于历史窗口的 FFT power 选择每个样本的 top-k 周期。
@@ -115,8 +199,10 @@ def select_fft_periods(x: torch.Tensor, top_k: int = 3) -> torch.Tensor:
         int64 tensor，形状 [B, top_k]，每个周期都落在 [2, history_length]。
 
     关键约束：
-        多个频率 bin 可能 round 到同一个周期；此时按确定性的从长到短 fallback
-        补足，避免 top3fold 出现完全重复 channel。
+        - 若提供 `period_candidates`，使用固定候选周期桶的向量化路径，避免逐样本
+          `.tolist()`/`.item()`；
+        - 若不提供候选周期，保留旧动态 top-k 逻辑作为兼容路径。该路径可能逐样本
+          去重，因此仍包含少量 CPU/GPU 同步，不建议用于大规模在线 embedding。
     """
     if top_k <= 0:
         raise ValueError("top_k 必须为正整数")
@@ -131,8 +217,25 @@ def select_fft_periods(x: torch.Tensor, top_k: int = 3) -> torch.Tensor:
     power = torch.abs(fft_values) ** 2
     non_dc_power = power[:, 1:]
     freq_bins = torch.arange(1, non_dc_power.shape[1] + 1, device=series.device, dtype=torch.float32)
-    fallback_periods = list(range(history_length, 1, -1))
+    parsed_candidates = parse_period_candidates(period_candidates, history_length=history_length, device=series.device)
+    if parsed_candidates is not None:
+        if non_dc_power.shape[1] == 0:
+            return parsed_candidates[:1].repeat(batch_size, top_k)
+        # 候选周期映射到最接近的 FFT bin 后直接 gather power。这个近似会牺牲少量
+        # per-sample 自由度，但换来批量 fold 时显著更少的同步点。
+        candidate_bins = torch.round(float(history_length) / parsed_candidates.to(dtype=torch.float32))
+        candidate_bins = candidate_bins.to(dtype=torch.long).clamp(min=1, max=non_dc_power.shape[1])
+        candidate_scores = non_dc_power.index_select(dim=1, index=candidate_bins - 1)
+        select_count = min(top_k, int(parsed_candidates.numel()))
+        _, top_indices = torch.topk(candidate_scores, k=select_count, dim=1, largest=True, sorted=True)
+        selected = parsed_candidates[top_indices]
+        if select_count == top_k:
+            return selected
+        # 候选周期少于 top_k 时复制最后一个周期补齐；只在极端短窗口发生。
+        pad = selected[:, -1:].repeat(1, top_k - select_count)
+        return torch.cat([selected, pad], dim=1)
 
+    fallback_periods = list(range(history_length, 1, -1))
     selected_rows = []
     for row_idx in range(batch_size):
         selected = []
@@ -209,25 +312,25 @@ def _line_raster(series: torch.Tensor, image_size: int, pixel_mode: str, clip: f
     return torch.exp(-0.5 * ((rows - y_coord[:, None, :]) / sigma) ** 2).clamp(0.0, 1.0)
 
 
-def _fold_one_period(series: torch.Tensor, period: int, image_size: int, pixel_mode: str, clip: float) -> torch.Tensor:
+def _fold_fixed_period_batch(series: torch.Tensor, period: int, image_size: int, pixel_mode: str, clip: float) -> torch.Tensor:
     """
     函数功能：
-        将单个样本按指定周期折叠为 [image_size, image_size] 视图。
+        将一个 batch 按同一个周期折叠为 [B, image_size, image_size] 视图。
 
     约束：
         period 可能不能整除 history_length；末尾 padding 使用最后一个历史值，避免
         人为引入 0 值边界。
     """
-    history_length = int(series.shape[0])
+    history_length = int(series.shape[1])
     period = max(2, min(history_length, int(period)))
     cycle_count = (history_length + period - 1) // period
     pad_count = cycle_count * period - history_length
     if pad_count:
-        series = torch.cat([series, series[-1:].repeat(pad_count)], dim=0)
-    folded = series.reshape(cycle_count, period)
-    folded = folded.view(1, 1, cycle_count, period)
+        # 使用每个窗口自己的最后一个历史值做 padding，避免引入人造零边界。
+        series = torch.cat([series, series[:, -1:].repeat(1, pad_count)], dim=1)
+    folded = series.reshape(series.shape[0], cycle_count, period).unsqueeze(1)
     image = F.interpolate(folded, size=(image_size, image_size), mode="bilinear", align_corners=True)
-    return to_vision_pixels(image.squeeze(0).squeeze(0), pixel_mode=pixel_mode, clip=clip)
+    return to_vision_pixels(image.squeeze(1), pixel_mode=pixel_mode, clip=clip)
 
 
 def _period_fold_batch(
@@ -238,12 +341,21 @@ def _period_fold_batch(
     pixel_mode: str,
     clip: float,
 ) -> torch.Tensor:
-    """函数功能：按每个样本自己的 FFT 周期生成 period fold 视图。"""
-    images = []
-    for row_idx in range(series.shape[0]):
-        period = int(periods[row_idx, period_column].item())
-        images.append(_fold_one_period(series[row_idx], period, image_size, pixel_mode, clip))
-    return torch.stack(images, dim=0)
+    """
+    函数功能：
+        按每个样本自己的 FFT 周期生成 period fold 视图。
+
+    实现说明：
+        这里按周期值分桶，同一周期的样本批量 reshape/interpolate。相比旧版逐样本
+        `.item()` 后单独 fold，这条路径只在唯一周期数上同步，适合固定候选周期方案。
+    """
+    selected_periods = periods[:, period_column].to(device=series.device, dtype=torch.long)
+    output = torch.empty((series.shape[0], image_size, image_size), device=series.device, dtype=series.dtype)
+    for period_tensor in torch.unique(selected_periods, sorted=True):
+        period = int(period_tensor.detach().cpu().item())
+        mask = selected_periods == period_tensor
+        output[mask] = _fold_fixed_period_batch(series[mask], period, image_size, pixel_mode, clip)
+    return output
 
 
 def _fft_power_view(series: torch.Tensor, image_size: int) -> torch.Tensor:
@@ -277,6 +389,7 @@ def imageize_3view(
     image_size: int = 224,
     *,
     periods: Optional[torch.Tensor] = None,
+    period_candidates: Optional[Union[Sequence[int], torch.Tensor]] = None,
     pixel_mode: str = "vision",
     clip: float = 5.0,
 ) -> torch.Tensor:
@@ -297,7 +410,7 @@ def imageize_3view(
 
     series = _as_series_batch(x).to(dtype=torch.float32)
     if periods is None:
-        periods = select_fft_periods(series, top_k=3)
+        periods = select_fft_periods(series, top_k=3, period_candidates=period_candidates)
     periods = periods.to(device=series.device)
 
     channels = [
@@ -313,6 +426,7 @@ def imageize_top3fold(
     image_size: int = 224,
     *,
     periods: Optional[torch.Tensor] = None,
+    period_candidates: Optional[Union[Sequence[int], torch.Tensor]] = None,
     pixel_mode: str = "vision",
     clip: float = 5.0,
 ) -> torch.Tensor:
@@ -331,7 +445,7 @@ def imageize_top3fold(
 
     series = _as_series_batch(x).to(dtype=torch.float32)
     if periods is None:
-        periods = select_fft_periods(series, top_k=3)
+        periods = select_fft_periods(series, top_k=3, period_candidates=period_candidates)
     periods = periods.to(device=series.device)
 
     channels = [

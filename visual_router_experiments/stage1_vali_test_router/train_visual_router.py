@@ -4,7 +4,8 @@
     使用冻结视觉 encoder embedding 训练 Stage 1 Visual Router。
 
 设计约束：
-    - 输入特征来自 `build_vit_embeddings.py` 生成的 ViT embedding；
+    - 输入特征可以来自历史离线 embedding manifest，也可以由 online 入口以内存
+      `sample_key -> embedding` 字典传入；
     - router 训练只使用 `vali` split，评估只使用 `test` split；
     - 每个 `config_name` 独立训练一个 router，不跨历史长度/预测长度共享动作空间；
     - 参考 TimeFuse 的 ModelFusor 思路，router 输出五个下游专家的 softmax 权重；
@@ -26,6 +27,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -50,7 +52,11 @@ DEFAULT_PREDICTION_MANIFEST_PATH = (
     / "2026-06-12_125902_319469_visual_router_stage1_prediction_cache_pilot"
     / "manifest.csv"
 )
-ROUTER_VERSION = "visual_router_mlp_v1"
+ROUTER_VERSION_BY_MODE = {
+    "classification": "visual_router_mlp_v1_classification",
+    "fusion_huber_kl": "visual_router_mlp_v2_fusion_huber_kl",
+}
+EPS = 1e-8
 
 
 def now_token() -> str:
@@ -69,7 +75,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embedding-manifest-path", type=Path, required=True, help="ViT embedding manifest CSV。")
     parser.add_argument("--labels-path", type=Path, default=DEFAULT_LABELS_PATH, help="window oracle labels CSV。")
     parser.add_argument("--prediction-manifest-path", type=Path, default=DEFAULT_PREDICTION_MANIFEST_PATH, help="prediction cache manifest CSV，用于 soft fusion。")
-    parser.add_argument("--metric", choices=["mae", "mse"], default="mae", help="监督训练使用的 oracle label 指标。")
+    parser.add_argument("--metric", choices=["mae", "mse"], default="mae", help="oracle label 和辅助误差分布使用的指标。")
+    parser.add_argument(
+        "--router-mode",
+        choices=["classification", "fusion_huber_kl"],
+        default="fusion_huber_kl",
+        help="classification 保留旧 CE 分类 baseline；fusion_huber_kl 用融合预测误差训练权重。",
+    )
+    parser.add_argument("--huber-beta", type=float, default=0.1, help="fusion_huber_kl 主损失 SmoothL1Loss beta。")
+    parser.add_argument("--kl-tau", type=float, default=0.5, help="soft oracle q_i=softmax(-error_i/tau) 的温度。")
+    parser.add_argument("--lambda-kl", type=float, default=0.1, help="KL 辅助损失权重。")
     parser.add_argument("--output-root", type=Path, default=RUN_OUTPUT_ROOT, help="run 输出根目录。")
     parser.add_argument("--output-dir", type=Path, default=None, help="显式输出目录；默认基于 output-root 生成时间戳目录。")
     parser.add_argument("--hidden-dim", type=int, default=64, help="MLP hidden dimension。")
@@ -209,16 +224,34 @@ def resolve_feature_path(path_text: str, manifest_dir: Path) -> Path:
     return manifest_dir / path
 
 
-def load_embedding_matrix(merged_df: pd.DataFrame, manifest_dir: Path) -> np.ndarray:
-    """函数功能：按 DataFrame 顺序读取 embedding npy，返回二维特征矩阵。"""
+def load_embedding_matrix(
+    merged_df: pd.DataFrame,
+    manifest_dir: Path,
+    feature_lookup: Optional[Mapping[str, np.ndarray]] = None,
+) -> np.ndarray:
+    """
+    函数功能：
+        按 DataFrame 顺序取得视觉特征矩阵。
+
+    设计说明：
+        离线路径从 `embedding_path` 读取 `.npy`；online router 路径则传入
+        `sample_key -> embedding` 的运行内字典。二者共享后续 scaler、MLP 训练和
+        hard/soft fusion 评估，避免复制训练逻辑。
+    """
     features: List[np.ndarray] = []
     for row in merged_df.itertuples(index=False):
-        embedding_path = resolve_feature_path(str(row.embedding_path), manifest_dir)
-        if not embedding_path.exists():
-            raise FileNotFoundError(f"找不到 embedding 文件：{embedding_path}")
-        embedding = np.load(embedding_path).astype(np.float32)
+        if feature_lookup is None:
+            embedding_path = resolve_feature_path(str(row.embedding_path), manifest_dir)
+            if not embedding_path.exists():
+                raise FileNotFoundError(f"找不到 embedding 文件：{embedding_path}")
+            embedding = np.load(embedding_path).astype(np.float32)
+        else:
+            sample_key = str(row.sample_key)
+            if sample_key not in feature_lookup:
+                raise KeyError(f"online feature lookup 缺少 sample_key={sample_key}")
+            embedding = np.asarray(feature_lookup[sample_key], dtype=np.float32)
         if embedding.ndim != 1 or not np.isfinite(embedding).all():
-            raise ValueError(f"embedding 非法：{embedding_path} shape={embedding.shape}")
+            raise ValueError(f"embedding 非法：sample_key={row.sample_key} shape={embedding.shape}")
         features.append(embedding)
     matrix = np.stack(features, axis=0)
     if matrix.ndim != 2:
@@ -260,13 +293,32 @@ def make_class_weight(labels: Sequence[str], device: torch.device) -> torch.Tens
     return torch.tensor(weights, dtype=torch.float32, device=device)
 
 
+def router_version_for_mode(router_mode: str) -> str:
+    """函数功能：根据训练模式返回稳定 router 名称，便于比较表区分 baseline 与 fusion 版本。"""
+    if router_mode not in ROUTER_VERSION_BY_MODE:
+        raise ValueError(f"未知 router_mode={router_mode}")
+    return ROUTER_VERSION_BY_MODE[router_mode]
+
+
+def validate_training_args(args: argparse.Namespace) -> None:
+    """函数功能：提前校验 fusion loss 相关超参，避免训练中出现静默 NaN。"""
+    if args.huber_beta <= 0:
+        raise ValueError("--huber-beta 必须为正数")
+    if args.kl_tau <= 0:
+        raise ValueError("--kl-tau 必须为正数")
+    if args.lambda_kl < 0:
+        raise ValueError("--lambda-kl 必须 >= 0")
+
+
 def train_router_for_config(
     *,
     config_name: str,
     config_df: pd.DataFrame,
     manifest_dir: Path,
+    prediction_lookup: Optional[Mapping[Tuple[str, str], Dict[str, object]]],
     args: argparse.Namespace,
     device: torch.device,
+    feature_lookup: Optional[Mapping[str, np.ndarray]] = None,
 ) -> Tuple[VisualMLPRouter, StandardScaler, Dict[str, object]]:
     """函数功能：对单个 config_name 训练 vali->test 视觉 MLP router。"""
     vali_df = config_df[config_df["split"] == "vali"].copy()
@@ -275,12 +327,12 @@ def train_router_for_config(
         raise ValueError(f"config_name={config_name} 需要同时包含 vali/test 样本")
 
     labels_seen = sorted(vali_df["oracle_model"].unique().tolist())
-    if len(labels_seen) < 2:
+    if args.router_mode == "classification" and len(labels_seen) < 2:
         raise ValueError(
             f"config_name={config_name} 的 vali oracle label 少于 2 类，无法训练分类 router；labels={labels_seen}"
         )
 
-    x_vali = load_embedding_matrix(vali_df, manifest_dir)
+    x_vali = load_embedding_matrix(vali_df, manifest_dir, feature_lookup=feature_lookup)
     y_vali = np.array([MODEL_COLUMNS.index(label) for label in vali_df["oracle_model"]], dtype=np.int64)
     scaler = StandardScaler()
     x_vali_scaled = scaler.fit_transform(x_vali).astype(np.float32)
@@ -292,36 +344,94 @@ def train_router_for_config(
         dropout=float(args.dropout),
     ).to(device)
 
-    dataset = TensorDataset(torch.from_numpy(x_vali_scaled), torch.from_numpy(y_vali))
+    if args.router_mode == "classification":
+        dataset = TensorDataset(torch.from_numpy(x_vali_scaled), torch.from_numpy(y_vali))
+    else:
+        if prediction_lookup is None:
+            raise ValueError("fusion_huber_kl 模式需要 prediction_lookup 读取五专家 y_pred/y_true")
+        y_pred_vali, y_true_vali, expert_errors_vali = load_prediction_tensors_for_samples(
+            vali_df["sample_key"].astype(str).tolist(),
+            prediction_lookup,
+            error_metric=str(args.metric),
+        )
+        soft_oracle_vali = torch.softmax(
+            -torch.from_numpy(expert_errors_vali) / float(args.kl_tau),
+            dim=1,
+        ).to(dtype=torch.float32)
+        dataset = TensorDataset(
+            torch.from_numpy(x_vali_scaled),
+            torch.from_numpy(y_pred_vali),
+            torch.from_numpy(y_true_vali),
+            soft_oracle_vali,
+        )
     generator = torch.Generator()
     generator.manual_seed(int(args.seed))
     loader = DataLoader(dataset, batch_size=int(args.batch_size), shuffle=True, generator=generator)
 
     optimizer = torch.optim.AdamW(router.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
-    criterion = nn.CrossEntropyLoss(weight=make_class_weight(vali_df["oracle_model"].tolist(), device))
+    classification_criterion = nn.CrossEntropyLoss(weight=make_class_weight(vali_df["oracle_model"].tolist(), device))
+    huber_criterion = nn.SmoothL1Loss(beta=float(args.huber_beta))
 
     loss_history: List[float] = []
+    huber_history: List[float] = []
+    kl_history: List[float] = []
     router.train()
     for _ in range(int(args.epochs)):
         epoch_losses = []
-        for batch_x, batch_y in loader:
-            batch_x = batch_x.to(device=device)
-            batch_y = batch_y.to(device=device)
+        epoch_huber_losses = []
+        epoch_kl_losses = []
+        for batch in loader:
+            batch_x = batch[0].to(device=device)
             optimizer.zero_grad(set_to_none=True)
             logits = router(batch_x)
-            loss = criterion(logits, batch_y)
+            if args.router_mode == "classification":
+                batch_y = batch[1].to(device=device)
+                loss = classification_criterion(logits, batch_y)
+            else:
+                batch_pred = batch[1].to(device=device)
+                batch_true = batch[2].to(device=device)
+                batch_q = batch[3].to(device=device)
+                weights = torch.softmax(logits, dim=1)
+                weight_shape = (weights.shape[0], weights.shape[1], *([1] * (batch_pred.ndim - 2)))
+                fused_pred = (weights.view(weight_shape) * batch_pred).sum(dim=1)
+                huber_loss = huber_criterion(fused_pred, batch_true)
+                # KL(q || p_router)：q 来自五专家训练误差，p_router 来自视觉 embedding。
+                kl_loss = F.kl_div(torch.log_softmax(logits, dim=1), batch_q, reduction="batchmean")
+                loss = huber_loss + float(args.lambda_kl) * kl_loss
+                epoch_huber_losses.append(float(huber_loss.detach().cpu().item()))
+                epoch_kl_losses.append(float(kl_loss.detach().cpu().item()))
             loss.backward()
             optimizer.step()
             epoch_losses.append(float(loss.detach().cpu().item()))
         loss_history.append(float(np.mean(epoch_losses)))
+        if epoch_huber_losses:
+            huber_history.append(float(np.mean(epoch_huber_losses)))
+            kl_history.append(float(np.mean(epoch_kl_losses)))
 
     with torch.inference_mode():
         train_logits = router(torch.from_numpy(x_vali_scaled).to(device=device))
-        train_pred = train_logits.argmax(dim=1).detach().cpu().numpy()
+        train_weights = torch.softmax(train_logits, dim=1)
+        train_pred = train_weights.argmax(dim=1).detach().cpu().numpy()
     train_accuracy = float((train_pred == y_vali).mean())
+    train_entropy = (-(train_weights * torch.log(train_weights.clamp_min(EPS))).sum(dim=1)).detach().cpu().numpy()
+    train_max_weight = train_weights.max(dim=1).values.detach().cpu().numpy()
+
+    train_fusion_metrics: Dict[str, float] = {}
+    if args.router_mode == "fusion_huber_kl":
+        with torch.inference_mode():
+            y_pred_tensor = torch.from_numpy(y_pred_vali).to(device=device)
+            y_true_tensor = torch.from_numpy(y_true_vali).to(device=device)
+            weight_shape = (train_weights.shape[0], train_weights.shape[1], *([1] * (y_pred_tensor.ndim - 2)))
+            fused_train = (train_weights.view(weight_shape) * y_pred_tensor).sum(dim=1)
+            train_error = fused_train - y_true_tensor
+            train_fusion_metrics = {
+                "train_fusion_mae": float(train_error.abs().mean().detach().cpu().item()),
+                "train_fusion_mse": float((train_error ** 2).mean().detach().cpu().item()),
+            }
 
     metadata = {
         "config_name": config_name,
+        "router_mode": args.router_mode,
         "vali_sample_count": int(len(vali_df)),
         "test_sample_count": int(len(test_df)),
         "embedding_dim": int(x_vali_scaled.shape[1]),
@@ -330,7 +440,16 @@ def train_router_for_config(
         "label_counts": {str(k): int(v) for k, v in vali_df["oracle_model"].value_counts().reindex(MODEL_COLUMNS, fill_value=0).items()},
         "final_train_loss": float(loss_history[-1]),
         "initial_train_loss": float(loss_history[0]),
+        "final_huber_loss": float(huber_history[-1]) if huber_history else None,
+        "final_kl_loss": float(kl_history[-1]) if kl_history else None,
+        "huber_beta": float(args.huber_beta),
+        "kl_tau": float(args.kl_tau),
+        "lambda_kl": float(args.lambda_kl),
         "train_label_accuracy": train_accuracy,
+        "train_mean_weight_entropy": float(np.mean(train_entropy)),
+        "train_mean_normalized_weight_entropy": float(np.mean(train_entropy) / np.log(len(MODEL_COLUMNS))),
+        "train_mean_max_weight": float(np.mean(train_max_weight)),
+        **train_fusion_metrics,
     }
     return router, scaler, metadata
 
@@ -342,10 +461,12 @@ def predict_router_for_config(
     config_df: pd.DataFrame,
     manifest_dir: Path,
     device: torch.device,
+    router_name: str,
+    feature_lookup: Optional[Mapping[str, np.ndarray]] = None,
 ) -> pd.DataFrame:
     """函数功能：对单个 config_name 的 test split 输出专家权重和 hard top-1 结果。"""
     test_df = config_df[config_df["split"] == "test"].copy().reset_index(drop=True)
-    x_test = load_embedding_matrix(test_df, manifest_dir)
+    x_test = load_embedding_matrix(test_df, manifest_dir, feature_lookup=feature_lookup)
     x_test_scaled = scaler.transform(x_test).astype(np.float32)
 
     router.eval()
@@ -354,12 +475,15 @@ def predict_router_for_config(
         weights = torch.softmax(logits, dim=1).detach().cpu().numpy()
     selected_indices = weights.argmax(axis=1)
     selected_models = [MODEL_COLUMNS[int(idx)] for idx in selected_indices]
+    weight_entropy = -(weights * np.log(np.clip(weights, EPS, 1.0))).sum(axis=1)
+    normalized_weight_entropy = weight_entropy / np.log(len(MODEL_COLUMNS))
+    max_weight = weights.max(axis=1)
 
     rows: List[Dict[str, object]] = []
     for row_idx, (_, row) in enumerate(test_df.iterrows()):
         selected_model = selected_models[row_idx]
         output_row: Dict[str, object] = {
-            "router_name": ROUTER_VERSION,
+            "router_name": router_name,
             "config_name": row["config_name"],
             "sample_key": row["sample_key"],
             "split": row["split"],
@@ -373,6 +497,9 @@ def predict_router_for_config(
             "oracle_value": float(row["oracle_value"]),
             "regret_to_oracle": float(row[selected_model] - row["oracle_value"]),
             "oracle_label_correct": bool(selected_model == row["oracle_model"]),
+            "weight_entropy": float(weight_entropy[row_idx]),
+            "normalized_weight_entropy": float(normalized_weight_entropy[row_idx]),
+            "max_weight": float(max_weight[row_idx]),
         }
         for model_idx, model_name in enumerate(MODEL_COLUMNS):
             output_row[f"weight_{model_name}"] = float(weights[row_idx, model_idx])
@@ -412,6 +539,74 @@ def load_prediction_lookup(prediction_manifest_path: Path) -> Mapping[Tuple[str,
             "mse": float(row.mse),
         }
     return lookup
+
+
+def load_prediction_tensors_for_samples(
+    sample_keys: Sequence[str],
+    prediction_lookup: Mapping[Tuple[str, str], Dict[str, object]],
+    *,
+    error_metric: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    函数功能：
+        按 sample_key 顺序读取五专家预测数组和共享 y_true，用于 fusion loss。
+
+    输入：
+        sample_keys: 与 embedding/label DataFrame 行顺序一致的 sample_key。
+        prediction_lookup: `(sample_key, model_name) -> y_true/y_pred 路径` 索引。
+
+    输出：
+        - y_preds: [N, M, ...]，M 为五个专家；
+        - y_true: [N, ...]；
+        - expert_errors: [N, M]，按 `error_metric` 构造 soft oracle。
+
+    关键约束：
+        只在训练 split 读取当前样本自己的专家预测和真实 y；这些张量作为监督目标
+        参与 loss，不会作为 router 输入特征，也不会读取 test oracle 误差来调权重。
+    """
+    all_preds: List[np.ndarray] = []
+    all_trues: List[np.ndarray] = []
+    all_errors: List[np.ndarray] = []
+    for sample_key in sample_keys:
+        missing_models = [model for model in MODEL_COLUMNS if (str(sample_key), model) not in prediction_lookup]
+        if missing_models:
+            raise ValueError(f"prediction manifest 缺少 sample_key={sample_key} 的专家：{missing_models}")
+
+        sample_preds: List[np.ndarray] = []
+        sample_true: Optional[np.ndarray] = None
+        sample_errors: List[float] = []
+        for model_name in MODEL_COLUMNS:
+            record = prediction_lookup[(str(sample_key), model_name)]
+            y_pred = np.load(record["y_pred_path"]).astype(np.float32)
+            current_y_true = np.load(record["y_true_path"]).astype(np.float32)
+            if sample_true is None:
+                sample_true = current_y_true
+            elif not np.array_equal(sample_true, current_y_true):
+                raise ValueError(f"同一 sample_key 的 y_true 内容不一致：{sample_key}")
+            if y_pred.shape != current_y_true.shape:
+                raise ValueError(f"y_pred/y_true shape 不一致：sample_key={sample_key} model={model_name}")
+            sample_preds.append(y_pred)
+            diff = y_pred - current_y_true
+            if error_metric == "mae":
+                sample_errors.append(float(np.mean(np.abs(diff))))
+            elif error_metric == "mse":
+                sample_errors.append(float(np.mean(diff ** 2)))
+            else:
+                raise ValueError(f"未知 error_metric={error_metric}")
+
+        assert sample_true is not None
+        all_preds.append(np.stack(sample_preds, axis=0))
+        all_trues.append(sample_true)
+        all_errors.append(np.asarray(sample_errors, dtype=np.float32))
+
+    y_preds = np.stack(all_preds, axis=0).astype(np.float32)
+    y_true = np.stack(all_trues, axis=0).astype(np.float32)
+    expert_errors = np.stack(all_errors, axis=0).astype(np.float32)
+    if y_preds.ndim < 3:
+        raise ValueError(f"专家预测张量维度异常：{y_preds.shape}")
+    if not (np.isfinite(y_preds).all() and np.isfinite(y_true).all() and np.isfinite(expert_errors).all()):
+        raise ValueError("prediction tensor 中存在非有限值")
+    return y_preds, y_true, expert_errors
 
 
 def compute_array_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -487,6 +682,9 @@ def summarize_hard_predictions(pred_df: pd.DataFrame) -> pd.DataFrame:
                 "oracle_value": float(group["oracle_value"].mean()),
                 "regret_to_oracle": float(group["regret_to_oracle"].mean()),
                 "oracle_label_accuracy": float(group["oracle_label_correct"].mean()),
+                "mean_weight_entropy": float(group["weight_entropy"].mean()),
+                "mean_normalized_weight_entropy": float(group["normalized_weight_entropy"].mean()),
+                "mean_max_weight": float(group["max_weight"].mean()),
             }
         )
     return pd.DataFrame(rows)
@@ -506,8 +704,32 @@ def summarize_soft_fusion(pred_df: pd.DataFrame) -> pd.DataFrame:
                 "hard_top1_mae_from_array": float(group["hard_top1_mae_from_array"].mean()),
                 "hard_top1_mse_from_array": float(group["hard_top1_mse_from_array"].mean()),
                 "oracle_value": float(group["oracle_value"].mean()),
+                "mean_weight_entropy": float(group["weight_entropy"].mean()),
+                "mean_normalized_weight_entropy": float(group["normalized_weight_entropy"].mean()),
+                "mean_max_weight": float(group["max_weight"].mean()),
             }
         )
+    return pd.DataFrame(rows)
+
+
+def summarize_selected_model_counts(pred_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    函数功能：
+        汇总 hard top-1 选中专家分布，用于诊断 router 是否塌缩到单一专家。
+    """
+    rows: List[Dict[str, object]] = []
+    for (router_name, config_name), group in pred_df.groupby(["router_name", "config_name"], sort=True):
+        counts = group["selected_model"].value_counts().reindex(MODEL_COLUMNS, fill_value=0)
+        for model_name, count in counts.items():
+            rows.append(
+                {
+                    "router_name": router_name,
+                    "config_name": config_name,
+                    "selected_model": model_name,
+                    "count": int(count),
+                    "ratio": float(count / len(group)),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -535,6 +757,9 @@ def compare_with_baselines(
                     "oracle_value": float(row.oracle_value),
                     "regret_to_oracle": float(row.regret_to_oracle),
                     "oracle_label_accuracy": float(row.oracle_label_accuracy),
+                    "mean_weight_entropy": pd.NA,
+                    "mean_normalized_weight_entropy": pd.NA,
+                    "mean_max_weight": pd.NA,
                     "source": str(baseline_path),
                 }
             )
@@ -552,6 +777,9 @@ def compare_with_baselines(
                     "oracle_value": float(row.oracle_value),
                     "regret_to_oracle": float(row.regret_to_oracle),
                     "oracle_label_accuracy": float(row.oracle_label_accuracy),
+                    "mean_weight_entropy": pd.NA,
+                    "mean_normalized_weight_entropy": pd.NA,
+                    "mean_max_weight": pd.NA,
                     "source": str(structure_path),
                 }
             )
@@ -566,6 +794,9 @@ def compare_with_baselines(
                 "oracle_value": float(row.oracle_value),
                 "regret_to_oracle": float(row.regret_to_oracle),
                 "oracle_label_accuracy": float(row.oracle_label_accuracy),
+                "mean_weight_entropy": float(row.mean_weight_entropy),
+                "mean_normalized_weight_entropy": float(row.mean_normalized_weight_entropy),
+                "mean_max_weight": float(row.mean_max_weight),
                 "source": str(output_dir / "visual_router_summary.csv"),
             }
         )
@@ -583,6 +814,9 @@ def compare_with_baselines(
                     "oracle_value": float(row.oracle_value),
                     "regret_to_oracle": float(soft_value - row.oracle_value),
                     "oracle_label_accuracy": pd.NA,
+                    "mean_weight_entropy": float(row.mean_weight_entropy),
+                    "mean_normalized_weight_entropy": float(row.mean_normalized_weight_entropy),
+                    "mean_max_weight": float(row.mean_max_weight),
                     "source": str(output_dir / "visual_router_soft_fusion_summary.csv"),
                 }
             )
@@ -609,7 +843,7 @@ def frame_to_markdown(df: pd.DataFrame, *, float_digits: int = 6) -> str:
         if pd.api.types.is_float_dtype(display_df[col]):
             display_df[col] = display_df[col].map(lambda value: "" if pd.isna(value) else f"{value:.{float_digits}f}")
         else:
-            display_df[col] = display_df[col].astype(str)
+            display_df[col] = display_df[col].map(lambda value: "" if pd.isna(value) else str(value))
     lines = [
         "| " + " | ".join(display_df.columns) + " |",
         "| " + " | ".join(["---"] * len(display_df.columns)) + " |",
@@ -624,6 +858,7 @@ def write_summary_md(
     output_dir: Path,
     hard_summary: pd.DataFrame,
     soft_summary: Optional[pd.DataFrame],
+    selected_counts: pd.DataFrame,
     comparison_df: pd.DataFrame,
     metadata: Mapping[str, object],
 ) -> None:
@@ -637,7 +872,15 @@ def write_summary_md(
         "",
         "- 输入：冻结 ViT embedding；`StandardScaler` 只在 vali split 上 fit。",
         "- 模型：TimeFuse-style 小型 MLP fusor，输出五专家 softmax 权重。",
-        "- 训练：用 vali split 的 `oracle_model` 做监督分类。",
+        f"- 训练模式：`{metadata['router_mode']}`。",
+        (
+            "- fusion_huber_kl：用 router 权重融合五专家 `y_pred`，主损失为 "
+            f"`SmoothL1Loss(beta={metadata['huber_beta']})`；KL 辅助目标为 "
+            f"`softmax(-error/tau)`，`tau={metadata['kl_tau']}`，"
+            f"`lambda_kl={metadata['lambda_kl']}`。"
+            if metadata["router_mode"] == "fusion_huber_kl"
+            else "- classification：保留旧版 oracle hard label `CrossEntropyLoss` baseline。"
+        ),
         "- 评估：test split hard top-1 routing 与 soft fusion。",
         "- 约束：不使用未来 y、test oracle 误差或专家误差作为输入特征。",
         "",
@@ -648,6 +891,7 @@ def write_summary_md(
     ]
     if soft_summary is not None:
         lines.extend(["## Soft Fusion Summary", "", frame_to_markdown(soft_summary), ""])
+    lines.extend(["## Top-1 选中专家分布", "", frame_to_markdown(selected_counts), ""])
     lines.extend(
         [
             "## Baseline Comparison",
@@ -662,6 +906,9 @@ def write_summary_md(
                         "oracle_value",
                         "regret_to_oracle",
                         "oracle_label_accuracy",
+                        "mean_weight_entropy",
+                        "mean_normalized_weight_entropy",
+                        "mean_max_weight",
                         "relative_improvement_vs_global_best_single",
                     ]
                 ]
@@ -674,6 +921,7 @@ def write_summary_md(
             f"- `visual_router_predictions.csv`: `{output_dir / 'visual_router_predictions.csv'}`",
             f"- `visual_router_summary.csv`: `{output_dir / 'visual_router_summary.csv'}`",
             f"- `visual_router_soft_fusion_predictions.csv`: `{output_dir / 'visual_router_soft_fusion_predictions.csv'}`",
+            f"- `visual_router_selected_model_counts.csv`: `{output_dir / 'visual_router_selected_model_counts.csv'}`",
             f"- `visual_router_comparison.csv`: `{output_dir / 'visual_router_comparison.csv'}`",
             f"- `visual_router_metadata.json`: `{output_dir / 'visual_router_metadata.json'}`",
             "",
@@ -685,15 +933,20 @@ def write_summary_md(
 def main() -> None:
     """函数功能：执行视觉 MLP router 训练、test 评估和结果落盘。"""
     args = parse_args()
+    validate_training_args(args)
     set_seed(int(args.seed))
     device = resolve_device(args.device)
     output_dir = args.output_dir or args.output_root / f"{now_token()}_visual_router_stage1_visual_router_smoke"
     output_dir.mkdir(parents=True, exist_ok=True)
+    router_name = router_version_for_mode(str(args.router_mode))
 
     embedding_df = load_embedding_manifest(args.embedding_manifest_path)
     labels_df = load_labels(args.labels_path, args.metric)
     merged_df = join_embeddings_and_labels(embedding_df, labels_df)
     manifest_dir = args.embedding_manifest_path.parent
+    prediction_lookup: Optional[Mapping[Tuple[str, str], Dict[str, object]]] = None
+    if args.router_mode == "fusion_huber_kl" or not args.skip_soft_fusion:
+        prediction_lookup = load_prediction_lookup(args.prediction_manifest_path)
 
     hard_prediction_frames: List[pd.DataFrame] = []
     config_metadata: List[Dict[str, object]] = []
@@ -702,6 +955,7 @@ def main() -> None:
             config_name=str(config_name),
             config_df=config_df,
             manifest_dir=manifest_dir,
+            prediction_lookup=prediction_lookup,
             args=args,
             device=device,
         )
@@ -713,16 +967,18 @@ def main() -> None:
                 config_df=config_df,
                 manifest_dir=manifest_dir,
                 device=device,
+                router_name=router_name,
             )
         )
 
     hard_pred_df = pd.concat(hard_prediction_frames, ignore_index=True)
     hard_summary_df = summarize_hard_predictions(hard_pred_df)
+    selected_counts_df = summarize_selected_model_counts(hard_pred_df)
 
     soft_pred_df: Optional[pd.DataFrame] = None
     soft_summary_df: Optional[pd.DataFrame] = None
     if not args.skip_soft_fusion:
-        prediction_lookup = load_prediction_lookup(args.prediction_manifest_path)
+        assert prediction_lookup is not None
         soft_pred_df = add_soft_fusion_metrics(hard_pred_df, prediction_lookup)
         soft_summary_df = summarize_soft_fusion(soft_pred_df)
 
@@ -730,6 +986,7 @@ def main() -> None:
 
     hard_pred_df.to_csv(output_dir / "visual_router_predictions.csv", index=False)
     hard_summary_df.to_csv(output_dir / "visual_router_summary.csv", index=False)
+    selected_counts_df.to_csv(output_dir / "visual_router_selected_model_counts.csv", index=False)
     if soft_pred_df is not None and soft_summary_df is not None:
         soft_pred_df.to_csv(output_dir / "visual_router_soft_fusion_predictions.csv", index=False)
         soft_summary_df.to_csv(output_dir / "visual_router_soft_fusion_summary.csv", index=False)
@@ -738,7 +995,8 @@ def main() -> None:
     run_metadata: Dict[str, object] = {
         "generated_at": display_time(),
         "output_dir": str(output_dir),
-        "router_version": ROUTER_VERSION,
+        "router_version": router_name,
+        "router_mode": args.router_mode,
         "embedding_manifest_path": str(args.embedding_manifest_path),
         "labels_path": str(args.labels_path),
         "prediction_manifest_path": str(args.prediction_manifest_path),
@@ -754,6 +1012,9 @@ def main() -> None:
         "batch_size": int(args.batch_size),
         "lr": float(args.lr),
         "weight_decay": float(args.weight_decay),
+        "huber_beta": float(args.huber_beta),
+        "kl_tau": float(args.kl_tau),
+        "lambda_kl": float(args.lambda_kl),
         "soft_fusion_enabled": not bool(args.skip_soft_fusion),
         "config_metadata": config_metadata,
         "input_exclusions": ["future_y", "test_oracle_error_as_feature", "expert_error_as_feature"],
@@ -766,6 +1027,7 @@ def main() -> None:
         output_dir=output_dir,
         hard_summary=hard_summary_df,
         soft_summary=soft_summary_df,
+        selected_counts=selected_counts_df,
         comparison_df=comparison_df,
         metadata=run_metadata,
     )

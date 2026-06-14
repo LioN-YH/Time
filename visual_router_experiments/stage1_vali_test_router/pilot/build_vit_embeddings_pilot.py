@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 文件功能：
-    为 Visual Router Stage 1 构建冻结 HF ViT embedding。
+    为 Visual Router Stage 1 构建离线冻结 HF ViT embedding cache 的 pilot / 历史
+    对照脚本。
 
 设计约束：
     - 输入只来自 Quito 历史窗口 x，经在线伪图像化后送入冻结视觉 encoder；
@@ -9,8 +10,11 @@
       作为 768 维视觉特征；
     - 不读取未来 y、专家误差或 oracle label 作为模型输入；
     - 每个 embedding 以 `sample_key` 对齐 prediction cache / oracle labels；
-    - 小规模 smoke 可以写入仓库内 `experiment_logs/run_outputs/`，大规模缓存应通过
-      `--output-root` 或 `--cache-root` 写到外部输出盘。
+    - 当前正式路线已转为 `train_visual_router_online.py` 运行内暂存 embedding；
+    - 本脚本仅用于复现早期离线 embedding smoke、做小规模缓存对照或调试 encoder
+      口径，不作为当前 online 主线入口；
+    - 若确需小规模 smoke cache，可写入 `experiment_logs/run_outputs/` 或通过
+      `--cache-root` 写到外部输出盘。
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -43,16 +47,18 @@ from quito.config import AutoConfig  # noqa: E402
 from quito.config.training import ModeType, TaskType  # noqa: E402
 from quito.datasets import load_datasets  # noqa: E402
 from visual_router_experiments.common.prediction_cache_schema import PredictionCacheKey  # noqa: E402
-from visual_router_experiments.common.pseudo_imageization import (  # noqa: E402
-    encoder_normalize,
-    imageize_3view,
-    imageize_top3fold,
-    normalize_window,
-    select_fft_periods,
+from visual_router_experiments.common.pseudo_imageization import make_default_period_candidates  # noqa: E402
+from visual_router_experiments.common.vit_embedding_utils import (  # noqa: E402
+    EMBEDDING_VERSION,
+    batch_required_pairs,
+    build_required_index,
+    make_pseudo_images,
+    parse_period_candidate_arg,
+    pool_vit_outputs,
+    resolve_dtype,
 )
 
 
-EMBEDDING_VERSION = "visual_router_vit_embedding_v1"
 DEFAULT_CONFIG = (
     WORKSPACE
     / "quito"
@@ -70,6 +76,7 @@ DEFAULT_LABELS_PATH = (
     / "2026-06-12_125902_319469_visual_router_stage1_prediction_cache_pilot"
     / "window_oracle_labels_with_tsf_cell.csv"
 )
+DEFAULT_SAMPLE_MANIFEST_PATH = None
 
 
 def now_token() -> str:
@@ -86,6 +93,12 @@ def parse_args() -> argparse.Namespace:
     """函数功能：解析 ViT embedding 构建参数。"""
     parser = argparse.ArgumentParser(description="Build frozen ViT embeddings for Stage 1 Visual Router.")
     parser.add_argument("--labels-path", type=Path, default=DEFAULT_LABELS_PATH, help="oracle labels CSV，用于确定 sample_key 清单。")
+    parser.add_argument(
+        "--sample-manifest-path",
+        type=Path,
+        default=DEFAULT_SAMPLE_MANIFEST_PATH,
+        help="可选 sample_manifest.csv；提供后直接按该清单生成 embedding，不要求 oracle labels 已存在。",
+    )
     parser.add_argument("--metric", choices=["mae", "mse"], default="mae", help="选择待覆盖 sample_key 的 oracle label 指标。")
     parser.add_argument("--config-path", type=Path, default=DEFAULT_CONFIG, help="Quito evaluate config；仅复用 data_config 加载历史窗口 x。")
     parser.add_argument("--output-root", type=Path, default=RUN_OUTPUT_ROOT, help="run 输出根目录。")
@@ -100,6 +113,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--norm-mode", choices=["quito", "revin", "revin_aux"], default="revin_aux", help="历史窗口 normalization 口径。")
     parser.add_argument("--pixel-mode", choices=["vision"], default="vision", help="pixel 映射口径。")
     parser.add_argument("--clip", type=float, default=5.0, help="视觉 pixel 映射前的对称截断阈值。")
+    parser.add_argument(
+        "--period-selection",
+        choices=["fixed_candidates", "dynamic_fft_topk"],
+        default="fixed_candidates",
+        help="FFT 周期选择口径；默认固定候选周期桶以减少逐样本 CPU/GPU 同步。",
+    )
+    parser.add_argument(
+        "--period-candidates",
+        default=None,
+        help="逗号分隔候选周期，例如 2,3,4,6,8,12,24,48,96；为空时按 history_length 自动生成。",
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto", help="运行设备。")
     parser.add_argument("--dtype", choices=["auto", "fp32", "fp16"], default="auto", help="encoder 前向 dtype；CPU 会强制 fp32。")
     parser.add_argument("--local-files-only", action="store_true", help="只使用本地 Hugging Face 缓存，不联网下载。")
@@ -114,15 +138,6 @@ def resolve_device(device_arg: str) -> torch.device:
     if device_arg == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("请求 --device cuda，但当前 PyTorch CUDA 不可用")
     return torch.device(device_arg)
-
-
-def resolve_dtype(dtype_arg: str, device: torch.device) -> torch.dtype:
-    """函数功能：解析 ViT 前向 dtype；CPU 路径保持 fp32，避免半精度算子兼容问题。"""
-    if device.type == "cpu":
-        return torch.float32
-    if dtype_arg == "fp32":
-        return torch.float32
-    return torch.float16
 
 
 def mode_from_split(split: str) -> ModeType:
@@ -147,7 +162,7 @@ def load_data_config(config_path: Path):
     return data_config
 
 
-def load_required_windows(labels_path: Path, metric: str) -> pd.DataFrame:
+def load_required_windows_from_labels(labels_path: Path, metric: str) -> pd.DataFrame:
     """函数功能：从 oracle labels 中读取指定 metric 的唯一 sample_key 清单。"""
     labels_df = pd.read_csv(labels_path)
     required_cols = {
@@ -174,71 +189,45 @@ def load_required_windows(labels_path: Path, metric: str) -> pd.DataFrame:
     return windows_df
 
 
-def build_required_index(windows_df: pd.DataFrame) -> Mapping[Tuple[str, str, int], Set[Tuple[int, int, str]]]:
-    """函数功能：把待覆盖窗口整理为 split/dataset/item -> channel/window/sample_key 索引。"""
-    required: Dict[Tuple[str, str, int], Set[Tuple[int, int, str]]] = {}
-    for row in windows_df.itertuples(index=False):
-        group_key = (str(row.split), str(row.dataset_name), int(row.item_id))
-        required.setdefault(group_key, set()).add((int(row.channel_id), int(row.window_index), str(row.sample_key)))
-    return required
-
-
-def batch_required_pairs(required_for_item: Set[Tuple[int, int, str]], batch_size: int) -> List[List[Tuple[int, int, str]]]:
-    """函数功能：按稳定顺序将 required window 切成小 batch。"""
-    sorted_pairs = sorted(required_for_item, key=lambda item: (item[0], item[1], item[2]))
-    return [sorted_pairs[start : start + batch_size] for start in range(0, len(sorted_pairs), batch_size)]
-
-
-def make_pseudo_images(
-    x_batch: torch.Tensor,
-    *,
-    variant: str,
-    norm_mode: str,
-    pixel_mode: str,
-    clip: float,
-    image_size: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    normalization_preset: str,
-) -> torch.Tensor:
+def load_required_windows_from_sample_manifest(sample_manifest_path: Path) -> pd.DataFrame:
     """
     函数功能：
-        从历史窗口 batch 构造 ViT `pixel_values`。
+        从 manifest-only 样本清单读取待生成 embedding 的唯一 sample_key。
 
-    关键约束：
-        只使用历史 x。`encoder_normalize()` 在伪图像 [0,1] 输出之后执行，
-        这里不走 HF processor，避免 rescale / normalize 口径隐式变化。
+    设计说明：
+        1k 中等规模实验先生成 sample manifest，再生成 prediction cache/oracle labels。
+        embedding 输入只依赖历史窗口 x，不需要 oracle label，因此允许直接以 sample
+        manifest 作为清单来源，避免为了 embedding 先阻塞在五专家 cache 上。
     """
-    x_batch = x_batch.to(device=device, dtype=torch.float32, non_blocking=False)
-    x_norm, _ = normalize_window(x_batch, norm_mode=norm_mode)
-    periods = select_fft_periods(x_norm, top_k=3)
-    if variant == "variant_a_3view":
-        images = imageize_3view(x_norm, image_size=image_size, periods=periods, pixel_mode=pixel_mode, clip=clip)
-    elif variant == "variant_b_top3fold":
-        images = imageize_top3fold(x_norm, image_size=image_size, periods=periods, pixel_mode=pixel_mode, clip=clip)
-    else:
-        raise ValueError(f"未知 variant={variant}")
-    return encoder_normalize(images.to(dtype=dtype), preset=normalization_preset)
+    if not sample_manifest_path.exists():
+        raise FileNotFoundError(f"找不到 sample manifest：{sample_manifest_path}")
+    windows_df = pd.read_csv(sample_manifest_path)
+    required_cols = {
+        "sample_key",
+        "config_name",
+        "split",
+        "dataset_name",
+        "item_id",
+        "channel_id",
+        "window_index",
+    }
+    missing_cols = sorted(required_cols.difference(windows_df.columns))
+    if missing_cols:
+        raise ValueError(f"sample manifest 缺少字段：{missing_cols}")
+    windows_df = windows_df[list(sorted(required_cols))].drop_duplicates().reset_index(drop=True)
+    if windows_df.empty:
+        raise ValueError(f"{sample_manifest_path} 中没有样本")
+    if windows_df["sample_key"].duplicated().any():
+        dup_keys = windows_df.loc[windows_df["sample_key"].duplicated(), "sample_key"].head(10).tolist()
+        raise ValueError(f"sample manifest 的 sample_key 不唯一，示例：{dup_keys}")
+    return windows_df
 
 
-def pool_vit_outputs(outputs, pooling: str) -> torch.Tensor:
-    """
-    函数功能：
-        将 ViT 输出聚合成单个视觉特征向量。
-
-    说明：
-        默认使用 last_hidden_state 的 CLS token，这是 Hugging Face ViT 分类头前最常见
-        的图像级表示；mean_patch 可作为后续 ablation。
-    """
-    if pooling == "cls":
-        return outputs.last_hidden_state[:, 0]
-    if pooling == "mean_patch":
-        return outputs.last_hidden_state[:, 1:].mean(dim=1)
-    if pooling == "pooler":
-        if outputs.pooler_output is None:
-            raise ValueError("当前 encoder 输出没有 pooler_output，不能使用 --pooling pooler")
-        return outputs.pooler_output
-    raise ValueError(f"未知 pooling={pooling}")
+def load_required_windows(args: argparse.Namespace) -> pd.DataFrame:
+    """函数功能：按优先级读取 embedding 待覆盖窗口清单。"""
+    if args.sample_manifest_path is not None:
+        return load_required_windows_from_sample_manifest(args.sample_manifest_path)
+    return load_required_windows_from_labels(args.labels_path, args.metric)
 
 
 def safe_embedding_name(sample_key: str, variant: str) -> str:
@@ -269,10 +258,16 @@ def build_embeddings(args: argparse.Namespace) -> Tuple[pd.DataFrame, pd.DataFra
 
     device = resolve_device(args.device)
     dtype = resolve_dtype(args.dtype, device)
-    windows_df = load_required_windows(args.labels_path, args.metric)
+    windows_df = load_required_windows(args)
     data_config = load_data_config(args.config_path)
     required_index = build_required_index(windows_df)
     config_by_key = dict(zip(windows_df["sample_key"], windows_df["config_name"]))
+    period_candidate_values = parse_period_candidate_arg(args.period_candidates)
+    if args.period_selection == "fixed_candidates" and period_candidate_values is None:
+        period_candidate_values = [
+            int(value)
+            for value in make_default_period_candidates(int(data_config.seq_len), device=torch.device("cpu")).tolist()
+        ]
 
     # 默认使用 last_hidden_state 的 CLS token，不需要 ViTModel 的 pooler；关闭 pooler
     # 可避免从分类 checkpoint 加载 encoder 时创建未初始化的随机 pooler 参数。
@@ -348,6 +343,8 @@ def build_embeddings(args: argparse.Namespace) -> Tuple[pd.DataFrame, pd.DataFra
                             device=device,
                             dtype=dtype,
                             normalization_preset=args.normalization_preset,
+                            period_selection=args.period_selection,
+                            period_candidate_values=period_candidate_values,
                         )
                         image_ms = _timer_stop(image_start, device)
 
@@ -429,6 +426,8 @@ def build_embeddings(args: argparse.Namespace) -> Tuple[pd.DataFrame, pd.DataFra
         "output_dir": str(output_dir),
         "embedding_dir": str(embedding_dir),
         "labels_path": str(args.labels_path),
+        "sample_manifest_path": str(args.sample_manifest_path) if args.sample_manifest_path is not None else None,
+        "sample_source": "sample_manifest" if args.sample_manifest_path is not None else "oracle_labels",
         "metric": args.metric,
         "config_path": str(args.config_path),
         "embedding_version": EMBEDDING_VERSION,
@@ -444,6 +443,9 @@ def build_embeddings(args: argparse.Namespace) -> Tuple[pd.DataFrame, pd.DataFra
         "norm_mode": args.norm_mode,
         "pixel_mode": args.pixel_mode,
         "clip": float(args.clip),
+        "period_selection": args.period_selection,
+        "period_candidates_arg": args.period_candidates,
+        "period_candidates": period_candidate_values,
         "device": str(device),
         "forward_dtype": str(dtype).replace("torch.", ""),
         "saved_dtype": "float32",
@@ -455,7 +457,7 @@ def build_embeddings(args: argparse.Namespace) -> Tuple[pd.DataFrame, pd.DataFra
     return manifest_df, latency_df, metadata, output_dir
 
 
-def validate_manifest(manifest_df: pd.DataFrame, labels_path: Path, metric: str) -> None:
+def validate_manifest(manifest_df: pd.DataFrame, args: argparse.Namespace) -> None:
     """函数功能：校验 embedding manifest 字段、shape 和 sample_key 覆盖。"""
     required_cols = {
         "embedding_version",
@@ -485,7 +487,7 @@ def validate_manifest(manifest_df: pd.DataFrame, labels_path: Path, metric: str)
     if manifest_df["embedding_dim"].nunique() != 1:
         raise ValueError("embedding_dim 不一致")
 
-    expected_df = load_required_windows(labels_path, metric)
+    expected_df = load_required_windows(args)
     if set(manifest_df["sample_key"]) != set(expected_df["sample_key"]):
         raise ValueError("embedding manifest 与 labels sample_key 集合不一致")
 
@@ -510,6 +512,7 @@ def write_summary(output_dir: Path, manifest_df: pd.DataFrame, latency_df: pd.Da
         f"- pooling: `{metadata['pooling']}` ({metadata['pooling_detail']})",
         f"- normalization_preset: `{metadata['normalization_preset']}`",
         f"- input_mode: `{metadata['input_mode']}`",
+        f"- period_selection: `{metadata['period_selection']}`，period_candidates: `{metadata['period_candidates']}`",
         f"- forward_dtype: `{metadata['forward_dtype']}`，saved_dtype: `{metadata['saved_dtype']}`",
         f"- embedding_dim: `{metadata['embedding_dim']}`",
         "",
@@ -544,7 +547,7 @@ def main() -> None:
     """函数功能：执行 Stage 1 ViT embedding 构建和校验。"""
     args = parse_args()
     manifest_df, latency_df, metadata, output_dir = build_embeddings(args)
-    validate_manifest(manifest_df, args.labels_path, args.metric)
+    validate_manifest(manifest_df, args)
     manifest_df.to_csv(output_dir / "embedding_manifest.csv", index=False)
     latency_df.to_csv(output_dir / "embedding_latency_summary.csv", index=False)
     (output_dir / "embedding_metadata.json").write_text(
