@@ -97,7 +97,7 @@ experiment_logs/run_outputs/2026-06-14_025727_562553_visual_router_stage1_visual
    experiment_logs/run_outputs/2026-06-14_141850_549276_visual_router_stage1_online_visual_router_smoke/
    ```
 
-   该 run 成功输出，但 hard top-1 MAE=`1.135703`，明显弱于离线代表。排查发现 online 入口先构造 ViT，会消耗 PyTorch RNG，导致随后 MLP 初始化和 DataLoader shuffle 与离线训练入口不一致。
+   该 run 成功输出，但 hard top-1 MAE=`1.135703`，明显弱于离线代表。排查发现 online 入口先构造 ViT，会消耗 PyTorch RNG，导致随后 MLP 初始化和 DataLoader shuffle 与离线训练入口不一致。该问题已在下一步通过 embedding 完成后重新 `set_seed(seed)` 修复，`141850` run 仅作为调试记录保留，不作为代表结果。
 
 7. 在 `train_visual_router_online.py` 中完成 online embedding 后重新 `set_seed(seed)`，再复跑代表 smoke，输出到：
 

@@ -778,6 +778,7 @@ def main() -> None:
         "prediction_manifest_path": str(args.prediction_manifest_path),
         "config_path": str(args.config_path),
         "offline_reference_dir": str(args.offline_reference_dir) if args.offline_reference_dir is not None else None,
+        "local_files_only": bool(args.local_files_only),
         "metric": args.metric,
         "model_columns": MODEL_COLUMNS,
         "training_split": "vali",
