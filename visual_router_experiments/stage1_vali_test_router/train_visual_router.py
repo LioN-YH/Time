@@ -40,6 +40,7 @@ if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
 from visual_router_experiments.stage1_vali_test_router.evaluate_router_baselines import MODEL_COLUMNS  # noqa: E402
+from visual_router_experiments.common.prediction_array_io import load_prediction_array, resolve_cache_array_path  # noqa: E402
 
 
 DEFAULT_LABELS_PATH = (
@@ -507,14 +508,6 @@ def predict_router_for_config(
     return pd.DataFrame(rows)
 
 
-def resolve_cache_array_path(path_text: str, manifest_dir: Path) -> Path:
-    """函数功能：解析 prediction cache manifest 中的数组路径。"""
-    path = Path(path_text)
-    if path.is_absolute():
-        return path
-    return manifest_dir / path
-
-
 def load_prediction_lookup(prediction_manifest_path: Path) -> Mapping[Tuple[str, str], Dict[str, object]]:
     """函数功能：读取 prediction cache manifest，建立 (sample_key, model_name) -> 路径记录。"""
     if not prediction_manifest_path.exists():
@@ -532,12 +525,10 @@ def load_prediction_lookup(prediction_manifest_path: Path) -> Mapping[Tuple[str,
     manifest_dir = prediction_manifest_path.parent
     lookup: Dict[Tuple[str, str], Dict[str, object]] = {}
     for row in manifest_df.itertuples(index=False):
-        lookup[(str(row.sample_key), str(row.model_name))] = {
-            "y_true_path": resolve_cache_array_path(str(row.y_true_path), manifest_dir),
-            "y_pred_path": resolve_cache_array_path(str(row.y_pred_path), manifest_dir),
-            "mae": float(row.mae),
-            "mse": float(row.mse),
-        }
+        record = row._asdict()
+        record["y_true_path"] = resolve_cache_array_path(str(record["y_true_path"]), manifest_dir)
+        record["y_pred_path"] = resolve_cache_array_path(str(record["y_pred_path"]), manifest_dir)
+        lookup[(str(row.sample_key), str(row.model_name))] = record
     return lookup
 
 
@@ -577,8 +568,8 @@ def load_prediction_tensors_for_samples(
         sample_errors: List[float] = []
         for model_name in MODEL_COLUMNS:
             record = prediction_lookup[(str(sample_key), model_name)]
-            y_pred = np.load(record["y_pred_path"]).astype(np.float32)
-            current_y_true = np.load(record["y_true_path"]).astype(np.float32)
+            y_pred = load_prediction_array(record, "y_pred")
+            current_y_true = load_prediction_array(record, "y_true")
             if sample_true is None:
                 sample_true = current_y_true
             elif not np.array_equal(sample_true, current_y_true):
@@ -639,8 +630,8 @@ def add_soft_fusion_metrics(pred_df: pd.DataFrame, prediction_lookup: Mapping[Tu
         expert_metric_cols: Dict[str, float] = {}
         for model_name in MODEL_COLUMNS:
             record = prediction_lookup[(sample_key, model_name)]
-            y_pred = np.load(record["y_pred_path"]).astype(np.float32)
-            current_y_true = np.load(record["y_true_path"]).astype(np.float32)
+            y_pred = load_prediction_array(record, "y_pred")
+            current_y_true = load_prediction_array(record, "y_true")
             if y_true is None:
                 y_true = current_y_true
             elif not np.array_equal(y_true, current_y_true):
@@ -653,7 +644,7 @@ def add_soft_fusion_metrics(pred_df: pd.DataFrame, prediction_lookup: Mapping[Tu
         assert y_true is not None and weighted_pred is not None
         soft_metrics = compute_array_metrics(y_true, weighted_pred)
         selected_record = prediction_lookup[(sample_key, str(row["selected_model"]))]
-        hard_metrics = compute_array_metrics(y_true, np.load(selected_record["y_pred_path"]).astype(np.float32))
+        hard_metrics = compute_array_metrics(y_true, load_prediction_array(selected_record, "y_pred"))
 
         output_row = row.to_dict()
         output_row.update(expert_metric_cols)

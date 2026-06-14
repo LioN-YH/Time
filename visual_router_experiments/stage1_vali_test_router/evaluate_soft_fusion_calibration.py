@@ -31,6 +31,7 @@ if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
 from visual_router_experiments.stage1_vali_test_router.evaluate_router_baselines import MODEL_COLUMNS  # noqa: E402
+from visual_router_experiments.common.prediction_array_io import load_prediction_array  # noqa: E402
 from visual_router_experiments.stage1_vali_test_router.train_visual_router import (  # noqa: E402
     compute_array_metrics,
     load_prediction_lookup,
@@ -351,8 +352,8 @@ def load_sample_prediction_arrays(
             raise ValueError(f"prediction manifest 缺少 sample_key={sample_key} 的专家：{missing_models}")
         for model_name in MODEL_COLUMNS:
             record = prediction_lookup[(sample_key, model_name)]
-            y_pred = np.load(record["y_pred_path"]).astype(np.float32)
-            current_y_true = np.load(record["y_true_path"]).astype(np.float32)
+            y_pred = load_prediction_array(record, "y_pred")
+            current_y_true = load_prediction_array(record, "y_true")
             if y_pred.shape != current_y_true.shape:
                 raise ValueError(f"y_pred/y_true shape 不一致：sample_key={sample_key} model={model_name}")
             if y_true is None:

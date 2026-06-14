@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import shutil
 import sys
@@ -42,6 +43,11 @@ if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
 from visual_router_experiments.common.prediction_cache_schema import validate_manifest_frame  # noqa: E402
+from visual_router_experiments.common.prediction_array_io import (  # noqa: E402
+    PACKED_NPY_STORAGE,
+    load_prediction_array,
+    resolve_cache_array_path,
+)
 
 
 def now_token() -> str:
@@ -74,16 +80,20 @@ def resolve_array_path(path_text: str, shard_dir: Path) -> Path:
 
 
 def safe_copy_array(src: Path, dst: Path) -> None:
-    """函数功能：复制数组文件，若目标已存在则校验内容一致。"""
+    """
+    函数功能：复制数组文件，若目标已存在则在内容一致时跳过、不一致时覆盖。
+
+    说明：
+        full-scale merge 可能因为上一次失败而留下半成品目标文件。这里选择覆盖而
+        不报错，目的是让同一批 shard 在同一输出目录下可恢复、可重复执行；真正的
+        合并契约仍由 manifest 校验和 shard 输入一致性约束来保证。
+    """
     if not src.exists():
         raise FileNotFoundError(f"找不到数组文件：{src}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
-        src_array = np.load(src).astype(np.float32)
-        dst_array = np.load(dst).astype(np.float32)
-        if not np.array_equal(src_array, dst_array):
-            raise ValueError(f"目标数组已存在但内容不一致：{dst}")
-        return
+        if filecmp.cmp(src, dst, shallow=False):
+            return
     shutil.copy2(src, dst)
 
 
@@ -102,8 +112,17 @@ def copy_and_rewrite_paths(combined_df: pd.DataFrame, output_dir: Path) -> pd.Da
     函数功能：
         复制 shard 数组到合并目录，并重写 manifest 的 y_true/y_pred 相对路径。
     """
+    if "array_storage" in combined_df.columns and (combined_df["array_storage"].astype(str) == PACKED_NPY_STORAGE).any():
+        return copy_packed_and_rewrite_paths(combined_df, output_dir)
+
+    return copy_per_sample_and_rewrite_paths(combined_df, output_dir)
+
+
+def copy_per_sample_and_rewrite_paths(combined_df: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """函数功能：兼容早期 per-sample `.npy` shard 的合并路径。"""
     rewritten_rows: List[Dict[str, object]] = []
-    y_true_by_sample: Dict[str, Path] = {}
+    y_true_by_sample: Dict[str, np.ndarray] = {}
+    copied_files: Dict[Path, Path] = {}
 
     for row in combined_df.itertuples(index=False):
         row_dict = row._asdict()
@@ -111,32 +130,103 @@ def copy_and_rewrite_paths(combined_df: pd.DataFrame, output_dir: Path) -> pd.Da
         sample_key = str(row_dict["sample_key"])
         model_name = str(row_dict["model_name"])
 
-        src_true = resolve_array_path(str(row_dict["y_true_path"]), shard_dir)
-        src_pred = resolve_array_path(str(row_dict["y_pred_path"]), shard_dir)
-        dst_true = output_dir / "arrays" / "y_true" / str(row_dict["split"]) / str(row_dict["dataset_name"]) / f"{sample_key}__y_true.npy"
-        dst_pred = (
-            output_dir
-            / "arrays"
-            / "y_pred"
-            / model_name
-            / str(row_dict["split"])
-            / str(row_dict["dataset_name"])
-            / f"{sample_key}__y_pred.npy"
-        )
+        src_true = resolve_cache_array_path(str(row_dict["y_true_path"]), shard_dir)
+        src_pred = resolve_cache_array_path(str(row_dict["y_pred_path"]), shard_dir)
+        dst_true = output_dir / Path(str(row_dict["y_true_path"]))
+        dst_pred = output_dir / Path(str(row_dict["y_pred_path"]))
 
+        true_record = dict(row_dict)
+        true_record["y_true_path"] = str(src_true)
+        true_record["y_pred_path"] = str(src_pred)
+        current_true = load_prediction_array(true_record, "y_true")
         if sample_key in y_true_by_sample:
-            # 同一 sample_key 可能来自不同专家 shard；复制前先确认 y_true 内容一致。
-            existing = y_true_by_sample[sample_key]
-            if not np.array_equal(np.load(existing).astype(np.float32), np.load(src_true).astype(np.float32)):
+            if not np.array_equal(y_true_by_sample[sample_key], current_true):
                 raise ValueError(f"sample_key={sample_key} 的 y_true 在 shard 间不一致")
         else:
+            y_true_by_sample[sample_key] = np.asarray(current_true, dtype=np.float32).copy()
+
+        if src_true not in copied_files:
             safe_copy_array(src_true, dst_true)
-            y_true_by_sample[sample_key] = dst_true
-        safe_copy_array(src_pred, dst_pred)
+            copied_files[src_true] = dst_true
+        if src_pred not in copied_files:
+            safe_copy_array(src_pred, dst_pred)
+            copied_files[src_pred] = dst_pred
 
         row_dict["y_true_path"] = str(dst_true.relative_to(output_dir))
         row_dict["y_pred_path"] = str(dst_pred.relative_to(output_dir))
         rewritten_rows.append(row_dict)
+
+    return pd.DataFrame(rewritten_rows)
+
+
+def _source_token_map(combined_df: pd.DataFrame) -> Dict[str, str]:
+    """函数功能：为每个来源 shard 生成稳定、路径友好的 token。"""
+    shard_dirs = sorted(set(combined_df["source_shard_dir"].astype(str).tolist()))
+    return {shard_dir: f"source_{idx:04d}" for idx, shard_dir in enumerate(shard_dirs)}
+
+
+def copy_packed_and_rewrite_paths(combined_df: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """
+    函数功能：
+        合并 packed_npy_v1 shard，并重建合并目录中的共享 y_true packed 文件。
+
+    设计说明：
+        不同 sample shard 的 `arrays/packed/y_true/.../y_true.npy` 相对路径相同，
+        但内容不同，不能简单复制到同一个目标路径。这里按 sample_key 重新分配
+        merged y_true row index；y_pred packed 文件则按来源 shard token 复制，保留
+        原 row index。
+    """
+    rewritten_rows: List[Dict[str, object]] = []
+    source_tokens = _source_token_map(combined_df)
+    copied_pred_files: Dict[Path, Path] = {}
+    true_buffers: Dict[Tuple[str, str], List[np.ndarray]] = {}
+    true_ref_by_sample: Dict[str, Tuple[str, str, int, np.ndarray]] = {}
+
+    for row in combined_df.itertuples(index=False):
+        row_dict = row._asdict()
+        shard_dir = Path(str(row_dict.pop("source_shard_dir")))
+        source_token = source_tokens[str(shard_dir)]
+        sample_key = str(row_dict["sample_key"])
+        split = str(row_dict["split"])
+        dataset_name = str(row_dict["dataset_name"])
+
+        src_true = resolve_cache_array_path(str(row_dict["y_true_path"]), shard_dir)
+        src_pred = resolve_cache_array_path(str(row_dict["y_pred_path"]), shard_dir)
+        source_record = dict(row_dict)
+        source_record["y_true_path"] = str(src_true)
+        source_record["y_pred_path"] = str(src_pred)
+        current_true = load_prediction_array(source_record, "y_true")
+
+        true_key = (split, dataset_name)
+        if sample_key in true_ref_by_sample:
+            old_split, old_dataset, row_index, old_true = true_ref_by_sample[sample_key]
+            if old_split != split or old_dataset != dataset_name:
+                raise ValueError(f"sample_key={sample_key} 的 split/dataset 不一致")
+            if not np.array_equal(old_true, current_true):
+                raise ValueError(f"sample_key={sample_key} 的 y_true 在 shard 间不一致")
+        else:
+            buffer = true_buffers.setdefault(true_key, [])
+            row_index = len(buffer)
+            buffer.append(np.asarray(current_true, dtype=np.float32).copy())
+            true_ref_by_sample[sample_key] = (split, dataset_name, row_index, np.asarray(current_true, dtype=np.float32).copy())
+
+        dst_pred = output_dir / "arrays" / "source_shards" / source_token / Path(str(row_dict["y_pred_path"]))
+        if src_pred not in copied_pred_files:
+            safe_copy_array(src_pred, dst_pred)
+            copied_pred_files[src_pred] = dst_pred
+
+        _, _, true_row_index, _ = true_ref_by_sample[sample_key]
+        dst_true_rel = Path("arrays") / "packed" / "y_true" / split / dataset_name / "y_true.npy"
+        row_dict["y_true_path"] = str(dst_true_rel)
+        row_dict["y_pred_path"] = str(copied_pred_files[src_pred].relative_to(output_dir))
+        row_dict["array_storage"] = PACKED_NPY_STORAGE
+        row_dict["y_true_row_index"] = int(true_row_index)
+        rewritten_rows.append(row_dict)
+
+    for (split, dataset_name), arrays in true_buffers.items():
+        dst_true = output_dir / "arrays" / "packed" / "y_true" / split / dataset_name / "y_true.npy"
+        dst_true.parent.mkdir(parents=True, exist_ok=True)
+        np.save(dst_true, np.stack(arrays, axis=0).astype(np.float32))
 
     return pd.DataFrame(rewritten_rows)
 

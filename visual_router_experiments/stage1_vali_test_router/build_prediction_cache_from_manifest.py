@@ -60,11 +60,14 @@ from quito.config.training import ModeType, TaskType  # noqa: E402
 from quito.datasets import load_datasets  # noqa: E402
 from quito.models import AutoModel  # noqa: E402
 from visual_router_experiments.common.prediction_cache_schema import (  # noqa: E402
+    CACHE_SCHEMA_VERSION,
     PredictionCacheKey,
+    compute_window_metrics,
     make_prediction_record,
     records_to_frame,
     validate_manifest_frame,
 )
+from visual_router_experiments.common.prediction_array_io import PACKED_NPY_STORAGE, PER_SAMPLE_NPY_STORAGE
 
 
 def now_token() -> str:
@@ -93,6 +96,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=None, help="显式输出目录；默认生成时间戳目录。")
     parser.add_argument("--shard-index", type=int, default=0, help="当前 sample_key shard 编号，从 0 开始。")
     parser.add_argument("--shard-count", type=int, default=1, help="sample_key shard 总数。")
+    parser.add_argument(
+        "--array-storage",
+        choices=[PER_SAMPLE_NPY_STORAGE, PACKED_NPY_STORAGE],
+        default=PER_SAMPLE_NPY_STORAGE,
+        help="数组落盘口径；packed_npy_v1 会按 item 打包，避免 per-sample 小文件爆炸。",
+    )
+    parser.add_argument("--resume", action="store_true", help="若输出目录已存在，则跳过已完成的 item/model 组。")
     parser.add_argument("--batch-size", type=int, default=32, help="DataLoader batch size。")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader num_workers。")
     parser.add_argument("--local-rank", type=int, default=-1, help="Quito 模型 local_rank；深度模型单卡绑定时设为 0。")
@@ -154,6 +164,173 @@ def save_array(path: Path, array: np.ndarray) -> None:
     """函数功能：保存单个专家预测数组。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     np.save(path, np.asarray(array, dtype=np.float32))
+
+
+class PackedArrayWriter:
+    """
+    类功能：
+        为 full-scale prediction cache 写入 packed `.npy` 数组。
+
+    设计说明：
+        旧版每个 sample/model 一个小 `.npy` 文件，百万级窗口会造成 inode 和目录
+        扫描压力。packed writer 在 shard 内按 split/dataset/model 聚合，把同一
+        组窗口追加到少量大数组文件中；manifest 通过 row index 精确定位单条样本。
+    """
+
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+        self._true_buffers: Dict[Tuple[str, str], List[np.ndarray]] = {}
+        self._pred_buffers: Dict[Tuple[str, str, str], List[np.ndarray]] = {}
+        self._true_row_index_by_sample: Dict[Tuple[str, str, str], int] = {}
+        self._true_offsets: Dict[Tuple[str, str], int] = {}
+        self._pred_offsets: Dict[Tuple[str, str, str], int] = {}
+
+    def add(
+        self,
+        *,
+        sample_key: str,
+        split: str,
+        dataset_name: str,
+        model_name: str,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+    ) -> Tuple[Path, int, Path, int]:
+        """函数功能：追加一条 y_true/y_pred，并返回相对路径和 row index。"""
+        true_key = (str(split), str(dataset_name))
+        pred_key = (str(model_name), str(split), str(dataset_name))
+        true_buffer = self._true_buffers.setdefault(true_key, [])
+        pred_buffer = self._pred_buffers.setdefault(pred_key, [])
+        true_sample_key = (str(split), str(dataset_name), str(sample_key))
+        if true_sample_key in self._true_row_index_by_sample:
+            y_true_index = self._true_row_index_by_sample[true_sample_key]
+        else:
+            y_true_index = self._offset_for_true(true_key) + len(true_buffer)
+            true_buffer.append(np.asarray(y_true, dtype=np.float32).copy())
+            self._true_row_index_by_sample[true_sample_key] = y_true_index
+        y_pred_index = self._offset_for_pred(pred_key) + len(pred_buffer)
+        pred_buffer.append(np.asarray(y_pred, dtype=np.float32).copy())
+        y_true_path = Path("arrays") / "packed" / "y_true" / str(split) / str(dataset_name) / "y_true.npy"
+        y_pred_path = Path("arrays") / "packed" / "y_pred" / str(model_name) / str(split) / str(dataset_name) / "y_pred.npy"
+        return y_true_path, y_true_index, y_pred_path, y_pred_index
+
+    def _offset_for_true(self, key: Tuple[str, str]) -> int:
+        """函数功能：读取已有 packed y_true 文件行数，作为断点续跑偏移。"""
+        if key in self._true_offsets:
+            return self._true_offsets[key]
+        path = self.output_dir / "arrays" / "packed" / "y_true" / key[0] / key[1] / "y_true.npy"
+        offset = int(np.load(path, mmap_mode="r").shape[0]) if path.exists() else 0
+        self._true_offsets[key] = offset
+        return offset
+
+    def _offset_for_pred(self, key: Tuple[str, str, str]) -> int:
+        """函数功能：读取已有 packed y_pred 文件行数，作为断点续跑偏移。"""
+        if key in self._pred_offsets:
+            return self._pred_offsets[key]
+        path = self.output_dir / "arrays" / "packed" / "y_pred" / key[0] / key[1] / key[2] / "y_pred.npy"
+        offset = int(np.load(path, mmap_mode="r").shape[0]) if path.exists() else 0
+        self._pred_offsets[key] = offset
+        return offset
+
+    def flush(self) -> Dict[str, object]:
+        """函数功能：将所有 packed buffer 写入磁盘，并返回写入统计。"""
+        file_count = 0
+        rows_written = 0
+        for (split, dataset_name), arrays in self._true_buffers.items():
+            path = self.output_dir / "arrays" / "packed" / "y_true" / split / dataset_name / "y_true.npy"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            new_arrays = np.stack(arrays, axis=0).astype(np.float32)
+            if path.exists():
+                old_arrays = np.load(path).astype(np.float32)
+                new_arrays = np.concatenate([old_arrays, new_arrays], axis=0)
+            np.save(path, new_arrays)
+            file_count += 1
+            rows_written += len(arrays)
+        for (model_name, split, dataset_name), arrays in self._pred_buffers.items():
+            path = self.output_dir / "arrays" / "packed" / "y_pred" / model_name / split / dataset_name / "y_pred.npy"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            new_arrays = np.stack(arrays, axis=0).astype(np.float32)
+            if path.exists():
+                old_arrays = np.load(path).astype(np.float32)
+                new_arrays = np.concatenate([old_arrays, new_arrays], axis=0)
+            np.save(path, new_arrays)
+            file_count += 1
+            rows_written += len(arrays)
+        return {"packed_file_count": int(file_count), "packed_rows_written": int(rows_written)}
+
+
+def make_packed_prediction_record(
+    *,
+    key: PredictionCacheKey,
+    history_length: int,
+    pred_length: int,
+    model_name: str,
+    expert_version: str,
+    checkpoint_selection: str,
+    y_true_path: Path,
+    y_pred_path: Path,
+    y_true_row_index: int,
+    y_pred_row_index: int,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+) -> Dict[str, object]:
+    """函数功能：构造 packed_npy_v1 manifest 行。"""
+    metrics = compute_window_metrics(y_true=y_true, y_pred=y_pred)
+    return {
+        "cache_version": CACHE_SCHEMA_VERSION,
+        "sample_key": key.as_string(),
+        "config_name": key.config_name,
+        "split": key.split,
+        "dataset_name": key.dataset_name,
+        "item_id": int(key.item_id),
+        "channel_id": int(key.channel_id),
+        "window_index": int(key.window_index),
+        "history_length": int(history_length),
+        "pred_length": int(pred_length),
+        "model_name": model_name,
+        "expert_version": expert_version,
+        "checkpoint_selection": checkpoint_selection,
+        "y_true_path": str(y_true_path),
+        "y_pred_path": str(y_pred_path),
+        "mae": metrics["mae"],
+        "mse": metrics["mse"],
+        "array_storage": PACKED_NPY_STORAGE,
+        "y_true_row_index": int(y_true_row_index),
+        "y_pred_row_index": int(y_pred_row_index),
+    }
+
+
+def append_frame(path: Path, frame: pd.DataFrame) -> None:
+    """函数功能：把一批 manifest 或 latency 行追加写入 CSV；首批自动写表头。"""
+    if frame.empty:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists()
+    frame.to_csv(path, mode="a", header=write_header, index=False)
+
+
+def load_existing_manifest_rows(output_dir: Path) -> pd.DataFrame:
+    """函数功能：读取已有 manifest，用于断点续跑时识别完成的 item/model 组。"""
+    manifest_path = output_dir / "manifest.csv"
+    if not manifest_path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(manifest_path)
+
+
+def completed_group_keys(manifest_df: pd.DataFrame) -> set[Tuple[str, str, int, str]]:
+    """
+    函数功能：
+        根据已写出的 manifest 识别已完成的 `(split, dataset_name, item_id, model_name)` 组。
+
+    说明：
+        这里用 item 作为 packed shard 的原子单元。只要该组在 manifest 中已经完整出现，
+        断点续跑就可以直接跳过，避免重复写入 packed 数组和 manifest。
+    """
+    if manifest_df.empty:
+        return set()
+    return {
+        (str(row.split), str(row.dataset_name), int(row.item_id), str(row.model_name))
+        for row in manifest_df.itertuples(index=False)
+    }
 
 
 def make_item_dataset_view(dataset, item_id: int):
@@ -307,12 +484,18 @@ def build_cache_for_model(
     batch_size: int,
     num_workers: int,
     shared_y_true_cache: Dict[Path, np.ndarray],
+    array_storage: str,
+    packed_writer: Optional[PackedArrayWriter],
+    completed_groups: Optional[set[Tuple[str, str, int, str]]] = None,
+    manifest_path: Optional[Path] = None,
+    latency_path: Optional[Path] = None,
 ) -> Tuple[List, List[Dict[str, object]]]:
     """函数功能：为单个专家生成当前 shard 的 prediction cache records。"""
     required_index = build_required_index(sample_df, config_name=config_name)
     records = []
     latency_rows: List[Dict[str, object]] = []
     arrays_dir = output_dir / "arrays"
+    completed_groups = completed_groups or set()
 
     for split in sorted(sample_df["split"].astype(str).unique()):
         datasets = load_datasets(
@@ -333,6 +516,10 @@ def build_cache_for_model(
                 continue
 
             for item_id in item_ids:
+                group_key = (str(split), str(dataset_name), int(item_id), str(model_name))
+                if group_key in completed_groups:
+                    print(f"[resume] skip {group_key}", flush=True)
+                    continue
                 item_dataset = make_item_dataset_view(dataset, int(item_id))
                 channel_count = int(item_dataset.data.shape[0])
                 len_per_channel = len(item_dataset) // channel_count
@@ -389,24 +576,52 @@ def build_cache_for_model(
 
                             y_true = y_true_batch[row_in_batch]
                             y_pred = y_pred_batch[row_in_batch]
-                            y_true_path = arrays_dir / "y_true" / split / dataset_name / f"{sample_key}__y_true.npy"
-                            y_pred_path = arrays_dir / "y_pred" / model_name / split / dataset_name / f"{sample_key}__y_pred.npy"
-                            save_array_once(y_true_path, y_true, shared_y_true_cache)
-                            save_array(y_pred_path, y_pred)
-                            record = make_prediction_record(
-                                key=key,
-                                history_length=model.seq_len,
-                                pred_length=model.forecast_horizon,
-                                model_name=model_name,
-                                expert_version=str(getattr(model.config, "checkpoint_path", "not_applicable")),
-                                checkpoint_selection=checkpoint_selection,
-                                y_true_path=relative_to_output(y_true_path, output_dir),
-                                y_pred_path=relative_to_output(y_pred_path, output_dir),
-                                y_true=y_true,
-                                y_pred=y_pred,
-                            )
+                            if array_storage == PACKED_NPY_STORAGE:
+                                if packed_writer is None:
+                                    raise RuntimeError("array_storage=packed_npy_v1 需要 packed_writer")
+                                y_true_rel, y_true_row_index, y_pred_rel, y_pred_row_index = packed_writer.add(
+                                    sample_key=sample_key,
+                                    split=split,
+                                    dataset_name=dataset_name,
+                                    model_name=model_name,
+                                    y_true=y_true,
+                                    y_pred=y_pred,
+                                )
+                                record = make_packed_prediction_record(
+                                    key=key,
+                                    history_length=model.seq_len,
+                                    pred_length=model.forecast_horizon,
+                                    model_name=model_name,
+                                    expert_version=str(getattr(model.config, "checkpoint_path", "not_applicable")),
+                                    checkpoint_selection=checkpoint_selection,
+                                    y_true_path=y_true_rel,
+                                    y_pred_path=y_pred_rel,
+                                    y_true_row_index=y_true_row_index,
+                                    y_pred_row_index=y_pred_row_index,
+                                    y_true=y_true,
+                                    y_pred=y_pred,
+                                )
+                            else:
+                                y_true_path = arrays_dir / "y_true" / split / dataset_name / f"{sample_key}__y_true.npy"
+                                y_pred_path = arrays_dir / "y_pred" / model_name / split / dataset_name / f"{sample_key}__y_pred.npy"
+                                save_array_once(y_true_path, y_true, shared_y_true_cache)
+                                save_array(y_pred_path, y_pred)
+                                record = make_prediction_record(
+                                    key=key,
+                                    history_length=model.seq_len,
+                                    pred_length=model.forecast_horizon,
+                                    model_name=model_name,
+                                    expert_version=str(getattr(model.config, "checkpoint_path", "not_applicable")),
+                                    checkpoint_selection=checkpoint_selection,
+                                    y_true_path=relative_to_output(y_true_path, output_dir),
+                                    y_pred_path=relative_to_output(y_pred_path, output_dir),
+                                    y_true=y_true,
+                                    y_pred=y_pred,
+                                )
                             records.append(record)
                             seen_pairs.add(pair)
+                            if manifest_path is not None:
+                                append_frame(manifest_path, pd.DataFrame([record]))
 
                 missing_pairs = sorted(set(required_for_item.keys()) - seen_pairs)
                 if missing_pairs:
@@ -415,18 +630,19 @@ def build_cache_for_model(
                         f"缺少 {len(missing_pairs)} 个窗口，示例={missing_pairs[:10]}"
                     )
                 elapsed = time.perf_counter() - start_time
-                latency_rows.append(
-                    {
-                        "model_name": model_name,
-                        "config_name": config_name,
-                        "split": split,
-                        "dataset_name": dataset_name,
-                        "item_id": int(item_id),
-                        "sample_count": int(len(required_entries)),
-                        "elapsed_seconds": float(elapsed),
-                        "seconds_per_sample": float(elapsed / max(1, len(required_entries))),
-                    }
-                )
+                latency_row = {
+                    "model_name": model_name,
+                    "config_name": config_name,
+                    "split": split,
+                    "dataset_name": dataset_name,
+                    "item_id": int(item_id),
+                    "sample_count": int(len(required_entries)),
+                    "elapsed_seconds": float(elapsed),
+                    "seconds_per_sample": float(elapsed / max(1, len(required_entries))),
+                }
+                latency_rows.append(latency_row)
+                if latency_path is not None:
+                    append_frame(latency_path, pd.DataFrame([latency_row]))
     return records, latency_rows
 
 
@@ -496,6 +712,14 @@ def main() -> None:
     sample_df_all = load_sample_manifest(args.sample_manifest_path)
     sample_df = filter_sample_shard(sample_df_all, int(args.shard_index), int(args.shard_count))
     config_paths = resolve_config_paths(args.config_paths, args.models)
+    existing_manifest_df = load_existing_manifest_rows(output_dir) if args.resume else pd.DataFrame()
+    completed_groups = completed_group_keys(existing_manifest_df)
+    manifest_path = output_dir / "manifest.csv"
+    latency_path = output_dir / "latency_summary.csv"
+    if not args.resume:
+        for stale_path in [manifest_path, latency_path]:
+            if stale_path.exists():
+                stale_path.unlink()
     all_records = []
     all_latency_rows: List[Dict[str, object]] = []
     model_names: List[str] = []
@@ -504,6 +728,7 @@ def main() -> None:
     started_at = display_time()
 
     try:
+        packed_writer = PackedArrayWriter(output_dir) if args.array_storage == PACKED_NPY_STORAGE else None
         for config_path in config_paths:
             data_config, model_config, training_config, model = prepare_model(config_path, int(args.local_rank))
             del training_config
@@ -523,6 +748,11 @@ def main() -> None:
                 batch_size=int(args.batch_size),
                 num_workers=int(args.num_workers),
                 shared_y_true_cache=shared_y_true_cache,
+                array_storage=str(args.array_storage),
+                packed_writer=packed_writer,
+                completed_groups=completed_groups if args.resume else None,
+                manifest_path=manifest_path,
+                latency_path=latency_path,
             )
             all_records.extend(model_records)
             all_latency_rows.extend(latency_rows)
@@ -530,15 +760,23 @@ def main() -> None:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        packed_stats: Dict[str, object] = {}
+        if packed_writer is not None:
+            packed_stats = packed_writer.flush()
+
         manifest_df = records_to_frame(all_records)
+        if not existing_manifest_df.empty:
+            # 续跑时保留已完成记录，确保 manifest 为单调增长而不是覆盖式重写。
+            manifest_df = pd.concat([existing_manifest_df, manifest_df], ignore_index=True)
+        manifest_df = manifest_df.drop_duplicates(["sample_key", "model_name"], keep="last").reset_index(drop=True)
         validate_manifest_frame(
             manifest_df,
             expected_models=model_names if len(model_names) == len(MODEL_DISPLAY_ORDER) else None,
             require_shared_y_true_path=True,
         )
         latency_df = pd.DataFrame(all_latency_rows)
-        manifest_df.to_csv(output_dir / "manifest.csv", index=False)
-        latency_df.to_csv(output_dir / "latency_summary.csv", index=False)
+        manifest_df.to_csv(manifest_path, index=False)
+        latency_df.to_csv(latency_path, index=False)
 
         metadata: Dict[str, object] = {
             "generated_at": display_time(),
@@ -558,6 +796,11 @@ def main() -> None:
             "num_workers": int(args.num_workers),
             "local_rank": int(args.local_rank),
             "device_note": args.device_note,
+            "array_storage": str(args.array_storage),
+            "resume": bool(args.resume),
+            "completed_group_count": int(len(completed_groups)),
+            "resume_mode": "append_existing_manifest" if args.resume else "fresh_overwrite",
+            **packed_stats,
             "record_count": int(len(manifest_df)),
             "shared_y_true_path": True,
         }

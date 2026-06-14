@@ -15,12 +15,15 @@ Stage 1 目标：
 - `build_stage1_sample_manifest.py`：生成 `96_48_S` 中等规模 manifest-only 样本清单，默认 1k sample_key，vali/test、dataset、item 和 window 尽量均衡；
 - `build_prediction_cache_from_manifest.py`：基于 sample manifest 生成 prediction cache shard，支持按专家或 sample shard 并发，shard 内共享 `y_true_path`；
 - `merge_prediction_cache_shards.py`：合并 prediction cache shard，校验 `sample_key + model_name` 唯一、五专家完整和共享 y_true 一致；
+- `launch_full_scale_prediction_cache.py`：生成 full-scale prediction cache launcher，按专家和 sample shard 拆分任务，默认深度专家绑 GPU、统计专家走 CPU，数组默认 `packed_npy_v1`；
+- `run_full_scale_dry_run.py`：执行小样本 full-scale 框架 dry-run，验证 manifest -> packed cache -> merge -> oracle/baseline -> streaming router -> calibration 闭环；
 - `evaluate_router_baselines.py`：基于 vali split 学非视觉 router baseline，并在 test split 上评估；
 - `train_visual_router.py`：训练 TimeFuse-style 小型 MLP visual router；默认 `fusion_huber_kl` 模式用五专家预测加权融合的 SmoothL1 主损失训练权重，同时保留 `classification` 旧版 oracle hard-label baseline；
-- `train_visual_router_online.py`：在线执行 `x -> pseudo image -> frozen ViT -> CLS embedding -> router`，在一次运行内把 embedding 暂存在内存中训练 MLP router，不保存伪图像 tensor 或 ViT embedding npy；
+- `train_visual_router_online.py`：在线执行 `x -> pseudo image -> frozen ViT -> CLS embedding -> router`，适合 120/1k 规模，在一次运行内把 embedding 暂存在内存中训练 MLP router，不保存伪图像 tensor 或 ViT embedding npy；
+- `train_visual_router_online_streaming.py`：full-scale streaming online router，batch 运行时生成 ViT embedding，`StandardScaler.partial_fit` 只遍历 vali，test 流式 forward；不保存 embedding `.npy`，不构建全量 embedding 字典；
 - `evaluate_soft_fusion_calibration.py`：读取已训练 router 的 test 权重和 prediction cache，评估 temperature scaling、top-k 截断重归一化、raw soft 与 hard top-1 的统一 soft fusion calibration 表。
 
-当前推荐路线是 online embedding，不再先缓存 1k ViT embedding，不启动 1k ViT embedding launcher，不长期保存伪图像 tensor 或 ViT embedding `.npy`。`pilot/` 子目录只保留小规模验证、离线 embedding cache 历史对照、过渡性 launcher 和特定资源编排脚本；正式可复用的评估和训练入口保留在 Stage 1 根目录，跨阶段通用逻辑上收到 `visual_router_experiments/common/`。
+当前推荐路线是 online embedding，不再先缓存 ViT embedding，不启动 ViT embedding launcher，不长期保存伪图像 tensor 或 ViT embedding `.npy`。小规模/1k 复现可用 `train_visual_router_online.py`，full-scale 使用 `train_visual_router_online_streaming.py`。`pilot/` 子目录只保留小规模验证、离线 embedding cache 历史对照、过渡性 launcher 和特定资源编排脚本；正式可复用的评估和训练入口保留在 Stage 1 根目录，跨阶段通用逻辑上收到 `visual_router_experiments/common/`。
 
 当前已有文件：
 
@@ -32,11 +35,14 @@ Stage 1 目标：
 | `stage1_cache_contract.md` | 固定 Stage 1 正式 prediction cache、oracle labels、feature cache 和 router evaluation 的字段契约 |
 | `stage1_protocol_and_plan.md` | 记录 Stage 1 per-config 主实验协议、Stage 1B 迁移实验设计、已完成事项、当前未完成清单、视觉 encoder 输入口径和下一步任务验收标准 |
 | `build_stage1_sample_manifest.py` | 基于 Quito evaluate 数据边界生成 manifest-only 样本清单；当前默认 `96_48_S` 1k sample_key，按 split/dataset 均衡、TSF cell 轮转 item、每 item 取中心等距窗口，不启动专家推理 |
-| `build_prediction_cache_from_manifest.py` | 读取 sample manifest 和专家 evaluate config，生成单专家或多专家 prediction cache shard；只对清单指定窗口做前向，shard 内共享 y_true，支持 GPU 单卡绑定 |
-| `merge_prediction_cache_shards.py` | 合并多个 prediction cache shard，复制并重写数组路径，校验五专家完整性、`sample_key + model_name` 唯一性和 y_true 一致性 |
+| `build_prediction_cache_from_manifest.py` | 读取 sample manifest 和专家 evaluate config，生成单专家或多专家 prediction cache shard；支持 `per_sample_npy` 和 full-scale 推荐的 `packed_npy_v1`，只对清单指定窗口做前向，支持 GPU 单卡绑定 |
+| `merge_prediction_cache_shards.py` | 合并多个 prediction cache shard，复制并重写数组路径，校验五专家完整性、`sample_key + model_name` 唯一性和 y_true 一致性；packed 模式会重建 merged 共享 y_true row index |
+| `launch_full_scale_prediction_cache.py` | 生成正式 full-scale prediction cache launcher；按专家和 sample shard 拆任务，DLinear/PatchTST/CrossFormer 绑定 GPU，ES/NaiveForecaster 走 CPU |
+| `run_full_scale_dry_run.py` | 小样本执行 full-scale 框架 dry-run；每步写 `main.log`、`status.json`，用于验证 packed cache、merge、oracle/baseline、streaming router 和 calibration ABI |
 | `evaluate_router_baselines.py` | 用 vali split 学 global/dataset/TSF-cell/dataset+TSF-cell 等非视觉 router baseline，并在 test split 上评估 |
 | `train_visual_router.py` | 读取 ViT embedding manifest、oracle labels 和 prediction manifest，按 `config_name` 独立训练小型 MLP router；支持 `classification` 与 `fusion_huber_kl`，输出五专家权重、hard top-1、soft fusion、专家选择分布、权重熵/最大权重占比和 baseline comparison |
-| `train_visual_router_online.py` | 从 `sample_key` 对齐的 Quito 历史窗口在线构造伪图像、前向冻结 HF ViT、运行内暂存 CLS embedding，并复用 `train_visual_router.py` 的 MLP router 训练、hard top-1 和 soft fusion 评估逻辑；输出 CSV/JSON/Markdown，不落盘 embedding npy 或伪图像 tensor |
+| `train_visual_router_online.py` | 从 `sample_key` 对齐的 Quito 历史窗口在线构造伪图像、前向冻结 HF ViT、运行内暂存 CLS embedding，并复用 `train_visual_router.py` 的 MLP router 训练、hard top-1 和 soft fusion 评估逻辑；适合小规模/1k，不落盘 embedding npy 或伪图像 tensor |
+| `train_visual_router_online_streaming.py` | 从 Quito 历史窗口流式生成 ViT embedding；scaler 只在 vali 上 `partial_fit`，训练 epoch 重新流式生成 vali embedding，test 流式预测；输出兼容 calibration 的 `visual_router_predictions.csv` 和标准 `visual_router_metadata.json` |
 | `evaluate_soft_fusion_calibration.py` | 读取 `visual_router_predictions.csv` 与 prediction manifest，在不改变 router 输入约束的前提下评估 softmax temperature、top-k weight truncation、raw soft、top1 hard、top2/top3 fusion，并输出 entropy、max-weight、selected-model 分布诊断 |
 | `pilot/` | 保存 Stage 1 正式实验前的数据流、cache schema、oracle label、TSF cell enrichment pilot 脚本、离线 embedding cache 历史对照脚本，以及 `96_48_S` 1k 专用 launcher |
 
@@ -107,7 +113,7 @@ Stage 1 目标：
 
 ## Online Visual Router Smoke
 
-当前推荐路线改为 online embedding：不再先启动 1k ViT embedding cache，也不长期保存伪图像 tensor 或 ViT embedding `.npy`。`train_visual_router_online.py` 会在一次运行内读取 Quito 历史窗口 `x`，在线构造伪图像、前向冻结 HF ViT，并把 vali/test CLS embedding 暂存在内存字典中，再复用 `train_visual_router.py` 的 MLP router 训练和评估逻辑。
+当前推荐路线改为 online embedding：不再先启动 ViT embedding cache，也不长期保存伪图像 tensor 或 ViT embedding `.npy`。`train_visual_router_online.py` 是 120/1k 规模的小规模复现入口，会在一次运行内读取 Quito 历史窗口 `x`，在线构造伪图像、前向冻结 HF ViT，并把 vali/test CLS embedding 暂存在内存字典中。full-scale 路线使用 `train_visual_router_online_streaming.py`，按 batch 生成 embedding 并立即消费，不构建全量 embedding 字典。
 
 代表 120 sample_key smoke：
 
@@ -269,24 +275,35 @@ latency 对比已写入新 embedding run：
 - prediction cache：`experiment_logs/run_outputs/2026-06-14_101000_visual_router_stage1_prediction_cache_96_48_s_1k_launcher/launcher.sh`
 - ViT embedding：`experiment_logs/run_outputs/2026-06-14_101500_visual_router_stage1_vit_embedding_96_48_s_1k_launcher/launcher.sh`，当前路线暂不启动，仅作为历史生成物保留
 
-推荐执行顺序：
+1k 链路状态：
 
-1. 120 sample_key online smoke 已完成后，下一步如需推进 1k，应优先启动五专家 prediction cache launcher；默认 DLinear/PatchTST/CrossFormer 绑定 GPU 0/1/2，ES/SNaive 走 CPU：
-
-   ```text
-   bash experiment_logs/run_outputs/2026-06-14_101000_visual_router_stage1_prediction_cache_96_48_s_1k_launcher/launcher.sh
-   ```
-
-2. 所有 shard `status=completed` 后，按 launcher plan 中的 merge 命令合并，再运行 oracle/enrichment/baseline。
-
-3. 训练 1k visual router 时使用 `train_visual_router_online.py`，输入合并后的 `window_oracle_labels_with_tsf_cell.csv` 和 `manifest.csv`，在线执行 ViT embedding 并在运行内暂存；不要启动 1k ViT embedding launcher，也不要长期保存 embedding `.npy` 或伪图像 tensor cache。
-
-查看进度示例：
-
-```text
-tail -f experiment_logs/run_outputs/2026-06-14_101000_visual_router_stage1_prediction_cache_96_48_s_1k_launcher/shards/DLinear/main.log
-cat experiment_logs/run_outputs/2026-06-14_101000_visual_router_stage1_prediction_cache_96_48_s_1k_launcher/shards/DLinear/status.json
-nvidia-smi
-```
+- 1k 五专家 prediction cache、merge、oracle/TSF/baseline、online router 和 calibration 均已完成；
+- 1k online router 保留为中等规模实证结果，后续真正 full-scale 不再使用全量 in-memory embedding 字典；
+- 历史 1k ViT embedding launcher 不启动，仅作为已生成但废弃的离线 cache 对照入口留痕。
 
 中等规模 comparison 表必须至少包含：`oracle_top1`、`global_best_single`、`timefuse_single_variable_logistic_regression`、`visual_hard_top1`、`raw_soft`、`best_calibrated_soft`。其中 `best_calibrated_soft` 只能来自固定 temperature/top-k sweep 的 config-level 汇总最优，不能按 test sample 读取 oracle error 动态调权。
+
+## Full-Scale Dry-Run
+
+首个 full-scale 框架 dry-run 已完成：
+
+```text
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python \
+  visual_router_experiments/stage1_vali_test_router/run_full_scale_dry_run.py \
+  --samples-per-split 2 \
+  --sample-shard-count 2 \
+  --embedding-batch-size 2 \
+  --router-epochs 1 \
+  --device auto \
+  --local-files-only \
+  --output-dir experiment_logs/run_outputs/2026-06-14_stage1_full_scale_dry_run_v2
+```
+
+验证结果：
+
+- merged manifest 为 `20` 行，覆盖 `4` 个 sample_key，每个 sample_key 五专家完整；
+- prediction cache 全部使用 `array_storage=packed_npy_v1`；
+- streaming router 输出 `2` 条 test prediction，权重行和约为 `1.0`；
+- calibration 输出 `raw_soft`、`soft_T0p5`、`top1_hard`、`top2_fusion`、`top2_fusion_T0p5` 共 `5` 个策略；
+- `streaming_online_router/` 下未生成 `.npy`、`embeddings/` 或 embedding shard 文件，只保存 manifest、latency、router predictions、summary 和 metadata；
+- dry-run 根目录现在也写入 `main.log`、`status.json` 和 `metadata.json`，可作为后续 full-scale 长任务模板。

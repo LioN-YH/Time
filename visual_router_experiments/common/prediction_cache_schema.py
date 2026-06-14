@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Mapping, Optional
 
 import numpy as np
 import pandas as pd
@@ -88,6 +88,9 @@ class PredictionCacheRecord:
     y_pred_path: str
     mae: float
     mse: float
+    array_storage: str = "per_sample_npy"
+    y_true_row_index: Optional[int] = None
+    y_pred_row_index: Optional[int] = None
 
 
 def compute_window_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -126,6 +129,9 @@ def make_prediction_record(
     y_pred_path: Path,
     y_true: np.ndarray,
     y_pred: np.ndarray,
+    array_storage: str = "per_sample_npy",
+    y_true_row_index: Optional[int] = None,
+    y_pred_row_index: Optional[int] = None,
 ) -> PredictionCacheRecord:
     """
     函数功能：
@@ -156,12 +162,22 @@ def make_prediction_record(
         y_pred_path=str(y_pred_path),
         mae=metrics["mae"],
         mse=metrics["mse"],
+        array_storage=str(array_storage),
+        y_true_row_index=y_true_row_index,
+        y_pred_row_index=y_pred_row_index,
     )
 
 
 def records_to_frame(records: Iterable[PredictionCacheRecord]) -> pd.DataFrame:
     """函数功能：将 cache manifest 记录转换为 DataFrame，便于写 parquet/csv。"""
-    rows = [asdict(record) for record in records]
+    rows = []
+    for record in records:
+        if isinstance(record, PredictionCacheRecord):
+            rows.append(asdict(record))
+        elif isinstance(record, Mapping):
+            rows.append(dict(record))
+        else:
+            raise TypeError(f"不支持的 prediction cache record 类型：{type(record)!r}")
     return pd.DataFrame(rows)
 
 
@@ -244,6 +260,8 @@ def validate_manifest_frame(
     ]
     if require_shared_y_true_path:
         stable_cols.append("y_true_path")
+        if "y_true_row_index" in manifest_df.columns:
+            stable_cols.append("y_true_row_index")
     unstable = manifest_df.groupby("sample_key")[stable_cols].nunique(dropna=False)
     bad_stable = unstable[(unstable > 1).any(axis=1)]
     if not bad_stable.empty:
@@ -255,6 +273,15 @@ def validate_manifest_frame(
         duplicate_count = int(manifest_df.duplicated(["sample_key", "model_name"]).sum())
         if duplicate_count:
             raise ValueError(f"sample_key + model_name 存在 {duplicate_count} 条重复记录。")
+
+    if "array_storage" in manifest_df.columns:
+        packed_mask = manifest_df["array_storage"].astype(str) == "packed_npy_v1"
+        if packed_mask.any():
+            packed_frame = manifest_df.loc[packed_mask, :]
+            if "y_true_row_index" not in packed_frame.columns or "y_pred_row_index" not in packed_frame.columns:
+                raise ValueError("packed_npy_v1 记录必须包含 y_true_row_index 和 y_pred_row_index")
+            if packed_frame["y_true_row_index"].isna().any() or packed_frame["y_pred_row_index"].isna().any():
+                raise ValueError("packed_npy_v1 记录的 row_index 不能为空")
 
     if expected_models:
         expected_set = set(expected_models)

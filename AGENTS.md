@@ -58,6 +58,13 @@
 2. 重要数据处理结果应尽量保留可复核来源、生成路径和校验结果。
 3. 对可能影响后续实验复现的操作，应在实验日志中明确记录。
 
+## 协作执行偏好补充
+
+1. **优先利用可用算力**：当服务器存在空闲 GPU 或多卡资源，且任务具备并行条件时，应优先评估 GPU 加速或多卡并行方案。只要能明显提速且不影响结果正确性与稳定性，就尽量启用，不要默认退回单卡或纯 CPU 串行。
+2. **面向网络波动执行**：凡涉及下载、远程请求、模型拉取、接口调用或外部资源同步的步骤，都要默认网络可能不稳定。遇到 429、503 或类似临时错误时，优先采用自动重试、指数退避、分批执行或断点续跑；若短期内仍无法恢复，要保留当前进度，记录失败原因和后续接手所需信息，方便继续交接。
+3. **上下文过长时主动切窗**：当当前窗口上下文接近上限、信息噪声过多，或继续推进会明显影响推理质量时，可主动做摘要、转移关键记忆并新开窗口继续，避免为了维持单窗口而丢失有效信息。
+4. **可并行任务优先拆分**：如果发现一个目标可以拆成彼此独立或弱依赖的子任务，应优先拆分成多个 subagent 并行推进；主线程负责约束接口、合并结果和把控最终口径。
+
 ## 实验环境规范
 
 1. 本工作区实验、数据处理、Quito 脚本运行和与 `torch`/`quito`/`omegaconf`/`sklearn` 等依赖相关的验证，默认使用 conda 环境 `quito`。
@@ -85,6 +92,8 @@
 6. 阶段性协议、实验规划、任务拆解和路线变更应优先写入对应 stage 代码目录下的 Markdown 文档，例如 `stage1_vali_test_router/stage1_protocol_and_plan.md`；跨阶段总体规划可放在 `visual_router_experiments/` 根目录或 `common/` 相关文档中。
 7. 大规模 prediction cache、embedding cache、checkpoint、评估结果和运行日志不得直接写入代码目录，应继续写入 `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_*/`。
 8. 新增 stage 目录、pilot 子目录、正式实验入口脚本、schema 文档、阶段规划文档或长期保留配置时，应同步更新 `WORKSPACE_STRUCTURE.md`，并按实验日志规范记录本次结构变化。
+9. Stage 1 full-scale online 主线固定为 `x -> pseudo image -> frozen ViT -> router`；伪图像 tensor 和 ViT embedding 只在 batch 运行时生成，不落盘、不作为长期缓存。全量 router 应优先使用 `train_visual_router_online_streaming.py` 或等价 streaming/shard-aware 入口，不依赖全量 in-memory embedding 字典。
+10. Stage 1 full-scale prediction cache 应优先使用 `packed_npy_v1` 或等价少文件 shard 格式；只有小规模 smoke/历史 pilot 才使用 per-sample `.npy`。合并前后必须校验 `sample_key + model_name` 唯一、五专家完整、共享 y_true 一致。
 
 ## 工作区结构文档维护规范
 
