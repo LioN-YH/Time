@@ -19,4 +19,4 @@
 | `enrich_cache_with_tsf_cell.py` | 为 pilot manifest/oracle labels 合并 TSF cell 元信息，并生成分层 oracle summary |
 | `launch_96_48_s_1k_prediction_cache_pilot.py` | 生成 `96_48_S` 1k prediction cache 后台 launcher；三深度专家分 GPU，统计专家走 CPU；属于固定规模资源编排脚本，默认不自动启动 |
 | `launch_96_48_s_1k_vit_embedding_pilot.py` | 生成 `96_48_S` 1k ViT embedding cache smoke launcher；当前 online 路线下暂不启动，避免先长期保存 ViT embedding `.npy` |
-| `train_structure_router_pilot.py` | 使用 TimeFuse 单变量元特征训练最小 LogisticRegression router；vali fit scaler/router，test 评估专家选择 MAE |
+| `train_structure_router_pilot.py` | 使用 TimeFuse 单变量元特征训练最小 LogisticRegression router；该 hard-label 分类器已降级为 legacy/deprecated 历史口径，后续主比较使用 Stage 1 根目录统一 evaluator 中的 TimeFuse-style fusor |

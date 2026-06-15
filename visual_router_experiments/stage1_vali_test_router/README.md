@@ -17,7 +17,8 @@ Stage 1 目标：
 - `merge_prediction_cache_shards.py`：合并 prediction cache shard，校验 `sample_key + model_name` 唯一、五专家完整和共享 y_true 一致；
 - `launch_full_scale_prediction_cache.py`：生成 full-scale prediction cache launcher，按专家和 sample shard 拆分任务，默认深度专家绑 GPU、统计专家走 CPU，数组默认 `packed_npy_v1`；
 - `run_full_scale_dry_run.py`：执行小样本 full-scale 框架 dry-run，验证 manifest -> packed cache -> merge -> oracle/baseline -> streaming router -> calibration 闭环；
-- `evaluate_router_baselines.py`：基于 vali split 学非视觉 router baseline，并在 test split 上评估；
+- `evaluate_router_baselines.py`：基于 vali split 学统计规则 baseline，并可同时训练 TimeFuse-style 单层 fusor baseline，在 test split 上生成统一 comparison；
+- `fusion_utils.py`：共享 prediction manifest 读取、五专家预测数组读取、hard top-1/soft fusion 指标复算，以及 TimeFuse-style 单层 fusor 训练与评估逻辑；
 - `train_visual_router.py`：训练 TimeFuse-style 小型 MLP visual router；默认 `fusion_huber_kl` 模式用五专家预测加权融合的 SmoothL1 主损失训练权重，同时保留 `classification` 旧版 oracle hard-label baseline；
 - `train_visual_router_online.py`：在线执行 `x -> pseudo image -> frozen ViT -> CLS embedding -> router`，适合 120/1k 规模，在一次运行内把 embedding 暂存在内存中训练 MLP router，不保存伪图像 tensor 或 ViT embedding npy；
 - `train_visual_router_online_streaming.py`：full-scale streaming online router，batch 运行时生成 ViT embedding，`StandardScaler.partial_fit` 只遍历 vali，test 流式 forward；不保存 embedding `.npy`，不构建全量 embedding 字典；
@@ -39,12 +40,48 @@ Stage 1 目标：
 | `merge_prediction_cache_shards.py` | 合并多个 prediction cache shard，复制并重写数组路径，校验五专家完整性、`sample_key + model_name` 唯一性和 y_true 一致性；packed 模式会重建 merged 共享 y_true row index |
 | `launch_full_scale_prediction_cache.py` | 生成正式 full-scale prediction cache launcher；按专家和 sample shard 拆任务，DLinear/PatchTST/CrossFormer 绑定 GPU，ES/NaiveForecaster 走 CPU |
 | `run_full_scale_dry_run.py` | 小样本执行 full-scale 框架 dry-run；每步写 `main.log`、`status.json`，用于验证 packed cache、merge、oracle/baseline、streaming router 和 calibration ABI |
-| `evaluate_router_baselines.py` | 用 vali split 学 global/dataset/TSF-cell/dataset+TSF-cell 等非视觉 router baseline，并在 test split 上评估 |
+| `evaluate_router_baselines.py` | 用 vali split 学 global/dataset/TSF-cell/dataset+TSF-cell 等统计规则 baseline，并可训练原生 TimeFuse-style 单层 fusor；输出统计 baseline、fusor hard top-1、raw soft fusion、oracle 和统一 `baseline_comparison.csv` |
+| `fusion_utils.py` | Stage 1 router/fusor 共享工具；统一读取 prediction manifest、加载五专家 `y_pred/y_true` 数组、复算 hard/soft fusion MAE/MSE，并实现 `nn.Linear -> softmax` 的 TimeFuse-style fusor baseline |
 | `train_visual_router.py` | 读取 ViT embedding manifest、oracle labels 和 prediction manifest，按 `config_name` 独立训练小型 MLP router；支持 `classification` 与 `fusion_huber_kl`，输出五专家权重、hard top-1、soft fusion、专家选择分布、权重熵/最大权重占比和 baseline comparison |
 | `train_visual_router_online.py` | 从 `sample_key` 对齐的 Quito 历史窗口在线构造伪图像、前向冻结 HF ViT、运行内暂存 CLS embedding，并复用 `train_visual_router.py` 的 MLP router 训练、hard top-1 和 soft fusion 评估逻辑；适合小规模/1k，不落盘 embedding npy 或伪图像 tensor |
 | `train_visual_router_online_streaming.py` | 从 Quito 历史窗口流式生成 ViT embedding；scaler 只在 vali 上 `partial_fit`，训练 epoch 重新流式生成 vali embedding，test 流式预测；输出兼容 calibration 的 `visual_router_predictions.csv` 和标准 `visual_router_metadata.json` |
 | `evaluate_soft_fusion_calibration.py` | 读取 `visual_router_predictions.csv` 与 prediction manifest，在不改变 router 输入约束的前提下评估 softmax temperature、top-k weight truncation、raw soft、top1 hard、top2/top3 fusion，并输出 entropy、max-weight、selected-model 分布诊断 |
 | `pilot/` | 保存 Stage 1 正式实验前的数据流、cache schema、oracle label、TSF cell enrichment pilot 脚本、离线 embedding cache 历史对照脚本，以及 `96_48_S` 1k 专用 launcher |
+
+## TimeFuse-style Fusor Baseline
+
+`evaluate_router_baselines.py` 现在是统一 baseline 入口：默认保留 global/dataset/TSF-cell/dataset+TSF-cell 等统计规则 baseline，并在 feature cache 与 prediction manifest 可对齐时训练 TimeFuse-style 单层 fusor。该 fusor 复刻 `TimeFuse/timefuse.py` 与 notebook 训练口径：`nn.Linear(input_dim, output_dim)` 输出 logits，forward 后 softmax 得到五专家权重，训练时用权重融合五专家 `y_pred`，再用 `SmoothL1Loss(beta=0.01)` 对 `y_true` 反传。旧 `timefuse_single_variable_logistic_regression` 是 legacy/deprecated hard-label 分类 baseline，不再作为新的主比较口径。
+
+120 sample_key pilot 复验命令：
+
+```text
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python \
+  visual_router_experiments/stage1_vali_test_router/evaluate_router_baselines.py \
+  --labels-path experiment_logs/run_outputs/2026-06-12_125902_319469_visual_router_stage1_prediction_cache_pilot/window_oracle_labels_with_tsf_cell.csv \
+  --output-dir experiment_logs/run_outputs/2026-06-15_014918_visual_router_stage1_timefuse_fusor_baseline_pilot \
+  --timefuse-fusor on \
+  --device cpu \
+  --fusor-epochs 5 \
+  --fusor-batch-size 64 \
+  --fusor-lr 0.0005 \
+  --fusor-beta 0.01 \
+  --seed 16
+```
+
+代表输出目录：
+
+- `experiment_logs/run_outputs/2026-06-15_014918_visual_router_stage1_timefuse_fusor_baseline_pilot/`
+
+当前 120 sample_key pilot 结果：
+
+| 方法 | test MAE | oracle MAE | regret | label accuracy | normalized weight entropy | mean max weight |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `timefuse_style_fusor` hard top-1 | 1.490870 | 0.805392 | 0.685478 | 0.216667 | 0.576704 | 0.619892 |
+| `timefuse_style_fusor_raw_soft_fusion` | 1.509144 | 0.805392 | 0.703752 | NA | 0.576704 | 0.619892 |
+| `global_best_single` | 1.055190 | 0.805392 | 0.249798 | 0.050000 | NA | NA |
+| `oracle_top1` | 0.805392 | 0.805392 | 0.000000 | 1.000000 | NA | NA |
+
+输出文件包括 `timefuse_fusor_predictions.csv`、`timefuse_fusor_raw_soft_fusion_predictions.csv`、`timefuse_fusor_summary.csv`、`timefuse_fusor_raw_soft_fusion_summary.csv`、`timefuse_fusor_selected_model_counts.csv`、`baseline_comparison.csv` 和 `baseline_metadata.json`。其中每个 test sample 都保留 `weight_{model_name}`，comparison 表可与 visual router 后续结果按 `config_name`、MAE、oracle regret 和权重诊断同表比较。
 
 ## 历史离线 120 Sample Smoke
 
@@ -102,7 +139,7 @@ Stage 1 目标：
 | `visual_router_mlp_v2_fusion_huber_kl` hard top-1 | 0.982425 | 0.805392 | 0.177033 | 0.466667 | 0.757180 | 0.483784 |
 | `visual_router_mlp_v2_fusion_huber_kl_soft_fusion` | 1.085451 | 0.805392 | 0.280059 | NA | 0.757180 | 0.483784 |
 | `global_best_single` | 1.055190 | 0.805392 | 0.249798 | 0.050000 | NA | NA |
-| `timefuse_single_variable_logistic_regression` | 1.079743 | 0.805392 | 0.274351 | 0.466667 | NA | NA |
+| `timefuse_single_variable_logistic_regression` legacy/deprecated | 1.079743 | 0.805392 | 0.274351 | 0.466667 | NA | NA |
 | `oracle_top1` | 0.805392 | 0.805392 | 0.000000 | 1.000000 | NA | NA |
 
 结论口径：
@@ -228,7 +265,7 @@ latency 对比已写入新 embedding run：
 | `calibration_soft_T0p25` | 1.021081 | 0.805392 | 0.215689 | 0.433333 | 0.365525 | 0.756458 |
 | `calibration_top2_fusion_T0p25` | 1.023443 | 0.805392 | 0.218051 | 0.433333 | 0.265783 | 0.794654 |
 | `global_best_single` | 1.055190 | 0.805392 | 0.249798 | 0.050000 | NA | NA |
-| `timefuse_single_variable_logistic_regression` | 1.079743 | 0.805392 | 0.274351 | 0.466667 | NA | NA |
+| `timefuse_single_variable_logistic_regression` legacy/deprecated | 1.079743 | 0.805392 | 0.274351 | 0.466667 | NA | NA |
 | `oracle_top1` | 0.805392 | 0.805392 | 0.000000 | 1.000000 | NA | NA |
 
 新旧 embedding 数组对比显示 120 个样本中有 22 个 embedding 的最大绝对差异超过 `1e-6`，hard top-1 有 13 个 test window 改变专家选择。新口径加速了伪图像化，但当前 120 sample_key 指标弱于旧代表 embedding，因此不能把 fixed_candidates 直接视为性能改进；更合理的下一步是在更大 `96_48_S` 样本上同时比较速度和路由稳定性。
@@ -281,7 +318,7 @@ latency 对比已写入新 embedding run：
 - 1k online router 保留为中等规模实证结果，后续真正 full-scale 不再使用全量 in-memory embedding 字典；
 - 历史 1k ViT embedding launcher 不启动，仅作为已生成但废弃的离线 cache 对照入口留痕。
 
-中等规模 comparison 表必须至少包含：`oracle_top1`、`global_best_single`、`timefuse_single_variable_logistic_regression`、`visual_hard_top1`、`raw_soft`、`best_calibrated_soft`。其中 `best_calibrated_soft` 只能来自固定 temperature/top-k sweep 的 config-level 汇总最优，不能按 test sample 读取 oracle error 动态调权。
+中等规模 comparison 表必须至少包含：`oracle_top1`、`global_best_single`、`timefuse_style_fusor` hard top-1、`timefuse_style_fusor_raw_soft_fusion`、`visual_hard_top1`、`raw_soft`、`best_calibrated_soft`。旧 `timefuse_single_variable_logistic_regression` 只能作为 legacy/deprecated 历史附录引用，不再作为主表必选 baseline。其中 `best_calibrated_soft` 只能来自固定 temperature/top-k sweep 的 config-level 汇总最优，不能按 test sample 读取 oracle error 动态调权。
 
 ## Full-Scale Dry-Run
 

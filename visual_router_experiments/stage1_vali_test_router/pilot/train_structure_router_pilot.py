@@ -5,6 +5,7 @@
 
 Pilot 限制：
     - 只作为非视觉数值 baseline，避免把结构化特征工程做成主线；
+    - 当前 LogisticRegression hard-label router 已降级为 legacy/deprecated 历史口径；
     - 每个 config_name 独立训练一个 router，严格遵守 Stage 1 动作空间边界；
     - feature scaler 和分类器只在 vali split 上 fit，再用于 test split；
     - 标签使用 oracle labels 中指定 metric 的 oracle_model。
@@ -169,8 +170,8 @@ def make_router() -> Pipeline:
         创建最小结构特征 router。
 
     说明：
-        使用 StandardScaler + LogisticRegression 是为了建立轻量可解释的 baseline；
-        不在这里做复杂模型搜索，避免偏离视觉路由主线。
+        该 hard-label 分类器只保留为 legacy/deprecated 历史对照；新的主比较口径
+        应使用 `evaluate_router_baselines.py` 中的 TimeFuse-style fusor baseline。
     """
     return Pipeline(
         steps=[
@@ -209,6 +210,7 @@ def train_and_predict_config(config_df: pd.DataFrame, feature_cols: Sequence[str
         rows.append(
             {
                 "router_name": "timefuse_single_variable_logistic_regression",
+                "baseline_status": "legacy_deprecated",
                 "config_name": row["config_name"],
                 "sample_key": row["sample_key"],
                 "split": row["split"],
@@ -233,11 +235,12 @@ def train_and_predict_config(config_df: pd.DataFrame, feature_cols: Sequence[str
 def summarize_predictions(pred_df: pd.DataFrame) -> pd.DataFrame:
     """函数功能：汇总 router test MAE、oracle regret 和 label accuracy。"""
     rows: List[Dict[str, object]] = []
-    for keys, group in pred_df.groupby(["router_name", "config_name"], sort=True):
-        router_name, config_name = keys
+    for keys, group in pred_df.groupby(["router_name", "baseline_status", "config_name"], sort=True):
+        router_name, baseline_status, config_name = keys
         rows.append(
             {
                 "router_name": router_name,
+                "baseline_status": baseline_status,
                 "config_name": config_name,
                 "sample_count": int(len(group)),
                 "selected_value": float(group["selected_value"].mean()),
@@ -260,17 +263,18 @@ def write_summary(output_dir: Path, summary_df: pd.DataFrame, counts_df: pd.Data
         "",
         "- `StandardScaler`：只在 vali features 上 fit。",
         "- `LogisticRegression(class_weight='balanced')`：只在 vali oracle labels 上训练。",
+        "- 状态：`legacy/deprecated`，只作为历史 hard-label 分类口径保留，不作为新的 TimeFuse 主 baseline。",
         "- test 上根据预测专家名读取对应专家 MAE，计算 router test MAE。",
         "",
         "## Summary",
         "",
-        "| router_name | config_name | sample_count | selected_value | oracle_value | regret_to_oracle | oracle_label_accuracy |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| router_name | baseline_status | config_name | sample_count | selected_value | oracle_value | regret_to_oracle | oracle_label_accuracy |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in summary_df.itertuples(index=False):
         summary_lines.append(
             "| "
-            f"{row.router_name} | {row.config_name} | {row.sample_count} | "
+            f"{row.router_name} | {row.baseline_status} | {row.config_name} | {row.sample_count} | "
             f"{row.selected_value:.6f} | {row.oracle_value:.6f} | "
             f"{row.regret_to_oracle:.6f} | {row.oracle_label_accuracy:.6f} |"
         )
@@ -336,6 +340,9 @@ def main() -> None:
         "feature_columns": list(feature_cols),
         "feature_dim": len(feature_cols),
         "router_name": "timefuse_single_variable_logistic_regression",
+        "status": "legacy_deprecated",
+        "legacy_baseline": True,
+        "deprecation_note": "该结果只作为 TimeFuse-derived meta-feature + LogisticRegression hard-label 分类历史口径保留；新的主比较请使用 evaluate_router_baselines.py 的 TimeFuse-style fusor baseline。",
         "training_split": "vali",
         "evaluation_split": "test",
         "config_names": sorted(pred_df["config_name"].unique().tolist()),

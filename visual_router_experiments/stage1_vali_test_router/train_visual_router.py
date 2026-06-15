@@ -39,8 +39,17 @@ RUN_OUTPUT_ROOT = WORKSPACE / "experiment_logs" / "run_outputs"
 if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
-from visual_router_experiments.stage1_vali_test_router.evaluate_router_baselines import MODEL_COLUMNS  # noqa: E402
-from visual_router_experiments.common.prediction_array_io import load_prediction_array, resolve_cache_array_path  # noqa: E402
+from visual_router_experiments.stage1_vali_test_router.fusion_utils import (  # noqa: E402
+    EPS,
+    MODEL_COLUMNS,
+    add_soft_fusion_metrics,
+    compute_array_metrics,
+    load_prediction_lookup,
+    load_prediction_tensors_for_samples,
+    summarize_hard_predictions,
+    summarize_selected_model_counts,
+    summarize_soft_fusion,
+)
 
 
 DEFAULT_LABELS_PATH = (
@@ -57,7 +66,6 @@ ROUTER_VERSION_BY_MODE = {
     "classification": "visual_router_mlp_v1_classification",
     "fusion_huber_kl": "visual_router_mlp_v2_fusion_huber_kl",
 }
-EPS = 1e-8
 
 
 def now_token() -> str:
@@ -508,222 +516,6 @@ def predict_router_for_config(
     return pd.DataFrame(rows)
 
 
-def load_prediction_lookup(prediction_manifest_path: Path) -> Mapping[Tuple[str, str], Dict[str, object]]:
-    """函数功能：读取 prediction cache manifest，建立 (sample_key, model_name) -> 路径记录。"""
-    if not prediction_manifest_path.exists():
-        raise FileNotFoundError(f"找不到 prediction manifest：{prediction_manifest_path}")
-    manifest_df = pd.read_csv(prediction_manifest_path)
-    required_cols = {"sample_key", "model_name", "y_true_path", "y_pred_path", "mae", "mse"}
-    missing_cols = sorted(required_cols.difference(manifest_df.columns))
-    if missing_cols:
-        raise ValueError(f"prediction manifest 缺少字段：{missing_cols}")
-    duplicated = manifest_df.duplicated(["sample_key", "model_name"])
-    if duplicated.any():
-        dup = manifest_df.loc[duplicated, ["sample_key", "model_name"]].head(10).to_dict("records")
-        raise ValueError(f"prediction manifest 中 sample_key + model_name 重复，示例：{dup}")
-
-    manifest_dir = prediction_manifest_path.parent
-    lookup: Dict[Tuple[str, str], Dict[str, object]] = {}
-    for row in manifest_df.itertuples(index=False):
-        record = row._asdict()
-        record["y_true_path"] = resolve_cache_array_path(str(record["y_true_path"]), manifest_dir)
-        record["y_pred_path"] = resolve_cache_array_path(str(record["y_pred_path"]), manifest_dir)
-        lookup[(str(row.sample_key), str(row.model_name))] = record
-    return lookup
-
-
-def load_prediction_tensors_for_samples(
-    sample_keys: Sequence[str],
-    prediction_lookup: Mapping[Tuple[str, str], Dict[str, object]],
-    *,
-    error_metric: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    函数功能：
-        按 sample_key 顺序读取五专家预测数组和共享 y_true，用于 fusion loss。
-
-    输入：
-        sample_keys: 与 embedding/label DataFrame 行顺序一致的 sample_key。
-        prediction_lookup: `(sample_key, model_name) -> y_true/y_pred 路径` 索引。
-
-    输出：
-        - y_preds: [N, M, ...]，M 为五个专家；
-        - y_true: [N, ...]；
-        - expert_errors: [N, M]，按 `error_metric` 构造 soft oracle。
-
-    关键约束：
-        只在训练 split 读取当前样本自己的专家预测和真实 y；这些张量作为监督目标
-        参与 loss，不会作为 router 输入特征，也不会读取 test oracle 误差来调权重。
-    """
-    all_preds: List[np.ndarray] = []
-    all_trues: List[np.ndarray] = []
-    all_errors: List[np.ndarray] = []
-    for sample_key in sample_keys:
-        missing_models = [model for model in MODEL_COLUMNS if (str(sample_key), model) not in prediction_lookup]
-        if missing_models:
-            raise ValueError(f"prediction manifest 缺少 sample_key={sample_key} 的专家：{missing_models}")
-
-        sample_preds: List[np.ndarray] = []
-        sample_true: Optional[np.ndarray] = None
-        sample_errors: List[float] = []
-        for model_name in MODEL_COLUMNS:
-            record = prediction_lookup[(str(sample_key), model_name)]
-            y_pred = load_prediction_array(record, "y_pred")
-            current_y_true = load_prediction_array(record, "y_true")
-            if sample_true is None:
-                sample_true = current_y_true
-            elif not np.array_equal(sample_true, current_y_true):
-                raise ValueError(f"同一 sample_key 的 y_true 内容不一致：{sample_key}")
-            if y_pred.shape != current_y_true.shape:
-                raise ValueError(f"y_pred/y_true shape 不一致：sample_key={sample_key} model={model_name}")
-            sample_preds.append(y_pred)
-            diff = y_pred - current_y_true
-            if error_metric == "mae":
-                sample_errors.append(float(np.mean(np.abs(diff))))
-            elif error_metric == "mse":
-                sample_errors.append(float(np.mean(diff ** 2)))
-            else:
-                raise ValueError(f"未知 error_metric={error_metric}")
-
-        assert sample_true is not None
-        all_preds.append(np.stack(sample_preds, axis=0))
-        all_trues.append(sample_true)
-        all_errors.append(np.asarray(sample_errors, dtype=np.float32))
-
-    y_preds = np.stack(all_preds, axis=0).astype(np.float32)
-    y_true = np.stack(all_trues, axis=0).astype(np.float32)
-    expert_errors = np.stack(all_errors, axis=0).astype(np.float32)
-    if y_preds.ndim < 3:
-        raise ValueError(f"专家预测张量维度异常：{y_preds.shape}")
-    if not (np.isfinite(y_preds).all() and np.isfinite(y_true).all() and np.isfinite(expert_errors).all()):
-        raise ValueError("prediction tensor 中存在非有限值")
-    return y_preds, y_true, expert_errors
-
-
-def compute_array_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    """函数功能：基于数组计算 MAE/MSE，用于 hard top-1 和 soft fusion 统一复核。"""
-    y_true = np.asarray(y_true, dtype=np.float32)
-    y_pred = np.asarray(y_pred, dtype=np.float32)
-    if y_true.shape != y_pred.shape:
-        raise ValueError(f"y_true/y_pred shape 不一致：{y_true.shape} vs {y_pred.shape}")
-    error = y_pred - y_true
-    return {"mae": float(np.mean(np.abs(error))), "mse": float(np.mean(error ** 2))}
-
-
-def add_soft_fusion_metrics(pred_df: pd.DataFrame, prediction_lookup: Mapping[Tuple[str, str], Dict[str, object]]) -> pd.DataFrame:
-    """
-    函数功能：
-        根据 router 权重加权五专家预测数组，计算 soft fusion MAE/MSE。
-
-    关键约束：
-        只融合同一 `sample_key` 下的五个专家预测，不读取 test oracle 误差来调整权重。
-    """
-    rows: List[Dict[str, object]] = []
-    for _, row in pred_df.iterrows():
-        sample_key = str(row["sample_key"])
-        missing_models = [model for model in MODEL_COLUMNS if (sample_key, model) not in prediction_lookup]
-        if missing_models:
-            raise ValueError(f"prediction manifest 缺少 sample_key={sample_key} 的专家：{missing_models}")
-
-        y_true: Optional[np.ndarray] = None
-        weighted_pred: Optional[np.ndarray] = None
-        expert_metric_cols: Dict[str, float] = {}
-        for model_name in MODEL_COLUMNS:
-            record = prediction_lookup[(sample_key, model_name)]
-            y_pred = load_prediction_array(record, "y_pred")
-            current_y_true = load_prediction_array(record, "y_true")
-            if y_true is None:
-                y_true = current_y_true
-            elif not np.array_equal(y_true, current_y_true):
-                raise ValueError(f"同一 sample_key 的 y_true 内容不一致：{sample_key}")
-            weight = float(row[f"weight_{model_name}"])
-            weighted_pred = y_pred * weight if weighted_pred is None else weighted_pred + y_pred * weight
-            expert_metric_cols[f"{model_name}_mae_from_manifest"] = float(record["mae"])
-            expert_metric_cols[f"{model_name}_mse_from_manifest"] = float(record["mse"])
-
-        assert y_true is not None and weighted_pred is not None
-        soft_metrics = compute_array_metrics(y_true, weighted_pred)
-        selected_record = prediction_lookup[(sample_key, str(row["selected_model"]))]
-        hard_metrics = compute_array_metrics(y_true, load_prediction_array(selected_record, "y_pred"))
-
-        output_row = row.to_dict()
-        output_row.update(expert_metric_cols)
-        output_row.update(
-            {
-                "soft_fusion_mae": soft_metrics["mae"],
-                "soft_fusion_mse": soft_metrics["mse"],
-                "hard_top1_mae_from_array": hard_metrics["mae"],
-                "hard_top1_mse_from_array": hard_metrics["mse"],
-            }
-        )
-        rows.append(output_row)
-    return pd.DataFrame(rows)
-
-
-def summarize_hard_predictions(pred_df: pd.DataFrame) -> pd.DataFrame:
-    """函数功能：汇总 hard top-1 routing 的 test 指标。"""
-    rows: List[Dict[str, object]] = []
-    for (router_name, config_name), group in pred_df.groupby(["router_name", "config_name"], sort=True):
-        rows.append(
-            {
-                "router_name": router_name,
-                "config_name": config_name,
-                "sample_count": int(len(group)),
-                "selected_value": float(group["selected_value"].mean()),
-                "oracle_value": float(group["oracle_value"].mean()),
-                "regret_to_oracle": float(group["regret_to_oracle"].mean()),
-                "oracle_label_accuracy": float(group["oracle_label_correct"].mean()),
-                "mean_weight_entropy": float(group["weight_entropy"].mean()),
-                "mean_normalized_weight_entropy": float(group["normalized_weight_entropy"].mean()),
-                "mean_max_weight": float(group["max_weight"].mean()),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def summarize_soft_fusion(pred_df: pd.DataFrame) -> pd.DataFrame:
-    """函数功能：汇总 soft fusion 与 hard top-1 的数组级 MAE/MSE。"""
-    rows: List[Dict[str, object]] = []
-    for (router_name, config_name), group in pred_df.groupby(["router_name", "config_name"], sort=True):
-        rows.append(
-            {
-                "router_name": f"{router_name}_soft_fusion",
-                "config_name": config_name,
-                "sample_count": int(len(group)),
-                "soft_fusion_mae": float(group["soft_fusion_mae"].mean()),
-                "soft_fusion_mse": float(group["soft_fusion_mse"].mean()),
-                "hard_top1_mae_from_array": float(group["hard_top1_mae_from_array"].mean()),
-                "hard_top1_mse_from_array": float(group["hard_top1_mse_from_array"].mean()),
-                "oracle_value": float(group["oracle_value"].mean()),
-                "mean_weight_entropy": float(group["weight_entropy"].mean()),
-                "mean_normalized_weight_entropy": float(group["normalized_weight_entropy"].mean()),
-                "mean_max_weight": float(group["max_weight"].mean()),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def summarize_selected_model_counts(pred_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    函数功能：
-        汇总 hard top-1 选中专家分布，用于诊断 router 是否塌缩到单一专家。
-    """
-    rows: List[Dict[str, object]] = []
-    for (router_name, config_name), group in pred_df.groupby(["router_name", "config_name"], sort=True):
-        counts = group["selected_model"].value_counts().reindex(MODEL_COLUMNS, fill_value=0)
-        for model_name, count in counts.items():
-            rows.append(
-                {
-                    "router_name": router_name,
-                    "config_name": config_name,
-                    "selected_model": model_name,
-                    "count": int(count),
-                    "ratio": float(count / len(group)),
-                }
-            )
-    return pd.DataFrame(rows)
-
-
 def compare_with_baselines(
     output_dir: Path,
     labels_path: Path,
@@ -742,6 +534,7 @@ def compare_with_baselines(
             rows.append(
                 {
                     "method": str(row.baseline),
+                    "method_status": "active",
                     "config_name": str(row.config_name),
                     "sample_count": int(row.sample_count),
                     "mae_like_value": float(row.selected_value),
@@ -759,9 +552,12 @@ def compare_with_baselines(
     if structure_path.exists():
         structure_df = pd.read_csv(structure_path)
         for row in structure_df.itertuples(index=False):
+            # 旧结构特征 LogisticRegression 只保留作历史附录，避免后续同表比较误读为主 baseline。
+            baseline_status = getattr(row, "baseline_status", "legacy_deprecated")
             rows.append(
                 {
                     "method": str(row.router_name),
+                    "method_status": str(baseline_status),
                     "config_name": str(row.config_name),
                     "sample_count": int(row.sample_count),
                     "mae_like_value": float(row.selected_value),
@@ -779,6 +575,7 @@ def compare_with_baselines(
         rows.append(
             {
                 "method": str(row.router_name),
+                "method_status": "active",
                 "config_name": str(row.config_name),
                 "sample_count": int(row.sample_count),
                 "mae_like_value": float(row.selected_value),
@@ -799,6 +596,7 @@ def compare_with_baselines(
             rows.append(
                 {
                     "method": str(row.router_name),
+                    "method_status": "active",
                     "config_name": str(row.config_name),
                     "sample_count": int(row.sample_count),
                     "mae_like_value": soft_value,
@@ -891,6 +689,7 @@ def write_summary_md(
                 comparison_df[
                     [
                         "method",
+                        "method_status",
                         "config_name",
                         "sample_count",
                         "mae_like_value",
