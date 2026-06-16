@@ -647,6 +647,7 @@ def write_online_summary_md(
                 comparison_df[
                     [
                         "method",
+                        "method_status",
                         "config_name",
                         "sample_count",
                         "mae_like_value",

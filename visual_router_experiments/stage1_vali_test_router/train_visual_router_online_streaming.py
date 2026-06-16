@@ -130,6 +130,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-read-rows", type=int, default=200000, help="预留的大 CSV chunk 读取行数，metadata 记录用。")
     parser.add_argument("--status-update-interval", type=int, default=50, help="每处理多少个 embedding batch 更新一次 status.json。")
     parser.add_argument("--print-rows", type=int, default=10, help="运行结束打印多少行预测预览。")
+    parser.add_argument("--resume-checkpoint", type=Path, default=None, help="从已有 router checkpoint 继续训练或 eval-only。")
+    parser.add_argument("--train-only", action="store_true", help="只训练并保存 checkpoint，不执行 test streaming 预测。")
     return parser.parse_args()
 
 
@@ -147,6 +149,240 @@ def write_status(output_dir: Path, status: Mapping[str, object]) -> None:
     payload["updated_at"] = display_time()
     payload["output_dir"] = str(output_dir)
     (output_dir / "status.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def stable_path_string(path: Path) -> str:
+    """函数功能：把输入路径规整成 checkpoint 校验使用的稳定字符串。"""
+    return str(path.expanduser().resolve())
+
+
+def scaler_to_state(scaler: StandardScaler) -> Dict[str, object]:
+    """
+    函数功能：
+        将 StandardScaler 转为 torch checkpoint 可稳定保存的状态字典。
+
+    说明：
+        不直接依赖 pickle 保存完整对象，后续恢复时只重建 transform 所需字段，
+        降低 sklearn 版本差异带来的不透明风险。
+    """
+    required_attrs = ["mean_", "scale_", "var_", "n_features_in_"]
+    missing = [name for name in required_attrs if not hasattr(scaler, name)]
+    if missing:
+        raise ValueError(f"scaler 尚未 fit，缺少字段：{missing}")
+    state: Dict[str, object] = {
+        "mean_": np.asarray(scaler.mean_, dtype=np.float64),
+        "scale_": np.asarray(scaler.scale_, dtype=np.float64),
+        "var_": np.asarray(scaler.var_, dtype=np.float64),
+        "n_features_in_": int(scaler.n_features_in_),
+        "n_samples_seen_": getattr(scaler, "n_samples_seen_", None),
+    }
+    if hasattr(scaler, "feature_names_in_"):
+        state["feature_names_in_"] = np.asarray(scaler.feature_names_in_)
+    return state
+
+
+def scaler_from_state(state: Mapping[str, object]) -> StandardScaler:
+    """函数功能：从 checkpoint 状态重建 StandardScaler，用于 resume 后直接 transform。"""
+    scaler = StandardScaler()
+    scaler.mean_ = np.asarray(state["mean_"], dtype=np.float64)
+    scaler.scale_ = np.asarray(state["scale_"], dtype=np.float64)
+    scaler.var_ = np.asarray(state["var_"], dtype=np.float64)
+    scaler.n_features_in_ = int(state["n_features_in_"])
+    n_samples_seen = state.get("n_samples_seen_")
+    if n_samples_seen is not None:
+        scaler.n_samples_seen_ = np.asarray(n_samples_seen) if isinstance(n_samples_seen, (list, tuple, np.ndarray)) else n_samples_seen
+    if "feature_names_in_" in state:
+        scaler.feature_names_in_ = np.asarray(state["feature_names_in_"])
+    return scaler
+
+
+def build_resume_signature(args: argparse.Namespace, period_candidate_values: Optional[Sequence[int]]) -> Dict[str, object]:
+    """
+    函数功能：
+        构造影响 router 参数形状、训练目标、输入 embedding 和数据切分的严格校验签名。
+    """
+    return {
+        "config_name": None,
+        "model_columns": list(MODEL_COLUMNS),
+        "router_mode": args.router_mode,
+        "metric": args.metric,
+        "hidden_dim": int(args.hidden_dim),
+        "dropout": float(args.dropout),
+        "lr": float(args.lr),
+        "weight_decay": float(args.weight_decay),
+        "huber_beta": float(args.huber_beta),
+        "kl_tau": float(args.kl_tau),
+        "lambda_kl": float(args.lambda_kl),
+        "embedding_metadata": {
+            "embedding_version": f"{EMBEDDING_VERSION}_online_streaming",
+            "encoder_name": args.encoder_name,
+            "variant": args.variant,
+            "pooling": args.pooling,
+            "normalization_preset": args.normalization_preset,
+            "image_size": int(args.image_size),
+            "norm_mode": args.norm_mode,
+            "pixel_mode": args.pixel_mode,
+            "clip": float(args.clip),
+            "period_selection": args.period_selection,
+            "period_candidates_arg": args.period_candidates,
+            "period_candidates": [int(value) for value in period_candidate_values] if period_candidate_values is not None else None,
+            "dtype_arg": args.dtype,
+        },
+        "stream_shard_index": int(args.stream_shard_index),
+        "stream_shard_count": int(args.stream_shard_count),
+        "labels_path": stable_path_string(args.labels_path),
+        "prediction_manifest_path": stable_path_string(args.prediction_manifest_path),
+        "config_path": stable_path_string(args.config_path),
+    }
+
+
+def load_checkpoint(path: Path) -> Dict[str, object]:
+    """函数功能：加载 checkpoint，并显式关闭 weights_only 限制以读取 numpy/scaler 状态。"""
+    if not path.exists():
+        raise FileNotFoundError(f"找不到 resume checkpoint：{path}")
+    try:
+        return torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location="cpu")
+
+
+def assert_checkpoint_matches(
+    *,
+    checkpoint: Mapping[str, object],
+    expected_signature: Mapping[str, object],
+    config_name: str,
+) -> None:
+    """
+    函数功能：
+        对 checkpoint 与当前命令做严格签名校验，防止不同 config、embedding 口径或数据路径误接。
+    """
+    signature = dict(expected_signature)
+    signature["config_name"] = str(config_name)
+    fields = [
+        "config_name",
+        "model_columns",
+        "router_mode",
+        "metric",
+        "hidden_dim",
+        "dropout",
+        "lr",
+        "weight_decay",
+        "huber_beta",
+        "kl_tau",
+        "lambda_kl",
+        "embedding_metadata",
+        "stream_shard_index",
+        "stream_shard_count",
+        "labels_path",
+        "prediction_manifest_path",
+        "config_path",
+    ]
+    mismatches = []
+    for field in fields:
+        actual = checkpoint.get(field)
+        expected = signature[field]
+        if actual != expected:
+            mismatches.append({"field": field, "checkpoint": actual, "current": expected})
+    if mismatches:
+        raise ValueError(f"resume checkpoint 与当前命令不兼容：{json.dumps(mismatches, ensure_ascii=False, indent=2)}")
+
+
+def move_optimizer_state_to_device(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    """函数功能：把 optimizer state 中的 tensor 移到当前训练设备，避免 resume 后设备不一致。"""
+    for state in optimizer.state.values():
+        for key, value in list(state.items()):
+            if isinstance(value, torch.Tensor):
+                state[key] = value.to(device=device)
+
+
+def checkpoint_filename(config_name: str, completed_epochs: int) -> str:
+    """函数功能：生成不含特殊字符的 config 级 checkpoint 文件名。"""
+    safe_config = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(config_name))
+    return f"router_{safe_config}_epoch_{int(completed_epochs):04d}.pt"
+
+
+def save_checkpoint(
+    *,
+    output_dir: Path,
+    config_name: str,
+    router: VisualMLPRouter,
+    optimizer: torch.optim.Optimizer,
+    scaler: StandardScaler,
+    completed_epochs: int,
+    args: argparse.Namespace,
+    period_candidate_values: Optional[Sequence[int]],
+    epoch_summaries: Sequence[Mapping[str, float]],
+    scaler_batches: int,
+    scaler_samples: int,
+) -> Path:
+    """
+    函数功能：
+        在每个 epoch 结束保存可续训 checkpoint，并维护 config 级 latest checkpoint。
+    """
+    signature = build_resume_signature(args, period_candidate_values)
+    signature["config_name"] = str(config_name)
+    checkpoint_dir = output_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    payload: Dict[str, object] = {
+        **signature,
+        "checkpoint_version": "stage1_streaming_router_checkpoint_v1",
+        "router_state_dict": router.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state": scaler_to_state(scaler),
+        "completed_epochs": int(completed_epochs),
+        "epoch_summaries": [dict(row) for row in epoch_summaries],
+        "scaler_batches": int(scaler_batches),
+        "scaler_samples": int(scaler_samples),
+        "saved_at": display_time(),
+    }
+    checkpoint_path = checkpoint_dir / checkpoint_filename(str(config_name), int(completed_epochs))
+    tmp_path = checkpoint_path.with_suffix(checkpoint_path.suffix + ".tmp")
+    torch.save(payload, tmp_path)
+    tmp_path.replace(checkpoint_path)
+    latest_path = checkpoint_dir / f"latest_{''.join(ch if ch.isalnum() or ch in {'-', '_'} else '_' for ch in str(config_name))}.pt"
+    latest_tmp = latest_path.with_suffix(latest_path.suffix + ".tmp")
+    torch.save(payload, latest_tmp)
+    latest_tmp.replace(latest_path)
+    (checkpoint_dir / "latest_checkpoint_index.json").write_text(
+        json.dumps(
+            {
+                "config_name": str(config_name),
+                "completed_epochs": int(completed_epochs),
+                "checkpoint_path": str(checkpoint_path),
+                "latest_checkpoint_path": str(latest_path),
+                "updated_at": display_time(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return latest_path
+
+
+def cleanup_output_files(output_dir: Path, *, resume: bool, train_only: bool) -> None:
+    """
+    函数功能：
+        清理本次会被重新生成的 CSV/summary 文件；resume 时绝不删除 checkpoints。
+    """
+    stale_names = [
+        "visual_router_predictions.csv",
+        "visual_router_soft_fusion_predictions.csv",
+        "visual_router_summary.csv",
+        "visual_router_soft_fusion_summary.csv",
+        "visual_router_selected_model_counts.csv",
+        "visual_router_comparison.csv",
+        "visual_router_streaming_summary.md",
+    ]
+    if not resume:
+        stale_names.extend(["online_embedding_manifest.csv", "online_embedding_latency_summary.csv"])
+    if train_only:
+        stale_names = [name for name in stale_names if name.startswith("visual_router_")]
+    for stale_name in stale_names:
+        stale_path = output_dir / stale_name
+        if stale_path.exists():
+            stale_path.unlink()
 
 
 def filter_stream_shard(labels_df: pd.DataFrame, shard_index: int, shard_count: int) -> pd.DataFrame:
@@ -590,6 +826,8 @@ def write_summary_md(
 def main() -> None:
     """函数功能：执行 streaming online router 全流程。"""
     args = parse_args()
+    if int(args.epochs) < 0:
+        raise ValueError("--epochs 必须 >= 0；resume/eval-only 可使用 --epochs 0")
     train_args = build_train_args(args)
     validate_training_args(train_args)
     set_seed(int(args.seed))
@@ -597,7 +835,17 @@ def main() -> None:
     dtype = resolve_dtype(args.dtype, device)
     output_dir = args.output_dir or args.output_root / f"{now_token()}_visual_router_stage1_online_visual_router_streaming_96_48_s"
     output_dir.mkdir(parents=True, exist_ok=True)
-    write_status(output_dir, {"status": "running", "phase": "init"})
+    resume_checkpoint = load_checkpoint(args.resume_checkpoint) if args.resume_checkpoint is not None else None
+    write_status(
+        output_dir,
+        {
+            "status": "running",
+            "phase": "init",
+            "resume_checkpoint": str(args.resume_checkpoint) if args.resume_checkpoint is not None else None,
+            "latest_checkpoint_path": str(args.resume_checkpoint) if args.resume_checkpoint is not None else None,
+            "completed_epochs": int(resume_checkpoint["completed_epochs"]) if resume_checkpoint is not None else 0,
+        },
+    )
 
     labels_df = load_labels(args.labels_path, args.metric)
     labels_df = filter_stream_shard(labels_df, int(args.stream_shard_index), int(args.stream_shard_count))
@@ -607,21 +855,18 @@ def main() -> None:
     period_candidate_values = resolve_period_candidates(args, int(data_config.seq_len))
     vit_model = load_vit_model_with_retry(args, device, dtype)
     prediction_lookup = load_prediction_lookup(args.prediction_manifest_path) if (args.router_mode == "fusion_huber_kl" or not args.skip_soft_fusion) else None
-
-    for stale_name in [
-        "online_embedding_manifest.csv",
-        "online_embedding_latency_summary.csv",
-        "visual_router_predictions.csv",
-        "visual_router_soft_fusion_predictions.csv",
-    ]:
-        stale_path = output_dir / stale_name
-        if stale_path.exists():
-            stale_path.unlink()
+    expected_signature = build_resume_signature(args, period_candidate_values)
+    if resume_checkpoint is not None:
+        config_names = sorted(labels_df["config_name"].astype(str).unique().tolist())
+        if config_names != [str(resume_checkpoint.get("config_name"))]:
+            raise ValueError(f"--resume-checkpoint 当前仅支持单 config 严格续训；labels config={config_names}, checkpoint config={resume_checkpoint.get('config_name')}")
+    cleanup_output_files(output_dir, resume=resume_checkpoint is not None, train_only=bool(args.train_only))
 
     router_name = STREAMING_ONLINE_ROUTER_VERSION if args.router_mode == "fusion_huber_kl" else "visual_router_mlp_v1_classification_online_vit_streaming"
     config_metadata: List[Dict[str, object]] = []
     embedding_dim: Optional[int] = None
     total_embedding_batches = 0
+    latest_checkpoint_path: Optional[Path] = Path(args.resume_checkpoint) if args.resume_checkpoint is not None else None
 
     for config_name, config_labels_df in labels_df.groupby("config_name", sort=True):
         config_windows_df = windows_df[windows_df["config_name"].astype(str) == str(config_name)].copy()
@@ -633,26 +878,46 @@ def main() -> None:
         if vali_windows_df.empty or test_windows_df.empty:
             raise ValueError(f"config_name={config_name} 需要同时包含 vali/test")
 
-        scaler = StandardScaler()
-        scaler_batches = 0
-        scaler_samples = 0
-        for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
-            windows_df=vali_windows_df,
-            data_config=data_config,
-            vit_model=vit_model,
-            args=args,
-            device=device,
-            dtype=dtype,
-            period_candidate_values=period_candidate_values,
-        ):
-            scaler.partial_fit(embeddings)
-            append_csv(output_dir / "online_embedding_manifest.csv", batch_manifest_df)
-            append_latency(output_dir, latency_rows, "scaler_fit")
-            embedding_dim = int(embeddings.shape[1])
-            scaler_batches += 1
-            scaler_samples += int(len(batch_manifest_df))
-            total_embedding_batches += 1
-        write_status(output_dir, {"status": "running", "phase": "scaler_fit_completed", "config_name": str(config_name), "scaler_samples": scaler_samples})
+        previous_completed_epochs = 0
+        if resume_checkpoint is not None:
+            assert_checkpoint_matches(checkpoint=resume_checkpoint, expected_signature=expected_signature, config_name=str(config_name))
+            scaler = scaler_from_state(resume_checkpoint["scaler_state"])
+            scaler_batches = int(resume_checkpoint.get("scaler_batches", 0))
+            scaler_samples = int(resume_checkpoint.get("scaler_samples", 0))
+            previous_completed_epochs = int(resume_checkpoint["completed_epochs"])
+            embedding_dim = int(scaler.n_features_in_)
+            write_status(
+                output_dir,
+                {
+                    "status": "running",
+                    "phase": "checkpoint_loaded",
+                    "config_name": str(config_name),
+                    "resume_checkpoint": str(args.resume_checkpoint),
+                    "completed_epochs": previous_completed_epochs,
+                    "latest_checkpoint_path": str(latest_checkpoint_path) if latest_checkpoint_path is not None else None,
+                },
+            )
+        else:
+            scaler = StandardScaler()
+            scaler_batches = 0
+            scaler_samples = 0
+            for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
+                windows_df=vali_windows_df,
+                data_config=data_config,
+                vit_model=vit_model,
+                args=args,
+                device=device,
+                dtype=dtype,
+                period_candidate_values=period_candidate_values,
+            ):
+                scaler.partial_fit(embeddings)
+                append_csv(output_dir / "online_embedding_manifest.csv", batch_manifest_df)
+                append_latency(output_dir, latency_rows, "scaler_fit")
+                embedding_dim = int(embeddings.shape[1])
+                scaler_batches += 1
+                scaler_samples += int(len(batch_manifest_df))
+                total_embedding_batches += 1
+            write_status(output_dir, {"status": "running", "phase": "scaler_fit_completed", "config_name": str(config_name), "scaler_samples": scaler_samples, "completed_epochs": 0, "latest_checkpoint_path": None})
 
         router = VisualMLPRouter(
             input_dim=int(scaler.n_features_in_),
@@ -661,14 +926,19 @@ def main() -> None:
             dropout=float(args.dropout),
         ).to(device)
         optimizer = torch.optim.AdamW(router.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
+        if resume_checkpoint is not None:
+            router.load_state_dict(resume_checkpoint["router_state_dict"])
+            optimizer.load_state_dict(resume_checkpoint["optimizer_state_dict"])
+            move_optimizer_state_to_device(optimizer, device)
         class_weight = make_class_weight(
             [str(row["oracle_model"]) for row in vali_labels_by_key.values()],
             device=device,
         )
 
-        epoch_summaries: List[Dict[str, float]] = []
+        epoch_summaries: List[Dict[str, float]] = [dict(row) for row in resume_checkpoint.get("epoch_summaries", [])] if resume_checkpoint is not None else []
         router.train()
-        for epoch_idx in range(int(args.epochs)):
+        for local_epoch_idx in range(int(args.epochs)):
+            global_epoch = previous_completed_epochs + local_epoch_idx + 1
             epoch_rows: List[Dict[str, float]] = []
             for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
                 windows_df=vali_windows_df,
@@ -692,47 +962,86 @@ def main() -> None:
                     class_weight=class_weight,
                 )
                 epoch_rows.append(metrics)
-                append_latency(output_dir, latency_rows, f"train_epoch_{epoch_idx + 1}")
+                append_latency(output_dir, latency_rows, f"train_epoch_{global_epoch}")
                 total_embedding_batches += 1
                 if total_embedding_batches % int(args.status_update_interval) == 0:
-                    write_status(output_dir, {"status": "running", "phase": "training", "config_name": str(config_name), "epoch": epoch_idx + 1, "embedding_batches": total_embedding_batches})
-            epoch_summaries.append(
+                    write_status(
+                        output_dir,
+                        {
+                            "status": "running",
+                            "phase": "training",
+                            "config_name": str(config_name),
+                            "epoch": int(global_epoch),
+                            "current_epoch": int(global_epoch),
+                            "completed_epochs": int(global_epoch - 1),
+                            "latest_checkpoint_path": str(latest_checkpoint_path) if latest_checkpoint_path is not None else None,
+                            "embedding_batches": total_embedding_batches,
+                        },
+                    )
+            epoch_summary = {
+                "epoch": float(global_epoch),
+                "loss": float(np.nanmean([row["loss"] for row in epoch_rows])),
+                "huber_loss": float(np.nanmean([row["huber_loss"] for row in epoch_rows])),
+                "kl_loss": float(np.nanmean([row["kl_loss"] for row in epoch_rows])),
+            }
+            epoch_summaries.append(epoch_summary)
+            latest_checkpoint_path = save_checkpoint(
+                output_dir=output_dir,
+                config_name=str(config_name),
+                router=router,
+                optimizer=optimizer,
+                scaler=scaler,
+                completed_epochs=int(global_epoch),
+                args=args,
+                period_candidate_values=period_candidate_values,
+                epoch_summaries=epoch_summaries,
+                scaler_batches=scaler_batches,
+                scaler_samples=scaler_samples,
+            )
+            write_status(
+                output_dir,
                 {
-                    "epoch": float(epoch_idx + 1),
-                    "loss": float(np.nanmean([row["loss"] for row in epoch_rows])),
-                    "huber_loss": float(np.nanmean([row["huber_loss"] for row in epoch_rows])),
-                    "kl_loss": float(np.nanmean([row["kl_loss"] for row in epoch_rows])),
-                }
+                    "status": "running",
+                    "phase": "checkpoint_saved",
+                    "config_name": str(config_name),
+                    "epoch": int(global_epoch),
+                    "current_epoch": int(global_epoch),
+                    "completed_epochs": int(global_epoch),
+                    "latest_checkpoint_path": str(latest_checkpoint_path),
+                    "embedding_batches": total_embedding_batches,
+                },
             )
 
         hard_rows_seen = 0
-        for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
-            windows_df=test_windows_df,
-            data_config=data_config,
-            vit_model=vit_model,
-            args=args,
-            device=device,
-            dtype=dtype,
-            period_candidate_values=period_candidate_values,
-        ):
-            append_csv(output_dir / "online_embedding_manifest.csv", batch_manifest_df)
-            append_latency(output_dir, latency_rows, "test_predict")
-            pred_df = predict_stream_batch(
-                router=router,
-                scaler=scaler,
-                batch_manifest_df=batch_manifest_df,
-                embeddings=embeddings,
-                labels_by_key=test_labels_by_key,
-                router_name=router_name,
+        if not args.train_only:
+            router.eval()
+            for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
+                windows_df=test_windows_df,
+                data_config=data_config,
+                vit_model=vit_model,
+                args=args,
                 device=device,
-            )
-            append_csv(output_dir / "visual_router_predictions.csv", pred_df)
-            if not args.skip_soft_fusion:
-                assert prediction_lookup is not None
-                soft_df = add_soft_fusion_metrics(pred_df, prediction_lookup)
-                append_csv(output_dir / "visual_router_soft_fusion_predictions.csv", soft_df)
-            hard_rows_seen += int(len(pred_df))
-            total_embedding_batches += 1
+                dtype=dtype,
+                period_candidate_values=period_candidate_values,
+            ):
+                append_csv(output_dir / "online_embedding_manifest.csv", batch_manifest_df)
+                append_latency(output_dir, latency_rows, "test_predict")
+                pred_df = predict_stream_batch(
+                    router=router,
+                    scaler=scaler,
+                    batch_manifest_df=batch_manifest_df,
+                    embeddings=embeddings,
+                    labels_by_key=test_labels_by_key,
+                    router_name=router_name,
+                    device=device,
+                )
+                append_csv(output_dir / "visual_router_predictions.csv", pred_df)
+                if not args.skip_soft_fusion:
+                    assert prediction_lookup is not None
+                    soft_df = add_soft_fusion_metrics(pred_df, prediction_lookup)
+                    append_csv(output_dir / "visual_router_soft_fusion_predictions.csv", soft_df)
+                hard_rows_seen += int(len(pred_df))
+                total_embedding_batches += 1
         config_metadata.append(
             {
                 "config_name": str(config_name),
@@ -743,14 +1052,17 @@ def main() -> None:
                 "scaler_samples": int(scaler_samples),
                 "test_predictions": int(hard_rows_seen),
                 "embedding_dim": int(scaler.n_features_in_),
-                "epochs": int(args.epochs),
+                "epochs_requested_this_run": int(args.epochs),
+                "previous_completed_epochs": int(previous_completed_epochs),
+                "completed_epochs": int(previous_completed_epochs + int(args.epochs)),
+                "latest_checkpoint_path": str(latest_checkpoint_path) if latest_checkpoint_path is not None else None,
                 "streaming_epoch_summaries": epoch_summaries,
                 "label_counts": {str(k): int(v) for k, v in config_labels_df[config_labels_df["split"] == "vali"]["oracle_model"].value_counts().reindex(MODEL_COLUMNS, fill_value=0).items()},
             }
         )
 
-    hard_summary_df, soft_summary_df, selected_counts_df, comparison_df = summarize_csv_outputs(output_dir, args.metric, args.labels_path)
-    latency_df = pd.read_csv(output_dir / "online_embedding_latency_summary.csv")
+    latency_path = output_dir / "online_embedding_latency_summary.csv"
+    latency_df = pd.read_csv(latency_path) if latency_path.exists() else pd.DataFrame(columns=["imageization_per_window_ms", "encoder_forward_per_window_ms"])
     embedding_metadata = {
         "embedding_version": f"{EMBEDDING_VERSION}_online_streaming",
         "sample_count": int(len(windows_df)),
@@ -776,8 +1088,8 @@ def main() -> None:
         "config_names": sorted(windows_df["config_name"].unique().tolist()),
         "input_exclusions": ["future_y", "expert_errors_as_input", "oracle_model_as_input", "oracle_value_as_input"],
         "latency_mean": {
-            "imageization_per_window_ms": float(latency_df["imageization_per_window_ms"].mean()),
-            "encoder_forward_per_window_ms": float(latency_df["encoder_forward_per_window_ms"].mean()),
+            "imageization_per_window_ms": float(latency_df["imageization_per_window_ms"].mean()) if not latency_df.empty else None,
+            "encoder_forward_per_window_ms": float(latency_df["encoder_forward_per_window_ms"].mean()) if not latency_df.empty else None,
         },
     }
     run_metadata: Dict[str, object] = {
@@ -798,6 +1110,7 @@ def main() -> None:
         "hidden_dim": int(args.hidden_dim),
         "dropout": float(args.dropout),
         "epochs": int(args.epochs),
+        "epochs_semantics": "additional_epochs_this_run",
         "batch_size": int(args.batch_size),
         "embedding_batch_size": int(args.embedding_batch_size),
         "stream_shard_index": int(args.stream_shard_index),
@@ -810,6 +1123,10 @@ def main() -> None:
         "kl_tau": float(args.kl_tau),
         "lambda_kl": float(args.lambda_kl),
         "soft_fusion_enabled": not bool(args.skip_soft_fusion),
+        "train_only": bool(args.train_only),
+        "resume_checkpoint": str(args.resume_checkpoint) if args.resume_checkpoint is not None else None,
+        "latest_checkpoint_path": str(latest_checkpoint_path) if latest_checkpoint_path is not None else None,
+        "checkpoint_dir": str(output_dir / "checkpoints"),
         "embedding_metadata": embedding_metadata,
         "config_metadata": config_metadata,
         "embedding_storage": "batch_runtime_only_not_saved",
@@ -821,22 +1138,49 @@ def main() -> None:
     }
     (output_dir / "visual_router_metadata.json").write_text(json.dumps(run_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output_dir / "visual_router_online_metadata.json").write_text(json.dumps(run_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    write_summary_md(
-        output_dir=output_dir,
-        hard_summary=hard_summary_df,
-        soft_summary=soft_summary_df,
-        selected_counts=selected_counts_df,
-        comparison_df=comparison_df,
-        metadata=run_metadata,
-    )
-    write_status(output_dir, {"status": "completed", "phase": "done", "router_predictions": int(hard_summary_df["sample_count"].sum())})
+    if args.train_only:
+        completed_epochs = max(int(row["completed_epochs"]) for row in config_metadata) if config_metadata else 0
+        write_status(
+            output_dir,
+            {
+                "status": "completed",
+                "phase": "train_only_done",
+                "completed_epochs": completed_epochs,
+                "current_epoch": completed_epochs,
+                "latest_checkpoint_path": str(latest_checkpoint_path) if latest_checkpoint_path is not None else None,
+            },
+        )
+        print(f"wrote train-only streaming checkpoint outputs to {output_dir}")
+        print(f"latest_checkpoint_path={latest_checkpoint_path}")
+    else:
+        hard_summary_df, soft_summary_df, selected_counts_df, comparison_df = summarize_csv_outputs(output_dir, args.metric, args.labels_path)
+        write_summary_md(
+            output_dir=output_dir,
+            hard_summary=hard_summary_df,
+            soft_summary=soft_summary_df,
+            selected_counts=selected_counts_df,
+            comparison_df=comparison_df,
+            metadata=run_metadata,
+        )
+        completed_epochs = max(int(row["completed_epochs"]) for row in config_metadata) if config_metadata else 0
+        write_status(
+            output_dir,
+            {
+                "status": "completed",
+                "phase": "done",
+                "router_predictions": int(hard_summary_df["sample_count"].sum()),
+                "completed_epochs": completed_epochs,
+                "current_epoch": completed_epochs,
+                "latest_checkpoint_path": str(latest_checkpoint_path) if latest_checkpoint_path is not None else None,
+            },
+        )
 
-    print(f"wrote streaming online visual router outputs to {output_dir}")
-    print(hard_summary_df.to_string(index=False))
-    if soft_summary_df is not None:
-        print(soft_summary_df.to_string(index=False))
-    pred_preview = pd.read_csv(output_dir / "visual_router_predictions.csv").head(int(args.print_rows))
-    print(pred_preview.to_string(index=False))
+        print(f"wrote streaming online visual router outputs to {output_dir}")
+        print(hard_summary_df.to_string(index=False))
+        if soft_summary_df is not None:
+            print(soft_summary_df.to_string(index=False))
+        pred_preview = pd.read_csv(output_dir / "visual_router_predictions.csv").head(int(args.print_rows))
+        print(pred_preview.to_string(index=False))
 
 
 if __name__ == "__main__":

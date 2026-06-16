@@ -67,7 +67,11 @@ from visual_router_experiments.common.prediction_cache_schema import (  # noqa: 
     records_to_frame,
     validate_manifest_frame,
 )
-from visual_router_experiments.common.prediction_array_io import PACKED_NPY_STORAGE, PER_SAMPLE_NPY_STORAGE
+from visual_router_experiments.common.prediction_array_io import (
+    PACKED_NPY_STORAGE,
+    PER_SAMPLE_NPY_STORAGE,
+    resolve_cache_array_path,
+)
 
 
 def now_token() -> str:
@@ -308,12 +312,66 @@ def append_frame(path: Path, frame: pd.DataFrame) -> None:
     frame.to_csv(path, mode="a", header=write_header, index=False)
 
 
+def _optional_row_index(value: object) -> Optional[int]:
+    """函数功能：从已有 manifest 字段安全解析 packed row index。"""
+    if value is None:
+        return None
+    if isinstance(value, float) and np.isnan(value):
+        return None
+    text = str(value).strip()
+    if text == "" or text.lower() == "nan":
+        return None
+    return int(value)
+
+
+def _array_record_is_materialized(row: Mapping[str, object], output_dir: Path) -> bool:
+    """
+    函数功能：
+        判断一条已有 manifest 记录对应的数组是否已经真实落盘。
+
+    设计说明：
+        packed shard 采用 item 级追加 manifest、进程末尾 flush 数组的方式。若长任务
+        中途失败，manifest 可能包含尚未 flush 的半成品行。resume 前必须过滤掉这类
+        行，否则 `completed_group_keys()` 会误跳过实际未完成的 item/model 组。
+    """
+    storage = str(row.get("array_storage", PER_SAMPLE_NPY_STORAGE) or PER_SAMPLE_NPY_STORAGE)
+    for array_kind in ["y_true", "y_pred"]:
+        path = resolve_cache_array_path(str(row[f"{array_kind}_path"]), output_dir)
+        if not path.exists():
+            return False
+        row_index = _optional_row_index(row.get(f"{array_kind}_row_index"))
+        if storage == PACKED_NPY_STORAGE or row_index is not None:
+            if row_index is None:
+                return False
+            try:
+                shape0 = int(np.load(path, mmap_mode="r").shape[0])
+            except Exception:
+                return False
+            if row_index < 0 or row_index >= shape0:
+                return False
+    return True
+
+
+def filter_materialized_manifest_rows(manifest_df: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """
+    函数功能：
+        从已有 manifest 中筛出数组已经可读取的行，作为安全 resume 基础。
+    """
+    if manifest_df.empty:
+        return manifest_df
+    valid_mask = [
+        _array_record_is_materialized(row._asdict(), output_dir)
+        for row in manifest_df.itertuples(index=False)
+    ]
+    return manifest_df.loc[valid_mask].reset_index(drop=True)
+
+
 def load_existing_manifest_rows(output_dir: Path) -> pd.DataFrame:
-    """函数功能：读取已有 manifest，用于断点续跑时识别完成的 item/model 组。"""
+    """函数功能：读取已有 manifest，并过滤掉失败运行留下的未落盘半成品行。"""
     manifest_path = output_dir / "manifest.csv"
     if not manifest_path.exists():
         return pd.DataFrame()
-    return pd.read_csv(manifest_path)
+    return filter_materialized_manifest_rows(pd.read_csv(manifest_path), output_dir)
 
 
 def completed_group_keys(manifest_df: pd.DataFrame) -> set[Tuple[str, str, int, str]]:

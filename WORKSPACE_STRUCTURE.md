@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-15 02:14:44 CST
+更新日期：2026-06-16 14:27:28 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -21,6 +21,7 @@
 ├── .gitignore
 ├── AGENTS.md
 ├── EXTERNAL_OUTPUTS.md
+├── HANDOFF.md
 ├── WORKSPACE_STRUCTURE.md
 ├── experiment_scripts/
 ├── experiment_logs/
@@ -39,6 +40,7 @@
 | `.gitignore` | 根仓库忽略规则；排除嵌套外部仓库、本地 agent 状态、大规模数据、checkpoint、cache、运行日志和密钥环境文件 | 新增长期输出根目录或大规模生成物类型时更新 |
 | `AGENTS.md` | 项目级 agent 工作规范，记录实验日志、默认 conda `quito` 实验环境、中文计划、中文代码注释、工作区结构文档维护等长期要求 | 修改协作规则时更新 |
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
+| `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
 
 ### 1.2 根目录隐藏目录
@@ -97,10 +99,11 @@ experiment_logs/
 | `experiment_logs/2026-06-12_*.md` | 正式实验日志 | 记录视觉结构先验 Router/MoE 研究路线制定和 Visual Router Phase 1 oracle 审计 |
 | `experiment_logs/2026-06-13_*.md` | 正式实验日志 | 记录 GitHub SSH key 配置、根仓库初始化、AGENTS 实验环境规范补充、Stage 1 结构特征/在线伪图像/ViT 成本估算、外部输出根目录接入、近期工作梳理、下一步计划更新和 HF ViT normalization 实现等 2026-06-13 后续步骤 |
 | `experiment_logs/2026-06-14_*.md` | 正式实验日志 | 记录 Stage 1 ViT embedding 与 Visual Router MLP smoke 的实现、运行结果和后续计划 |
-| `experiment_logs/2026-06-15_*.md` | 正式实验日志 | 记录 Stage 1 TimeFuse metadata baseline 口径审计、TimeFuse-style fusor baseline 实现与验证、续接复核等 2026-06-15 后续步骤 |
+| `experiment_logs/2026-06-15_*.md` | 正式实验日志 | 记录 Stage 1 TimeFuse metadata baseline 口径审计、TimeFuse-style fusor baseline 实现与验证、续接复核、上下文 handoff 阈值协作规范补充等 2026-06-15 后续步骤 |
 | `experiment_logs/run_outputs/` | 脚本运行输出根目录 | 保存每次编排脚本的 `status.json`、生成配置、运行日志、汇总 CSV 和部分 cluster/TSF cell 分析产物 |
 | `/data2/syh/Time/run_outputs/` | 外部大盘运行输出根目录 | 用于后续大规模实验输出，避免继续占用 `/home`；仓库内通过 `EXTERNAL_OUTPUTS.md` 和实验日志记录索引 |
 | `/data2/syh/Time/cache_shards/` | 外部临时 cache shard 根目录 | 用于抽样或短生命周期 shard；视觉路线默认不全量缓存伪图像或 ViT embedding，除非先证明缓存带来显著端到端加速 |
+| `/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/` | Stage 1 `96_48_S` 正式 full-scale 全候选窗口输出根目录 | 保存正式 sample manifest、prediction cache launcher、merged cache、merged cache validation、oracle labels、TSF enrichment、TimeFuse feature cache launcher、`HANDOFF.md` 和后续 router/calibration；当前 `sample_manifest_full_scale/` 已完成，`prediction_cache_full_scale_launcher/merged_cache/` 已生成正式五专家 merged prediction cache，`prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/` 与 `tsf_enrichment_full_scale_2026-06-16/` 已生成并通过 join/覆盖验证，`timefuse_feature_cache_full_scale_launcher/` 为从 sample manifest 独立预计算 17 维 TimeFuse-derived 单变量元特征的正式输出，`launcher_compat_check/` 仅为 dry-run manifest 兼容性检查 |
 
 ### 2.3 `experiment_logs/run_outputs/`
 
@@ -116,6 +119,9 @@ experiment_logs/
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_prediction_cache_96_48_s_1k_launcher/` | Stage 1 `96_48_S` 1k prediction cache launcher 目录 | 保存 `launcher.sh`、`launch_plan.md`、`status.json`、`pids/` 和 `shards/{model_name}/`；每个 shard 独立写 `main.log`、`status.json`、`manifest.csv` 和数组，合并前必须校验五专家完整性 |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_prediction_cache_96_48_s_1k_launcher/merged_cache/` | Stage 1 `96_48_S` 1k 五专家合并 cache 目录 | 保存合并后的 `manifest.csv`、`window_oracle_labels*.csv`、`manifest_with_tsf_cell.csv`、`baseline_*.csv`、`summary.md` 和相关 `status.json`；是 1k router / calibration / baseline 的共同监督与对照来源 |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_prediction_cache_full_scale_launcher/` | Stage 1 full-scale prediction cache launcher 目录 | 由 `launch_full_scale_prediction_cache.py` 生成，保存根级 `main.log`、`metadata.json`、`launcher.sh`、`launch_plan.md`、`status.json`、`pids/` 和 `shards/{model_name}/sample_shard_xxxx/`；默认 `packed_npy_v1`，DLinear/PatchTST/CrossFormer 绑定 GPU，ES/NaiveForecaster 走 CPU |
+| `/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/sample_manifest_full_scale/` | Stage 1 `96_48_S` 正式 full-scale sample manifest 目录 | 保存 `sample_manifest_shard_index.csv`、`sample_shards/*.csv`、`sampling_metadata.json`、`sampling_summary.md`、`status.json` 和 `main.log`；当前全候选窗口 sample_count 为 `23,275,170`，64 个 shard，每 shard 约 `363,674` 到 `363,675` 个 sample_key，不包含专家预测、ViT embedding 或伪图像 tensor |
+| `/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/` | Stage 1 `96_48_S` 正式 full-scale prediction cache launcher 目录 | 保存正式 `launcher.sh`、`launch_plan.md`、`status.json`、`metadata.json`、`pids/`、五专家 worker 日志和 `shards/{model_name}/sample_shard_XXXX_of_0064/`；五专家 shard 已 completed，completed shard 不应删除；`merged_cache/` 是正式合并结果，`record_count=116,375,850`、`sample_count=23,275,170`、`array_storage=packed_npy_v1`、`merge_strategy=packed_npy_v1_streaming_by_sample_shard`；`merged_cache_validation/2026-06-16_011835_full_integrity_validation_compact_retry/` 保存完整性校验，`passed=true`；`oracle_labels_full_scale_2026-06-16/` 保存正式 `window_oracle_labels.parquet`、`window_oracle_summary.csv`、`status.json` 和 `main.log`，覆盖 `23,275,170` 个 sample_key、`46,550,340` 条 mae/mse label；首版同名 stopped 半成品已删除，completed 的 `_v2` 目录已重命名为该 canonical 路径，`_v2` 不再存在；`tsf_enrichment_full_scale_2026-06-16/` 保存正式 `sample_tsf_enrichment.parquet`、`tsf_missing_summary.csv`、`status.json` 和 `main.log`，关键 TSF 字段缺失全 0；`oracle_tsf_validation_2026-06-16/` 保存 join/覆盖验证，`status=passed`；`audits/` 保存运行中 completed shard 只读一致性抽检结果；`es_parallel_backfill_0016_0063/` 和 `es_accelerator_0010_0015_0048_0063/` 保存历史 ES 补跑 launcher、lane 日志和 PID |
+| `/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/timefuse_feature_cache_full_scale_launcher/` | Stage 1 `96_48_S` 正式 full-scale TimeFuse-derived feature cache launcher 目录 | 由 `launch_timefuse_feature_cache_full_scale.py` 生成并启动，保存根级 `launcher.sh`、`launch_plan.md`、`status.json`、`metadata.json`、`main.log`、`pids/`、`lane_scripts/`、`logs/lane_*.log` 和 `shards/sample_shard_XXXX_of_0064/`；每个 shard 独立写 `feature_cache.csv`、`metadata.json`、`status.json`、`main.log`，特征只使用历史窗口 `x`，不读取未来 `y`、专家预测或 oracle label；当前按 8 lane CPU 并行运行，GPU 不参与 |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_full_scale_dry_run/` | Stage 1 full-scale 框架 dry-run 目录 | 由 `run_full_scale_dry_run.py` 生成，保存根级 `main.log`、`metadata.json`、`status.json`、dry-run sample manifest、packed prediction cache shards、merged cache、oracle/TSF/baseline、streaming online router 和 calibration；用于验证可恢复流水线闭环，不作为正式指标 |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_vit_embedding_96_48_s_1k_launcher/` | Stage 1 `96_48_S` 1k ViT embedding launcher 目录 | 保存 `launcher.sh`、`launch_plan.md`、`status.json` 和 `embedding_run/`；当前 online 路线下暂不启动，避免先长期缓存 ViT embedding `.npy`，不保存伪图像 tensor |
 | `experiment_logs/run_outputs/YYYY-MM-DD_*_visual_router_stage1_structure_feature_pilot/` | Stage 1 结构特征 router 试运行目录 | 保存 TimeFuse-derived 单变量 `feature_cache.csv`、结构特征 router predictions/summary/metadata；该 hard-label LogisticRegression 结果已标注为 `legacy_deprecated`，仅作为轻量非视觉历史对照，不作为视觉主线正式结果 |
@@ -152,7 +158,7 @@ visual_router_experiments/
 | `visual_router_experiments/README.md` | 正式实验代码目录说明 | 记录按 stage 建二级目录、跨阶段公共代码和输出目录约定 |
 | `visual_router_experiments/common/` | 跨阶段公共代码目录 | 保存 prediction cache schema、item-channel-window key、指标、伪图像张量构造、运行内视觉 embedding 工具和通用评估工具；当前已有 `prediction_cache_schema.py`、`prediction_array_io.py`、`pseudo_imageization.py` 和 `vit_embedding_utils.py`；`prediction_array_io.py` 统一读取 `per_sample_npy` 与 `packed_npy_v1` prediction arrays；`pseudo_imageization.py` 已支持 `hf_vit_0_5` 与 `torchvision_imagenet` encoder normalization，并新增固定候选周期桶与按周期分桶 fold 路径，减少在线伪图像化中的逐样本 CPU/GPU 同步；`vit_embedding_utils.py` 为 online 主线提供不落盘的 ViT 输入/输出处理工具 |
 | `visual_router_experiments/stage0_oracle_audit/` | 上限审计阶段目录 | 承接专家互补性和 oracle 上限审计；当前 README 索引已有审计脚本与输出，后续扩展专家池或 window-level oracle 可在此补充正式脚本 |
-| `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 保存 vali 训练 router、test 测试 router 的 prediction cache、embedding、训练、评估和汇总脚本；当前已有 `prediction_cache_design.md`、`feature_and_rl_extension_notes.md`、`stage1_cache_contract.md`、`stage1_protocol_and_plan.md`、`build_stage1_sample_manifest.py`、`build_prediction_cache_from_manifest.py`、`merge_prediction_cache_shards.py`、`launch_full_scale_prediction_cache.py`、`run_full_scale_dry_run.py`、`evaluate_router_baselines.py`、`fusion_utils.py`、`train_visual_router.py`、`train_visual_router_online.py`、`train_visual_router_online_streaming.py`、`evaluate_soft_fusion_calibration.py`、`pilot/` 和 package 初始化文件；baseline evaluator 现可同时输出统计 baseline、TimeFuse-style fusor hard/raw-soft、oracle 和统一 comparison；online Visual Router smoke 和 soft fusion calibration smoke 均默认按 `config_name` 独立训练和汇总；full-scale 路线使用 packed prediction cache 与 streaming online router，不落盘 ViT embedding `.npy` 或伪图像 tensor |
+| `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 保存 vali 训练 router、test 测试 router 的 prediction cache、oracle labels、TSF enrichment、TimeFuse feature cache、embedding、训练、评估和汇总脚本；`README.md` 现作为当前主线导航页，明确 full-scale 正式入口、中小规模复现入口、共享库、pilot 边界和下一步；`stage1_history_results.md` 保存从 README 拆出的 120 sample smoke、1k、dry-run 和 full-scale 长跑历史结果索引；当前已有 `prediction_cache_design.md`、`feature_and_rl_extension_notes.md`、`stage1_cache_contract.md`、`stage1_protocol_and_plan.md`、`stage1_history_results.md`、`build_stage1_sample_manifest.py`、`build_full_scale_sample_manifest.py`、`build_prediction_cache_from_manifest.py`、`merge_prediction_cache_shards.py`、`launch_full_scale_prediction_cache.py`、`build_full_scale_window_oracle_labels.py`、`build_full_scale_tsf_enrichment.py`、`validate_full_scale_oracle_tsf_outputs.py`、`build_timefuse_feature_cache_from_manifest.py`、`launch_timefuse_feature_cache_full_scale.py`、`run_full_scale_dry_run.py`、`evaluate_router_baselines.py`、`fusion_utils.py`、`train_visual_router.py`、`train_visual_router_online.py`、`train_visual_router_online_streaming.py`、`evaluate_soft_fusion_calibration.py`、`pilot/` 和 package 初始化文件；baseline evaluator 现可同时输出统计 baseline、TimeFuse-style fusor hard/raw-soft、oracle 和统一 comparison；full-scale 路线使用 packed prediction cache 与 streaming online router，不落盘 ViT embedding `.npy` 或伪图像 tensor |
 | `visual_router_experiments/stage1_vali_test_router/pilot/` | Stage 1 pilot 脚本目录 | 保存 `build_prediction_cache_pilot.py`、`build_vit_embeddings_pilot.py`、`build_online_pseudo_image_pilot.py`、`build_structure_feature_cache_pilot.py`、`train_structure_router_pilot.py`、`compute_window_oracle_from_cache.py`、`enrich_cache_with_tsf_cell.py`、`launch_96_48_s_1k_prediction_cache_pilot.py`、`launch_96_48_s_1k_vit_embedding_pilot.py` 等小规模验证、离线 embedding 历史对照、过渡性 launcher 和固定规模资源编排脚本；用于打通 cache/oracle/enrichment/feature/router 流程或复现 1k smoke 编排，不作为通用正式实验入口 |
 | `visual_router_experiments/stage2_heldout_cell/` | Stage 2 泛化实验目录 | 后续保存 7-cell 训练、held-out cell 测试的 zero-shot 泛化实验脚本 |
 

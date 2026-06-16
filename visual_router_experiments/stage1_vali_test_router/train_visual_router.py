@@ -169,7 +169,6 @@ def load_labels(labels_path: Path, metric: str) -> pd.DataFrame:
     """函数功能：读取 oracle labels，并筛选指定 metric。"""
     if not labels_path.exists():
         raise FileNotFoundError(f"找不到 labels 文件：{labels_path}")
-    labels_df = pd.read_csv(labels_path)
     required_cols = {
         "sample_key",
         "config_name",
@@ -183,6 +182,12 @@ def load_labels(labels_path: Path, metric: str) -> pd.DataFrame:
         "metric",
         *MODEL_COLUMNS,
     }
+    # full-scale 正式 oracle 产物使用 parquet，小规模 pilot 仍保留 CSV；
+    # parquet 分支用 filter 直接只读目标 metric，避免把 mae/mse 双份全量行同时读入内存。
+    if labels_path.suffix.lower() in {".parquet", ".pq"}:
+        labels_df = pd.read_parquet(labels_path, columns=sorted(required_cols), filters=[("metric", "==", metric)])
+    else:
+        labels_df = pd.read_csv(labels_path)
     missing_cols = sorted(required_cols.difference(labels_df.columns))
     if missing_cols:
         raise ValueError(f"labels 文件缺少字段：{missing_cols}")
