@@ -50,7 +50,7 @@ for path in [WORKSPACE, QUITO_DIR]:
 from quito.config.training import TaskType  # noqa: E402
 from quito.datasets import load_datasets  # noqa: E402
 from time_router.evaluation import EvaluationInputAdapter  # noqa: E402
-from time_router.protocols import EvaluationInput  # noqa: E402
+from time_router.protocols import ExpertBatch  # noqa: E402
 from visual_router_experiments.common.prediction_cache_schema import PredictionCacheKey  # noqa: E402
 from visual_router_experiments.common.prediction_array_io import resolve_cache_array_path  # noqa: E402
 from visual_router_experiments.common.vit_embedding_utils import (  # noqa: E402
@@ -1152,7 +1152,7 @@ def _load_evaluation_arrays_for_batch(
         按当前 test batch 的 sample_key 顺序读取五专家 y_pred 和共享 y_true。
 
     关键约束：
-        这是 P9b evaluation adapter 旁路校验的输入重建步骤，只读取当前 batch
+        这是 P9d ExpertBatch bridge 的 legacy arrays 来源，只读取当前 batch
         已经用于 `add_soft_fusion_metrics(...)` 的 prediction_lookup，不建立新
         provider，不改变正式训练、CSV、summary、metadata 或 status schema。
     """
@@ -1192,6 +1192,53 @@ def _adapter_mismatch_message(
     )
 
 
+def build_visual_router_expert_batch_for_evaluation(
+    *,
+    sample_keys: Sequence[str],
+    y_pred: np.ndarray,
+    y_true: np.ndarray,
+    model_columns: Sequence[str],
+    batch_index: int,
+    output_dir: Path,
+    row_index_metadata: object | None = None,
+    extra: Mapping[str, object] | None = None,
+) -> ExpertBatch:
+    """
+    函数功能：
+        为 Visual Router evaluation adapter 旁路构造 canonical ExpertBatch。
+
+    输入：
+        sample_keys/model_columns: 当前 legacy batch 已经确定的样本和专家顺序。
+        y_pred/y_true: 当前 batch 已读取出的专家预测和共享真实值数组。
+        batch_index/output_dir: 只进入 lightweight lineage，供失败定位。
+        row_index_metadata/extra: 可选轻量 metadata，不触发任何文件读取或写出。
+
+    输出：
+        ExpertBatch；数组只做 float32 视图/转换，不读取 manifest、不读取 prediction
+        cache、不创建 run_dir、不计算 loss 或 evaluation。
+
+    关键约束：
+        P9d 只把 P9b 的旁路输入收敛到 ExpertBatch 边界。这里不代表正式接入
+        PredictionCacheExpertProvider，也不替换 Visual Router legacy SQLite batch arrays。
+    """
+    merged_extra: dict[str, object] = {
+        "source": "train_visual_router_online_streaming.verify_evaluation_adapter_bypass_batch",
+        "expert_batch_source": "visual_router_legacy_sqlite_batch_arrays",
+        "batch_index": int(batch_index),
+        "output_dir": str(output_dir),
+    }
+    if extra:
+        merged_extra.update(dict(extra))
+    return ExpertBatch(
+        sample_keys=tuple(str(sample_key) for sample_key in sample_keys),
+        model_columns=tuple(str(model_name) for model_name in model_columns),
+        y_pred=np.asarray(y_pred, dtype=np.float32),
+        y_true=np.asarray(y_true, dtype=np.float32),
+        row_index_metadata=row_index_metadata,
+        extra=merged_extra,
+    )
+
+
 def verify_evaluation_adapter_bypass_batch(
     *,
     pred_df: pd.DataFrame,
@@ -1219,9 +1266,10 @@ def verify_evaluation_adapter_bypass_batch(
         无返回值；不一致时抛出 AssertionError。
 
     关键约束：
-        该 helper 只做 P9b 内存旁路验证，不替换正式 append/write 逻辑，不修改
+        该 helper 只做 P9d 内存旁路验证，不替换正式 append/write 逻辑，不修改
         VisualFeatureProvider、ViT provider、VisualMLPRouter、training loop 或
-        fusion_huber_kl loss。
+        fusion_huber_kl loss；ExpertBatch 只包装当前 batch 已经读取出的 legacy
+        SQLite arrays，不接入 PredictionCacheExpertProvider。
     """
     if pred_df.empty:
         return
@@ -1249,22 +1297,27 @@ def verify_evaluation_adapter_bypass_batch(
             raise ValueError("verify_evaluation_adapter_bypass_batch 需要 prediction_lookup 或显式 y_pred/y_true")
         y_pred, y_true = _load_evaluation_arrays_for_batch(sample_keys=sample_keys, prediction_lookup=prediction_lookup)
 
-    # P9b 要求从正式 hard prediction rows 恢复 router 权重，soft_df 只作为旧路径指标对照。
+    # P9d 仍从正式 hard prediction rows 恢复 router 权重，soft_df 只作为旧路径指标对照。
     weights = pred_df[[f"weight_{model_name}" for model_name in MODEL_COLUMNS]].to_numpy(dtype=np.float32)
-    evaluation_input = EvaluationInput(
-        sample_keys=tuple(sample_keys),
+    expert_batch = build_visual_router_expert_batch_for_evaluation(
+        sample_keys=sample_keys,
         model_columns=tuple(MODEL_COLUMNS),
-        y_pred=np.asarray(y_pred, dtype=np.float32),
-        y_true=np.asarray(y_true, dtype=np.float32),
-        weights=weights,
+        y_pred=y_pred,
+        y_true=y_true,
+        batch_index=batch_index,
+        output_dir=output_dir,
         extra={
-            "source": "train_visual_router_online_streaming.verify_evaluation_adapter_bypass_batch",
-            "batch_index": int(batch_index),
-            "output_dir": str(output_dir),
+            "verification_scope": "visual_router_evaluation_adapter_bypass",
         },
     )
     try:
-        adapter_result = EvaluationInputAdapter().evaluate_input(evaluation_input=evaluation_input)
+        adapter_result = EvaluationInputAdapter().evaluate(
+            expert_batch=expert_batch,
+            fusion_weights=weights,
+            extra={
+                "verification_scope": "visual_router_evaluation_adapter_bypass",
+            },
+        )
     except Exception as exc:
         preview_keys = sample_keys[:5]
         raise RuntimeError(

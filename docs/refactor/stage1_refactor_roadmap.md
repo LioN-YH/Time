@@ -963,7 +963,7 @@ EvaluationInputAdapter -> summary / per-sample rows
 
 目标：在 P9a 审计之后，只在 Visual Router 正式入口的 test evaluation batch 内加入默认关闭的 `--verify-evaluation-adapter` 旁路校验，并用小规模正式入口 pressure run 证明开启该 flag 不改变正式输出 artifact。
 
-当前状态（2026-06-20）：已完成 P9b 代码接入和 P9c pressure 验证。P9b 详见 `docs/refactor/visual_router_evaluation_adapter_bypass.md`；P9c 详见 `docs/refactor/visual_router_evaluation_adapter_pressure_verification.md`。
+当前状态（2026-06-20）：已完成 P9b 代码接入、P9c pressure 验证和 P9d ExpertBatch bridge。P9b 详见 `docs/refactor/visual_router_evaluation_adapter_bypass.md`；P9c 详见 `docs/refactor/visual_router_evaluation_adapter_pressure_verification.md`；P9d 详见 `docs/refactor/visual_router_expert_batch_evaluation_bridge.md`。
 
 本次完成范围：
 
@@ -972,10 +972,17 @@ EvaluationInputAdapter -> summary / per-sample rows
 - P9c 使用仓库内 `2026-06-14_stage1_full_scale_dry_run_v2` 小规模输入、CPU、`--local-files-only`、每 split 2 个样本和 1 epoch，分别运行关闭/开启 verify 的正式入口。
 - P9c 比较 `visual_router_predictions.csv`、`visual_router_soft_fusion_predictions.csv`、summary、soft summary、selected counts、comparison 和 `visual_router_streaming_summary.md` 核心表格；除 run_dir 路径和生成时间这类预期差异外，归一化后正式口径一致。
 - P9c 确认开启 verify 后不新增 adapter artifact，`visual_router_metadata.json`、`visual_router_online_metadata.json`、`status.json` 和 checkpoint index top-level schema 不漂移。
+- P9d 新增 `build_visual_router_expert_batch_for_evaluation(...)`，只包装当前 batch 已经读取出的 legacy SQLite `y_pred/y_true` arrays 和 `MODEL_COLUMNS`，不读取 manifest，不读取 prediction cache，不创建 run_dir。
+- P9d 将 `verify_evaluation_adapter_bypass_batch(...)` 的 adapter 调用从直接 `EvaluationInput` 改为 `EvaluationInputAdapter().evaluate(expert_batch=..., fusion_weights=...)`；权重仍从正式 `pred_df` 的 `weight_<model_name>` 列恢复，后续逐样本比较字段保持不变。
+- P9d smoke 明确断言 `ExpertBatch.sample_keys`、`ExpertBatch.model_columns` 保序，`y_pred/y_true` 原样进入 adapter，且 failure message 仍包含 config/split/batch/sample/field/old value/adapter value/output_dir。
 
 明确不做：
 
 - 不继续迁移正式入口。
+- 不把 P9d 解释为 `PredictionCacheExpertProvider` 正式接入。
+- 不替换正式 prediction_index / SQLite index。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不迁移 `PredictionBatchReader` 到正式入口。
 - 不替换 `predict_stream_batch(...)`。
 - 不替换 `add_soft_fusion_metrics(...)`。
 - 不改 `EvaluationInputAdapter`。

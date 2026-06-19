@@ -85,6 +85,12 @@ P9c 已完成小规模正式入口 pressure 验证，详见
 CSV、summary、comparison、selected counts、streaming summary 核心表格和 schema
 不发生漂移。
 
-P9b/P9c 仍不承担正式 evaluation 迁移。后续如考虑 `ExpertBatch` 对齐、更小粒度
-prediction batch adapter 对齐、Visual FeatureProvider、ViT provider 或 router head
-迁移，必须另开阶段并设置独立 smoke/pressure 门禁。
+P9d 已在不改变默认路径和正式输出 schema 的前提下，把该旁路的 adapter 输入从
+直接 `EvaluationInput` 收敛到 `ExpertBatch + fusion_weights`，详见
+`docs/refactor/visual_router_expert_batch_evaluation_bridge.md`。当前 `ExpertBatch`
+仍只包装 Visual Router legacy SQLite batch arrays，不代表
+`PredictionCacheExpertProvider` 已正式接入。
+
+P9b/P9c/P9d 仍不承担正式 evaluation 迁移。后续如考虑更小粒度 prediction batch
+adapter 对齐、Visual FeatureProvider、ViT provider 或 router head 迁移，必须另开
+阶段并设置独立 smoke/pressure 门禁。
