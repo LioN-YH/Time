@@ -22,7 +22,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from visual_router_experiments.common.prediction_array_io import (
+from time_router.io.prediction_array_io import (
     load_prediction_arrays_grouped,
     resolve_cache_array_path,
 )

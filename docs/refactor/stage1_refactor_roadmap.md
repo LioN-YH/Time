@@ -1112,7 +1112,9 @@ TimeFuse 正式入口，不抽 helper 代码，不修改 provider/reader/adapter
 后续建议：
 
 - P10b 已先抽 shared index prepare smoke helper。
-- P10c 再整理 launcher / run scripts 边界。
+- P10c 已先做 prediction array IO boundary consolidation，消除 `time_router.io`
+  对 `visual_router_experiments.common` 的反向依赖。
+- launcher / run scripts 边界整理顺延到 P10d 或后续小步。
 - provider prepared backend 推迟到 Stage 1.5 / Stage 2。
 
 ### P10b：minimal shared prediction SQLite backend smoke helper
@@ -1149,6 +1151,43 @@ TimeFuse 正式入口。
 - 不修改 `train_timefuse_fusor_streaming.py`。
 - 不修改 `launch_timefuse_fusor_full_scale.py`。
 - 不接正式入口，不新增 Bash/scripts，不访问 `/data2`，不启动 pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+
+### P10c：prediction array IO boundary consolidation
+
+目标：在 P10b shared prediction SQLite backend helper 之后，只整理 prediction array
+IO 的 package 边界，把通用 `packed_npy_v1` / `per_sample_npy` 数组读取能力上收到
+`time_router.io`，消除 `time_router.io` 对 `visual_router_experiments.common` 的反向依赖。
+
+当前状态（2026-06-20）：已完成 `time_router/io/prediction_array_io.py`，并把旧
+`visual_router_experiments/common/prediction_array_io.py` 改为 compatibility wrapper。
+本阶段未修改 Visual Router / TimeFuse 正式入口行为，未替换现有 SQLite index，
+未改 provider/head/runtime、loss、optimizer、scaler、checkpoint/resume 或正式输出 schema。
+
+本次完成范围：
+
+- `time_router/io/prediction_array_io.py` canonical 提供 `PACKED_NPY_STORAGE`、
+  `PER_SAMPLE_NPY_STORAGE`、`resolve_cache_array_path(...)`、
+  `load_prediction_array(...)` 和 `load_prediction_arrays_grouped(...)`。
+- `time_router/io/__init__.py` 导出上述 public API。
+- `time_router/io/prediction_sqlite_backend.py` 和
+  `time_router/io/prediction_cache_reader.py` 改为依赖
+  `time_router.io.prediction_array_io`。
+- `tests/smoke/stage1_prediction_sqlite_backend_smoke.py` 改为从 `time_router.io`
+  导入 grouped array loading helper。
+- `visual_router_experiments/common/prediction_array_io.py` 保留旧 import 路径，只
+  re-export canonical implementation，避免旧脚本断裂。
+
+明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不接正式入口，不替换 Visual Router / TimeFuse 现有 SQLite index。
+- 不改 `PredictionCacheExpertProvider` 或 `EvaluationInputAdapter` 行为。
+- 不新增 provider/head/runtime 代码。
+- 不新增 Bash/scripts，不访问 `/data2`，不启动 pressure/full-scale。
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
 - 不改 loss、optimizer、scaler 或 checkpoint/resume。
 

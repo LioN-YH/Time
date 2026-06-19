@@ -34,10 +34,10 @@ if str(REPO_ROOT) not in sys.path:
 from time_router.io import (  # noqa: E402
     DEFAULT_MODEL_COLUMNS,
     build_prediction_sqlite_backend,
+    load_prediction_arrays_grouped,
     load_prediction_sqlite_backend,
     records_to_ordered_rows,
 )
-from visual_router_experiments.common.prediction_array_io import load_prediction_arrays_grouped  # noqa: E402
 
 
 MODEL_COLUMNS = tuple(DEFAULT_MODEL_COLUMNS)

@@ -21,7 +21,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from visual_router_experiments.common.prediction_array_io import resolve_cache_array_path
+from time_router.io.prediction_array_io import resolve_cache_array_path
 
 
 REQUIRED_SQLITE_MANIFEST_COLUMNS = [

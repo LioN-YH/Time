@@ -1,4 +1,4 @@
-# Stage 1 P10b Prediction SQLite Backend
+# Stage 1 P10b/P10c Prediction SQLite Backend 与 Array IO Boundary
 
 日志日期：2026-06-20 03:39:35 CST
 
@@ -6,9 +6,14 @@
 
 本文记录 Stage 1 P10b 最小 shared prediction SQLite backend helper。该 helper 只覆盖小规模 fixture/smoke 能力，用于验证 shared prediction index prepare / fetch / metadata 边界，不接 Visual Router 或 TimeFuse-style fusor 正式入口。
 
+P10c 在 P10b 基础上只整理 prediction array IO 归属：把通用 `packed_npy_v1` /
+`per_sample_npy` 数组读取能力迁入 `time_router.io`，消除 `time_router.io`
+对 `visual_router_experiments.common` 的反向依赖。
+
 新增实现：
 
 - `time_router/io/prediction_sqlite_backend.py`
+- `time_router/io/prediction_array_io.py`
 - `tests/smoke/stage1_prediction_sqlite_backend_smoke.py`
 
 ## 2. API
@@ -83,7 +88,17 @@ SQLite 文件先写到同目录临时路径，成功后通过 `os.replace(...)` 
 
 `fetch_records(sample_keys)` 只查询当前 batch 的 records，并把 manifest 中相对数组路径解析到 `manifest_dir` 下的可读路径。返回值是 `(sample_key, model_name) -> record` 字典；调用方需要使用 `records_to_ordered_rows(...)` 或等价逻辑按输入 `sample_keys + model_columns` 恢复顺序。
 
-helper 不直接读取数组。smoke 使用已有 `visual_router_experiments.common.prediction_array_io.load_prediction_arrays_grouped(...)` 复原 `packed_npy_v1` 的 `y_pred/y_true`，以验证 row index lineage 和 grouped mmap 读取边界。
+helper 不直接读取数组。P10c 后，数组读取 canonical API 位于 `time_router.io.prediction_array_io`，并从 `time_router.io` 导出：
+
+- `PACKED_NPY_STORAGE`
+- `PER_SAMPLE_NPY_STORAGE`
+- `resolve_cache_array_path(...)`
+- `load_prediction_array(...)`
+- `load_prediction_arrays_grouped(...)`
+
+`visual_router_experiments.common.prediction_array_io` 保留为轻量 compatibility wrapper，只 re-export 同名常量和函数，避免旧脚本 import 断裂。`time_router/io/prediction_sqlite_backend.py` 与 `time_router/io/prediction_cache_reader.py` 均改为依赖 `time_router.io.prediction_array_io`，因此 `time_router.io` 不再反向依赖实验目录。
+
+smoke 使用 `time_router.io.load_prediction_arrays_grouped(...)` 复原 `packed_npy_v1` 的 `y_pred/y_true`，以验证 row index lineage 和 grouped mmap 读取边界。
 
 ## 6. Smoke 覆盖
 
@@ -109,7 +124,18 @@ helper 不直接读取数组。smoke 使用已有 `visual_router_experiments.com
 
 结果：通过。
 
-## 7. 明确不做
+## 7. P10c IO Boundary Consolidation
+
+P10c 完成范围：
+
+- 新增 `time_router/io/prediction_array_io.py`，承载 `packed_npy_v1` 与 `per_sample_npy` 的通用数组读取能力。
+- 更新 `time_router/io/__init__.py`，导出 prediction array IO public API。
+- 更新 `prediction_sqlite_backend.py`、`prediction_cache_reader.py` 和 P10b smoke import，使核心 IO 只依赖 `time_router.io` 内部模块。
+- 将旧 `visual_router_experiments/common/prediction_array_io.py` 改为兼容导出层。
+
+P10c 只移动 IO 边界，不改变 `load_prediction_array(...)`、`load_prediction_arrays_grouped(...)` 或 `resolve_cache_array_path(...)` 的行为。
+
+## 8. 明确不做
 
 P10b 不做以下事项：
 
@@ -128,6 +154,6 @@ P10b 不做以下事项：
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
 - 不改 loss、optimizer、scaler 或 checkpoint/resume。
 
-## 8. 后续
+## 9. 后续
 
-P10b 之后可以继续整理 launcher / run scripts 边界，或在 Stage 1.5 / Stage 2 评估让 `PredictionCacheExpertProvider` 消费 prepared backend。真正接入正式入口前，仍需分别做 Visual Router 和 TimeFuse-style fusor 的小步旁路验证，不能用本 smoke 代替 full-scale runtime 行为验证。
+P10c 之后可以继续整理 launcher / run scripts 边界，或在 Stage 1.5 / Stage 2 评估让 `PredictionCacheExpertProvider` 消费 prepared backend。真正接入正式入口前，仍需分别做 Visual Router 和 TimeFuse-style fusor 的小步旁路验证，不能用本 smoke 代替 full-scale runtime 行为验证。

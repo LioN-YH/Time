@@ -120,8 +120,11 @@ Oracle backend 只能用于监督、诊断、baseline、upper-bound 和训练标
 
    当前状态（2026-06-20）：已完成 smoke-only helper，详见 `docs/refactor/prediction_sqlite_backend.md`。该 helper 未接 Visual Router / TimeFuse 正式入口，也未修改 provider、reader、adapter、launcher、loss 或输出 schema。
 
-2. **P10c：整理 launcher / run scripts 边界**
-   在 provider 正式替换前，先把 run_dir、index artifact、status、metadata、resume、monitor 和停止命令边界文档化或轻量收束，避免 provider 接手 runtime 职责。
+2. **P10c：prediction array IO boundary consolidation**
+   已先把通用 `packed_npy_v1` / `per_sample_npy` 数组读取能力迁入
+   `time_router.io.prediction_array_io`，并保留
+   `visual_router_experiments.common.prediction_array_io` 兼容导出层，消除
+   `time_router.io` 对实验目录的反向依赖。该步只整理 IO 边界，不接正式入口。
 
 3. **Stage 1.5 / Stage 2：再评估 provider prepared backend**
    只有 shared backend smoke、Visual training/evaluation bypass、TimeFuse protocol chain 和小规模 pressure 都稳定后，才考虑让 `PredictionCacheExpertProvider` 接收 prepared SQLite backend 并进入正式入口。
