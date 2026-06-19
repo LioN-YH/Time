@@ -63,6 +63,8 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 
 目标：统一 oracle labels 与 TSF enrichment 的批量读取，明确其监督、上限和诊断用途。
 
+当前状态（2026-06-19）：已完成本阶段共享 oracle/TSF reader 的最小抽取和小规模 smoke；尚未迁移正式 Visual Router / TimeFuse fusor 训练入口，入口迁移仍保留到 P6。
+
 范围：
 
 - 按 `sample_key + metric` 读取 oracle。
@@ -75,6 +77,13 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 迁移前后运行 golden smoke，确认 prediction/fusion 契约未被间接改动。
 - 对小规模 oracle/TSF fixture 做 join 覆盖率和 sample_key 集合校验。
 - 记录任何缺失策略变化，不用默认填充值掩盖数据问题。
+
+本次完成范围：
+
+- 新增 `time_router/data/oracle_tsf_reader.py`，提供 `OracleTsfReader` 与 `OracleTsfBatch`。
+- `OracleTsfReader` 支持 `fixture_root`、显式 oracle/TSF 路径、CSV chunk 过滤、Parquet `pyarrow.dataset` 过滤、`missing_policy=error/report`、显式 sample_key 保序和一对一 join 校验。
+- 新增 `tests/smoke/stage1_oracle_tsf_smoke.py`，复用 4 sample dry-run fixture 检查 oracle label、TSF metadata、join 保序、缺失报告和冲突 TSF sample_key 报错。
+- 新增 `docs/refactor/oracle_tsf_reader.md`，明确 oracle/TSF 仅用于监督、上限、baseline、分层汇总或诊断，不得作为可部署 FeatureProvider 的 test-time 动态特征；full-scale 后续仍应采用 SQLite / shard-local / batch query。
 
 ### P3：extract metrics/fusion
 

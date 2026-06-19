@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 17:15:03 CST
+更新日期：2026-06-19 17:27:26 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -44,13 +44,14 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
-| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture 和共享 PredictionBatchReader 说明 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明和共享 OracleTsfReader 说明 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
 | `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
 | `docs/refactor/stage1_migration_candidates.md` | manifest、prediction cache、oracle/TSF、SQLite/batch reader、metrics、logging、路径和训练骨架的后续收束候选 | 只记录建议；实际重构完成后更新状态与兼容性结论 |
 | `docs/refactor/golden_fixture.md` | Stage 1 重构前 golden fixture 说明，记录 4 sample packed dry-run fixture 来源、锁定契约和 smoke 运行命令 | 后续调整 golden fixture 或重构验收口径时同步更新；不代表正式逻辑已重构 |
 | `docs/refactor/prediction_batch_reader.md` | Stage 1 P1 共享 `PredictionBatchReader` 接口说明，记录输入、输出、约束和后续正式入口迁移方式 | reader 接口或迁移策略变化时更新；正式入口接入另按 P6 记录 |
+| `docs/refactor/oracle_tsf_reader.md` | Stage 1 P2 共享 `OracleTsfReader` 接口说明，记录 oracle/TSF 读取、保序、缺失报告、join lineage、用途约束和 full-scale 后续 SQLite / shard-local / batch query 要求 | reader 接口或 oracle/TSF 迁移策略变化时更新；正式入口接入另按 P6 记录 |
 
 ### 1.2 根目录隐藏目录
 
@@ -183,6 +184,8 @@ visual_router_experiments/
 | 路径 | 层级角色 | 功能 |
 | --- | --- | --- |
 | `time_router/__init__.py` | 共享 package 入口 | Stage 1 后续重构使用的最小共享 package 骨架；当前只承载低风险公共 reader，不代表正式训练入口已迁移 |
+| `time_router/data/__init__.py` | 共享数据子包入口 | 导出 `OracleTsfBatch` 和 `OracleTsfReader` |
+| `time_router/data/oracle_tsf_reader.py` | Stage 1 共享 oracle/TSF reader | 按 sample_key 批量读取 window-level oracle labels 与 TSF enrichment / TSF-cell metadata；支持显式 sample_key 保序、CSV chunk 过滤、Parquet dataset 过滤、`missing_policy=error/report`、冲突重复/缺失检查和 oracle/TSF 一对一 join；只做读取、校验和 join，不提供训练策略，不把 oracle/TSF 作为可部署 test-time 动态特征 |
 | `time_router/io/__init__.py` | 共享 IO 子包入口 | 导出 `DEFAULT_MODEL_COLUMNS`、`PredictionBatch` 和 `PredictionBatchReader` |
 | `time_router/io/prediction_cache_reader.py` | Stage 1 共享 prediction batch reader | 从 `merged_cache/manifest.csv` 或 fixture root 读取五专家 `y_pred` 和共享 `y_true`；支持 `packed_npy_v1`、`per_sample_npy`、固定专家顺序、共享 y_true 校验、row index 元数据和 manifest MAE/MSE 复算；P1 只接入 golden smoke，尚未迁移正式 Visual Router / TimeFuse fusor 入口 |
 
@@ -191,6 +194,7 @@ visual_router_experiments/
 | 路径 | 层级角色 | 功能 |
 | --- | --- | --- |
 | `tests/smoke/stage1_golden_smoke.py` | Stage 1 只读 golden smoke | 默认读取 `experiment_logs/run_outputs/2026-06-14_stage1_full_scale_dry_run_v2/merged_cache/` 的 4 sample packed fixture；当前通过 `time_router.io.PredictionBatchReader` 组装 `y_pred/y_true`，锁定 sample_key 顺序、五专家顺序、shape、hard top-1、raw soft fusion MAE/MSE 和 `packed_npy_v1` row index 读取一致性；用于后续公共 reader/metrics/入口迁移前后等价验证，不训练、不写正式输出 |
+| `tests/smoke/stage1_oracle_tsf_smoke.py` | Stage 1 oracle/TSF reader 只读 smoke | 默认读取同一 dry-run fixture 的 `window_oracle_labels_with_tsf_cell.csv` 和 `manifest_with_tsf_cell.csv`；验证 `OracleTsfReader` 的显式 sample_key 保序、oracle label、TSF metadata、oracle/TSF join、缺失报告和冲突重复 sample_key 报错；不训练、不生成 oracle/TSF、不写正式输出 |
 
 ## 3. QuitoBench / Quito 代码与实验层
 
