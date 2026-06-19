@@ -42,6 +42,7 @@ from time_router.evaluation.metrics import (  # noqa: E402
     hard_top1_fusion,
     raw_soft_fusion,
 )
+from time_router.evaluation.prediction_rows import build_per_sample_fusion_rows  # noqa: E402
 from time_router.evaluation.summary import build_fusion_summary  # noqa: E402
 
 
@@ -260,6 +261,72 @@ def run_smoke(fixture_root: Path, *, atol: float) -> None:
         f"mean_entropy={fusion_summary['mean_entropy']:.9f}，"
         f"mean_max_weight={fusion_summary['mean_max_weight']:.9f}"
     )
+
+    fusion_rows = build_per_sample_fusion_rows(
+        sample_keys=EXPECTED_SAMPLE_KEYS,
+        model_columns=model_columns,
+        hard_result=hard_result,
+        raw_soft_result=raw_soft_result,
+        y_true=y_true,
+        weights=GOLDEN_WEIGHTS,
+    )
+    required_row_fields = {
+        "sample_key",
+        "selected_model",
+        "selected_index",
+        "hard_mae",
+        "hard_mse",
+        "raw_soft_mae",
+        "raw_soft_mse",
+        "max_weight",
+        "weight_entropy",
+    }
+    if len(fusion_rows) != len(EXPECTED_SAMPLE_KEYS):
+        raise AssertionError(f"per-sample rows 数量漂移：actual={len(fusion_rows)} expected={len(EXPECTED_SAMPLE_KEYS)}")
+    row_sample_keys = [row["sample_key"] for row in fusion_rows]
+    row_selected_models = [row["selected_model"] for row in fusion_rows]
+    row_selected_indices = [row["selected_index"] for row in fusion_rows]
+    if row_sample_keys != EXPECTED_SAMPLE_KEYS:
+        raise AssertionError(f"per-sample rows sample_key 顺序漂移：actual={row_sample_keys}")
+    if row_selected_models != EXPECTED_HARD_MODELS:
+        raise AssertionError(f"per-sample rows selected_model 漂移：actual={row_selected_models}")
+    if row_selected_indices != hard_indices.astype(int).tolist():
+        raise AssertionError(f"per-sample rows selected_index 漂移：actual={row_selected_indices}")
+    for row in fusion_rows:
+        missing_fields = sorted(required_row_fields.difference(row))
+        if missing_fields:
+            raise AssertionError(f"per-sample row 缺少字段：sample_key={row.get('sample_key')} missing={missing_fields}")
+    row_hard_mae = [row["hard_mae"] for row in fusion_rows]
+    row_raw_soft_mae = [row["raw_soft_mae"] for row in fusion_rows]
+    np.testing.assert_allclose(
+        row_hard_mae,
+        np.mean(np.abs(hard_result.fused_pred - y_true), axis=(1, 2)),
+        rtol=0.0,
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        [row["hard_mse"] for row in fusion_rows],
+        np.mean((hard_result.fused_pred - y_true) ** 2, axis=(1, 2)),
+        rtol=0.0,
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        row_raw_soft_mae,
+        np.mean(np.abs(raw_soft_result.fused_pred - y_true), axis=(1, 2)),
+        rtol=0.0,
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        [row["raw_soft_mse"] for row in fusion_rows],
+        np.mean((raw_soft_result.fused_pred - y_true) ** 2, axis=(1, 2)),
+        rtol=0.0,
+        atol=atol,
+    )
+    np.testing.assert_allclose(np.mean([row["hard_mae"] for row in fusion_rows]), hard_result.mae, rtol=0.0, atol=atol)
+    np.testing.assert_allclose(np.mean([row["raw_soft_mae"] for row in fusion_rows]), raw_soft_result.mae, rtol=0.0, atol=atol)
+    np.testing.assert_allclose([row["max_weight"] for row in fusion_rows], np.max(GOLDEN_WEIGHTS, axis=1), rtol=0.0, atol=atol)
+    np.testing.assert_allclose([row["weight_entropy"] for row in fusion_rows], compute_weight_entropy(GOLDEN_WEIGHTS), rtol=0.0, atol=atol)
+    print(f"通过：per-sample fusion rows 行数={len(fusion_rows)}，selected_model={row_selected_models}")
 
     print("完成：Stage 1 golden smoke 全部通过")
 
