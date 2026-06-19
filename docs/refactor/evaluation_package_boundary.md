@@ -13,6 +13,8 @@
 
 本次只做文档化 review、API 边界说明和 consolidation 规划，不迁移 Visual Router / TimeFuse-style fusor 正式训练入口，不改变 helper 行为，不改变 golden 数值，不实现 comparison/calibration，不改变正式 output schema，也不移动或重命名 evaluation 文件。
 
+P6b 补充（2026-06-19）：已在该 package 下新增 `fusion_evaluator.py`，提供 smoke-only `FusionEvaluator` adapter。该 adapter 只把 `ExpertBatch + RouterOutput` 或 `EvaluationInput` 转成 public API 可消费的内存对象，并复算 summary 与 per-sample rows；它不改变 P3a-P3d helper 行为，也不代表正式 Evaluator interface、report writer 或训练入口已经迁移。
+
 ## 2. 当前模块职责
 
 ### `metrics.py`
@@ -74,6 +76,29 @@
 - 不建议把 `prediction_rows.py` 合回 `metrics.py`。per-sample rows 是输出准备层，虽然会调用 MAE/MSE 和 diagnostics 口径，但职责不是基础数值计算。
 - 也不建议现在把它扩展成正式 prediction schema 层。正式 schema 需要等 comparison/calibration/report 边界明确后再设计。
 
+### `fusion_evaluator.py`
+
+当前职责：
+
+- 定义 `FusionEvaluationResult`，作为 adapter 的纯内存结果对象。
+- 定义 `FusionEvaluator`，从 `ExpertBatch + RouterOutput` 构造 `EvaluationInput`，或直接消费调用方传入的 `EvaluationInput`。
+- 调用 `hard_top1_fusion(...)`、`raw_soft_fusion(...)`、`build_fusion_summary(...)` 和 `build_per_sample_fusion_rows(...)` 复算当前 batch 的 summary 与 rows。
+
+边界说明：
+
+- 只消费 P5c protocol objects 中已经存在的 `sample_keys`、`model_columns`、`y_pred`、`y_true`、`weights` 和轻量 lineage。
+- 检查 `ExpertBatch` 与 `RouterOutput` 的 sample/model 顺序完全一致。
+- 不读取 manifest、prediction cache、packed npy、oracle/TSF 或正式训练输出目录。
+- 不写 CSV/JSON/Parquet，不创建 `run_dir`、`status.json` 或 `metadata.json`。
+- 不实现 runtime / launcher / config system。
+- 不新增 calibration、temperature、top-k、oracle regret 或正式 report schema。
+
+当前判断：
+
+- `fusion_evaluator.py` 是 P6b 的最小 adapter 层，不应合回 `metrics.py`、`summary.py` 或 `prediction_rows.py`。
+- 该文件可以作为未来 Evaluator interface 的原型输入输出参考，但当前不定义完整 runtime/report 边界。
+- 正式入口迁移时仍应通过 `time_router.evaluation` public API 导入，而不是依赖内部私有 helper。
+
 ### `__init__.py`
 
 当前职责：
@@ -98,7 +123,9 @@ from time_router.evaluation import hard_top1_fusion, build_fusion_summary
 
 当前稳定 public API 至少包括：
 
+- `FusionEvaluationResult`
 - `FusionMetricsResult`
+- `FusionEvaluator`
 - `compute_mae`
 - `compute_mse`
 - `hard_top1_fusion`

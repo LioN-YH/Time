@@ -3,10 +3,12 @@
     `time_router` 共享评估工具包入口。
 
 说明：
-    当前只暴露 Stage 1 P3a/P3b/P3c/P3d 的最小 numpy fusion/metrics/diagnostics/summary/rows helper；
-    正式训练入口、calibration 和报告 schema 尚未迁移。
+    当前暴露 Stage 1 P3a-P3d 的最小 numpy fusion/metrics/diagnostics/summary/rows helper，
+    以及 P6b 的最小 FusionEvaluator adapter；正式训练入口、calibration 和报告
+    schema 尚未迁移。
 """
 
+from time_router.evaluation.fusion_evaluator import FusionEvaluationResult, FusionEvaluator
 from time_router.evaluation.metrics import (
     FusionMetricsResult,
     compute_mae,
@@ -22,6 +24,8 @@ from time_router.evaluation.prediction_rows import build_per_sample_fusion_rows
 from time_router.evaluation.summary import build_fusion_summary
 
 __all__ = [
+    "FusionEvaluationResult",
+    "FusionEvaluator",
     "FusionMetricsResult",
     "build_per_sample_fusion_rows",
     "build_fusion_summary",
