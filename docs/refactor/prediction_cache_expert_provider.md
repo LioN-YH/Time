@@ -6,6 +6,8 @@
 
 本文记录 Stage 1 P6a 的最小 `PredictionCacheExpertProvider`。该 adapter 基于 P1 `PredictionBatchReader`、P5c protocol types、P5d adapter boundary 和 P5e/P5f migration/launcher 设计，只把 prediction cache reader 输出包装为 `time_router.protocols.ExpertBatch`，先供 smoke 使用，不接正式 Visual Router 或 TimeFuse-style fusor 训练入口。
 
+P6a.5 专家系统边界审计见 `docs/refactor/expert_system_boundary_review.md`。审计结论是：`ExpertProvider / ExpertBatch` 是 Time framework 长期专家系统边界；`PredictionCacheExpertProvider` 只是当前 Stage 1 canonical experiment 的 prediction-cache adapter implementation。固定五专家顺序是当前 Stage 1 canonical experiment 的契约，不是 Time framework 长期必须绑定的全局专家系统契约。
+
 本阶段新增代码：
 
 - `time_router/experts/__init__.py`
@@ -59,6 +61,8 @@ PredictionBatchReader.load(...)
   -> ExpertBatch
 ```
 
+这里的 cache 是 implementation，不是 interface。未来 `ExpertProvider` 可以来自 prediction cache、statistical baselines、online expert models、external expert systems、dynamic expert pools 或 TimeFuse-style fusor branch 所需专家输出；这些实现都应输出 `ExpertBatch` 或等价 protocol object，而不是要求下游直接绑定 packed prediction cache。
+
 ## 4. ExpertBatch Metadata
 
 P6a 输出的 `ExpertBatch.extra` 只保留轻量信息：
@@ -97,6 +101,14 @@ P6a 明确不做：
 - 不新增 Bash 或 `scripts/` entrypoint。
 - 不修改 Visual Router / TimeFuse fusor 正式入口。
 - 不改模型结构、loss 或正式输出目录。
+
+进一步边界：
+
+- `PredictionCacheExpertProvider` 可以继续校验固定五专家顺序，因为它服务的是当前 Stage 1 canonical experiment。
+- 固定五专家顺序不应上升为所有 `ExpertProvider` 的全局专家系统契约。
+- Visual Router 主线和 TimeFuse-style fusor 支线后续应依赖 `ExpertBatch` / protocol types，而不是直接读取 packed prediction cache。
+- P6b FusionEvaluator adapter 后续应消费 `ExpertBatch + RouterOutput/EvaluationInput`，不重新读取 prediction cache。
+- `ExpertProvider` 不承担 feature generation、oracle/TSF supervision、loss、evaluation、runtime artifact、run_dir、Bash launcher 或 config system 职责。
 
 ## 6. 为什么放在 `time_router/experts/`
 

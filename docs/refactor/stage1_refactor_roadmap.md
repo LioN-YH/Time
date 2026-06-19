@@ -718,6 +718,39 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不修改 Visual Router / TimeFuse fusor 正式入口。
 - 不改模型结构、loss 或正式输出目录。
 
+### P6a.5：expert system boundary review only
+
+目标：在 P6a `PredictionCacheExpertProvider` 之后、P6b FusionEvaluator adapter 之前，冻结专家系统边界，明确 `ExpertProvider / ExpertBatch` 是 Time framework 长期专家系统契约，而 `PredictionCacheExpertProvider` 只是当前 Stage 1 canonical experiment 的 prediction-cache adapter implementation。
+
+当前状态（2026-06-19）：已完成文档化边界审计；本阶段只新增 `docs/refactor/expert_system_boundary_review.md` 并更新相关文档索引，不修改 provider/reader 行为，不实现 evaluator adapter、runtime、config、launcher 或正式入口迁移。
+
+本次完成范围：
+
+- 明确 `ExpertProvider` 是专家系统边界，不是 prediction cache 边界。
+- 明确 `ExpertBatch` 是下游 Router / Fusor / Evaluator 的统一专家输出载体。
+- 明确 cache 是 implementation，不是 interface。
+- 明确固定五专家顺序属于 Stage 1 canonical experiment 契约，不上升为 Time framework 全局专家系统契约。
+- 明确当前 P6a provider 可以保留固定五专家顺序校验，因为它服务的是 Stage 1 canonical experiment。
+- 明确未来 `ExpertProvider` 可以来自 prediction cache、statistical baselines、online expert models、external expert systems、dynamic expert pools 和 TimeFuse-style fusor branch 所需专家输出。
+- 明确 Visual Router 主线和 TimeFuse-style fusor 支线后续都应依赖 `ExpertBatch` / protocol types，而不是直接绑定 packed prediction cache。
+- 明确 P6b FusionEvaluator adapter 后续应消费 `ExpertBatch + RouterOutput/EvaluationInput`，不重新读取 prediction cache。
+- 明确 `ExpertProvider` 不承担 feature generation、oracle/TSF supervision、loss、evaluation、runtime artifact、run_dir 或 Bash launcher 等职责。
+
+明确不做：
+
+- 不改 `PredictionBatchReader` 行为。
+- 不改 `PredictionCacheExpertProvider` smoke 语义。
+- 不移动 `prediction_array_io`。
+- 不访问 `/data2`。
+- 不创建 `run_dir`。
+- 不写 `status.json` / `metadata.json`。
+- 不实现 config system。
+- 不实现 runtime / launcher。
+- 不新增 Bash 或 `scripts/` entrypoint。
+- 不修改 Visual Router / TimeFuse fusor 正式入口。
+- 不改模型结构、loss 或正式输出目录。
+- 不新增正式 provider abstraction 代码。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
