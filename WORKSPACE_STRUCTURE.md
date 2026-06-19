@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 21:30:07 CST
+更新日期：2026-06-19 21:55:28 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -44,7 +44,7 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
-| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract 和 P5b canonical provider interface design | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract、P5b canonical provider interface design 和 P5c protocol types skeleton | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
 | `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a-P3e 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、router weight diagnostics、summary、per-sample rows、evaluation package 边界复核、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
@@ -61,6 +61,7 @@
 | `docs/refactor/stage1_architecture_pivot_after_p4.md` | Stage 1 P4 后 architecture pivot 决策 | 明确 P4 后暂停 config system，转向 P5 canonical entrypoint / FeatureProvider design；正式保留 streaming Visual Router 和 streaming TimeFuse-style fusor baseline 两条主干；将 LogisticRegression fusor、offline ViT embedding cache、旧 OOM lookup、pilot-only 和非 streaming full-scale 入口标记为 archive/deprecated/reference-only；定义新 canonical runtime 最小契约和 helper 接入边界 |
 | `docs/refactor/stage1_canonical_runtime_contract.md` | Stage 1 P5a canonical runtime contract | 定义未来新 canonical `run_dir` 结构、`status.json` / `metadata.json` 最小字段、Visual Router 与 TimeFuse-style fusor 共享字段和 branch-specific extra、P4 helper 接入边界、checkpoint index 最小概念和旧 status/metadata/checkpoint schema 舍弃边界；本身不改训练入口、不实现 helper |
 | `docs/refactor/stage1_provider_interface.md` | Stage 1 P5b canonical provider interface design | 定义 `ExperimentProtocol -> SplitStrategy -> ExpertProvider -> FeatureProvider -> RouterHead -> Evaluator` 的共享接口边界；明确当前 fixed config / five experts / prediction cache / vali-test 只是默认实现，接口不写死 frozen ViT、17 维 feature cache、固定 split 或固定训练方式；记录 Visual Router 与 TimeFuse-style fusor 共享 contract、branch-specific extra、oracle/TSF 禁止作为可部署 test-time 动态调权特征、provider 不决定 `run_dir` 和 deprecated/reference-only 历史路线边界；本身不改训练入口、不实现接口代码 |
+| `docs/refactor/protocol_types.md` | Stage 1 P5c protocol types skeleton | 记录 `time_router.protocols` 中 `SplitSpec`、`ExpertBatch`、`FeatureBatch`、`RouterOutput`、`EvaluationInput` 和 `ExperimentProtocolSpec` 的字段、轻量 contract 边界、tuple/default_factory 约束、public API、smoke 覆盖和明确不做范围；本身不实现 provider/runtime/config/checkpoint/logging，也不迁移正式入口 |
 
 ### 1.2 根目录隐藏目录
 
@@ -204,6 +205,8 @@ visual_router_experiments/
 | `time_router/io/json_utils.py` | Stage 1 P4a 最小 JSON/status writer | 纯标准库实现 `atomic_write_json`、`build_status_payload` 和 `write_status_json`；只写调用方显式传入的 path，使用同目录临时文件、`flush + fsync` 和 `os.replace` 原子替换，默认 UTF-8 / `ensure_ascii=False`；不读取训练状态，不实现 path resolver、config system 或 logging framework |
 | `time_router/io/path_resolver.py` | Stage 1 P4b 最小 path resolver | 纯标准库实现 `find_repo_root`、`resolve_under_root`、`resolve_status_path` 和 `resolve_metadata_path`；只做 repo root 查找、root 内安全拼接和 status/metadata path 计算，不创建目录、不写文件、不读取训练配置、不访问 `/data2` 或 full-scale 输出目录 |
 | `time_router/io/run_metadata.py` | Stage 1 P4c 最小 run metadata payload builder | 纯标准库实现 `build_run_metadata` 和 `write_run_metadata`；构造至少包含 `stage`、`created_at_utc`、`inputs`、`outputs` 的 metadata-like payload，支持 Path 转字符串和 tempfile writer；不自动调用 git、不读取命令行/训练配置、不改变既有正式 metadata schema |
+| `time_router/protocols/__init__.py` | Stage 1 P5c protocol 子包入口 | 导出 `SplitSpec`、`ExpertBatch`、`FeatureBatch`、`RouterOutput`、`EvaluationInput` 和 `ExperimentProtocolSpec`；只聚合 lightweight contract public API，不实例化 provider、不读取配置或路径、不创建 run_dir |
+| `time_router/protocols/types.py` | Stage 1 P5c 最小 protocol dataclass 类型骨架 | 纯标准库 `dataclass + typing.Any` 定义 split、expert batch、feature batch、router output、evaluation input 和 experiment protocol spec；array/tensor 字段不绑定 numpy/torch，不访问 `.shape`，不做数值校验；`extra`、`branch_specific` 和 `feature_schema` 使用 `field(default_factory=dict)`，不包含 `run_dir` |
 
 ### 2.6 `tests/smoke/`
 
@@ -214,6 +217,7 @@ visual_router_experiments/
 | `tests/smoke/stage1_json_utils_smoke.py` | Stage 1 P4a JSON utils 临时目录 smoke | 在 `tempfile.TemporaryDirectory` 下验证 `write_status_json` / `atomic_write_json` 的文件存在、JSON 可读、中文 message 不被 ASCII 转义、第二次写入覆盖旧内容、nested parent directory 自动创建和 `extra` 类型检查；不读取训练状态、不写正式输出目录 |
 | `tests/smoke/stage1_path_resolver_smoke.py` | Stage 1 P4b path resolver 临时目录 smoke | 验证从 `tests/smoke` 定位仓库根、root 下定位 `WORKSPACE_STRUCTURE.md`、tempfile root 下正常路径解析、`..` 逃逸 root 报错、`must_exist=True` 不存在报错，以及 status/metadata helper 只返回路径不创建目录或文件；不访问 `/data2` 或 full-scale 输出目录 |
 | `tests/smoke/stage1_run_metadata_smoke.py` | Stage 1 P4c run metadata 临时目录 smoke | 验证 `build_run_metadata` 的基础字段、timezone-aware UTC 时间、Path 转字符串、`stage` 非空校验、`inputs/outputs/extra` 类型校验，以及 `write_run_metadata` 只在 tempfile 下写入 JSON 且可读；不访问 `/data2` 或 full-scale 输出目录 |
+| `tests/smoke/stage1_protocol_types_smoke.py` | Stage 1 P5c protocol dataclass 纯内存 smoke | 从 `time_router.protocols` public API 构造全部 6 个 dataclass，验证 sample_keys/model_columns/train_splits/eval_splits tuple 保序、`extra`/`branch_specific`/`feature_schema` default_factory 独立、RouterOutput/EvaluationInput 的 logits/weights 可选组合，以及 object/list 字段原样保存且不访问 `.shape`；不创建文件、不访问 `/data2` 或正式输出目录 |
 
 ## 3. QuitoBench / Quito 代码与实验层
 

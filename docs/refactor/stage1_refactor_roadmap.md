@@ -549,6 +549,40 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
+### P5c：minimal protocol types skeleton only
+
+目标：基于 P5b provider interface design，新增最小 protocol dataclass 类型骨架。类型只作为 lightweight contract container，不实现训练逻辑、不做文件 IO、不绑定 numpy/torch/pandas/sklearn。
+
+当前状态（2026-06-19）：已完成 P5c 最小类型骨架；本阶段只新增 `time_router.protocols` dataclass、纯内存 smoke、文档和日志，不迁移正式入口、不实现 provider/runtime/config/checkpoint/logging。
+
+本次完成范围：
+
+- 新增 `time_router/protocols/types.py`，定义 `SplitSpec`、`ExpertBatch`、`FeatureBatch`、`RouterOutput`、`EvaluationInput` 和 `ExperimentProtocolSpec`。
+- 新增 `time_router/protocols/__init__.py`，从 `time_router.protocols` 导出 P5c public API。
+- 所有 array/tensor-like 字段统一使用 `Any`，不访问 `.shape`，不做数值或 shape 校验。
+- `sample_keys`、`model_columns`、`train_splits`、`eval_splits` 使用 tuple 保存调用方顺序。
+- `extra`、`branch_specific` 和 `feature_schema` 使用 `field(default_factory=dict)`，避免跨实例共享默认 dict。
+- `RouterOutput` 和 `EvaluationInput` 同时保留可选 `logits` 与 `weights`；P5c 不强制至少一个存在。
+- `ExperimentProtocolSpec` 的 `split_strategy`、`expert_provider`、`feature_provider`、`router_head` 和 `evaluator` 字段只保存 spec、引用或配置描述，不实例化真实 provider。
+- 新增 `tests/smoke/stage1_protocol_types_smoke.py`，纯内存验证 public API 导入、全部 dataclass 构造、tuple 保序、default_factory 独立性、logits/weights 可选组合和 object/list 字段原样保存。
+- 新增 `docs/refactor/protocol_types.md`，记录 P5c 类型边界、统一约束、smoke 覆盖和明确不做范围。
+
+明确不做：
+
+- 不实现 Python abstract base class。
+- 不实现 FeatureProvider / ExpertProvider 读取逻辑。
+- 不实现 ExperimentProtocol 执行逻辑。
+- 不实现 runtime / run_dir helper。
+- 不实现 config system。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不修改任何训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不改 `PredictionBatchReader` / `OracleTsfReader` / evaluation / io helper。
+- 不接入 `/data2`。
+- 不移动或删除历史代码。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
