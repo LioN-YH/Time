@@ -47,7 +47,7 @@
 | `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明和共享 OracleTsfReader 说明 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
-| `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
+| `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a/P3b 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、router weight diagnostics、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
 | `docs/refactor/stage1_migration_candidates.md` | manifest、prediction cache、oracle/TSF、SQLite/batch reader、metrics、logging、路径和训练骨架的后续收束候选 | 只记录建议；实际重构完成后更新状态与兼容性结论 |
 | `docs/refactor/golden_fixture.md` | Stage 1 重构前 golden fixture 说明，记录 4 sample packed dry-run fixture 来源、锁定契约和 smoke 运行命令 | 后续调整 golden fixture 或重构验收口径时同步更新；不代表正式逻辑已重构 |
 | `docs/refactor/prediction_batch_reader.md` | Stage 1 P1 共享 `PredictionBatchReader` 接口说明，记录输入、输出、约束和后续正式入口迁移方式 | reader 接口或迁移策略变化时更新；正式入口接入另按 P6 记录 |
@@ -186,8 +186,8 @@ visual_router_experiments/
 | `time_router/__init__.py` | 共享 package 入口 | Stage 1 后续重构使用的最小共享 package 骨架；当前只承载低风险公共 reader 和最小 evaluation helper，不代表正式训练入口已迁移 |
 | `time_router/data/__init__.py` | 共享数据子包入口 | 导出 `OracleTsfBatch` 和 `OracleTsfReader` |
 | `time_router/data/oracle_tsf_reader.py` | Stage 1 共享 oracle/TSF reader | 按 sample_key 批量读取 window-level oracle labels 与 TSF enrichment / TSF-cell metadata；支持显式 sample_key 保序、CSV chunk 过滤、Parquet dataset 过滤、`missing_policy=error/report`、冲突重复/缺失检查和 oracle/TSF 一对一 join；只做读取、校验和 join，不提供训练策略，不把 oracle/TSF 作为可部署 test-time 动态特征 |
-| `time_router/evaluation/__init__.py` | 共享评估子包入口 | 导出 P3a 最小 fusion/metrics helper；当前不包含 calibration、报告 schema 或训练入口迁移 |
-| `time_router/evaluation/metrics.py` | Stage 1 P3a 最小 fusion/metrics helper | 纯 numpy 实现 `compute_mae`、`compute_mse`、`validate_fusion_inputs`、`hard_top1_fusion` 和 `raw_soft_fusion`；函数输入显式使用 `y_pred`、`y_true`、`weights`、`model_columns`，用于 golden smoke 复算 hard top-1/raw soft 指标，不引入 torch/sklearn 训练依赖 |
+| `time_router/evaluation/__init__.py` | 共享评估子包入口 | 导出 P3a/P3b 最小 fusion/metrics/router weight diagnostics helper；当前不包含 calibration、报告 schema 或训练入口迁移 |
+| `time_router/evaluation/metrics.py` | Stage 1 P3a/P3b 最小 fusion/metrics/diagnostics helper | 纯 numpy 实现 `compute_mae`、`compute_mse`、`validate_fusion_inputs`、`hard_top1_fusion`、`raw_soft_fusion`、`compute_selected_counts`、`compute_weight_entropy` 和 `compute_max_weight`；函数输入显式使用 `y_pred`、`y_true`、`weights`、`selected_indices`、`model_columns`，用于 golden smoke 复算 hard top-1/raw soft 指标和 router weight 诊断，不读取 manifest/oracle/TSF/正式输出目录，不引入 torch/sklearn 训练依赖 |
 | `time_router/io/__init__.py` | 共享 IO 子包入口 | 导出 `DEFAULT_MODEL_COLUMNS`、`PredictionBatch` 和 `PredictionBatchReader` |
 | `time_router/io/prediction_cache_reader.py` | Stage 1 共享 prediction batch reader | 从 `merged_cache/manifest.csv` 或 fixture root 读取五专家 `y_pred` 和共享 `y_true`；支持 `packed_npy_v1`、`per_sample_npy`、固定专家顺序、共享 y_true 校验、row index 元数据和 manifest MAE/MSE 复算；P1 只接入 golden smoke，尚未迁移正式 Visual Router / TimeFuse fusor 入口 |
 
@@ -195,7 +195,7 @@ visual_router_experiments/
 
 | 路径 | 层级角色 | 功能 |
 | --- | --- | --- |
-| `tests/smoke/stage1_golden_smoke.py` | Stage 1 只读 golden smoke | 默认读取 `experiment_logs/run_outputs/2026-06-14_stage1_full_scale_dry_run_v2/merged_cache/` 的 4 sample packed fixture；当前通过 `time_router.io.PredictionBatchReader` 组装 `y_pred/y_true`，并通过 `time_router.evaluation.metrics` 复算 hard top-1 与 raw soft fusion；锁定 sample_key 顺序、五专家顺序、shape、hard top-1、raw soft fusion MAE/MSE 和 `packed_npy_v1` row index 读取一致性；用于后续公共 reader/metrics/入口迁移前后等价验证，不训练、不写正式输出 |
+| `tests/smoke/stage1_golden_smoke.py` | Stage 1 只读 golden smoke | 默认读取 `experiment_logs/run_outputs/2026-06-14_stage1_full_scale_dry_run_v2/merged_cache/` 的 4 sample packed fixture；当前通过 `time_router.io.PredictionBatchReader` 组装 `y_pred/y_true`，并通过 `time_router.evaluation.metrics` 复算 hard top-1、raw soft fusion 和 P3b router weight diagnostics；锁定 sample_key 顺序、五专家顺序、shape、hard top-1、raw soft fusion MAE/MSE、selected counts、entropy/max_weight shape、max_weight 数值和 `packed_npy_v1` row index 读取一致性；用于后续公共 reader/metrics/入口迁移前后等价验证，不训练、不写正式输出 |
 | `tests/smoke/stage1_oracle_tsf_smoke.py` | Stage 1 oracle/TSF reader 只读 smoke | 默认读取同一 dry-run fixture 的 `window_oracle_labels_with_tsf_cell.csv` 和 `manifest_with_tsf_cell.csv`；验证 `OracleTsfReader` 的 `allow_full_scan` 默认禁止无 sample_key 全扫描、显式 sample_key 保序、oracle label、TSF metadata、oracle/TSF join、`missing_policy=error` 缺失报错、`missing_policy=report` 缺失报告和冲突重复 sample_key 报错；不训练、不生成 oracle/TSF、不写正式输出 |
 
 ## 3. QuitoBench / Quito 代码与实验层

@@ -35,7 +35,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from time_router.io.prediction_cache_reader import PredictionBatchReader  # noqa: E402
-from time_router.evaluation.metrics import hard_top1_fusion, raw_soft_fusion  # noqa: E402
+from time_router.evaluation.metrics import (  # noqa: E402
+    compute_max_weight,
+    compute_selected_counts,
+    compute_weight_entropy,
+    hard_top1_fusion,
+    raw_soft_fusion,
+)
 
 
 DEFAULT_FIXTURE_ROOT = (
@@ -59,6 +65,7 @@ EXPECTED_SAMPLE_KEYS = [
 EXPECTED_Y_PRED_SHAPE = (4, 5, 48, 1)
 EXPECTED_Y_TRUE_SHAPE = (4, 48, 1)
 EXPECTED_HARD_MODELS = ["CrossFormer", "DLinear", "PatchTST", "DLinear"]
+EXPECTED_SELECTED_COUNTS = {"DLinear": 2, "PatchTST": 1, "CrossFormer": 1, "ES": 0, "NaiveForecaster": 0}
 EXPECTED_HARD_MAE = 0.41604843735694885
 EXPECTED_HARD_MSE = 0.4563697576522827
 EXPECTED_RAW_SOFT_MAE = 0.4102966785430908
@@ -194,6 +201,18 @@ def run_smoke(fixture_root: Path, *, atol: float) -> None:
     assert_close("hard top-1 MAE", hard_mae, EXPECTED_HARD_MAE, atol=atol)
     assert_close("hard top-1 MSE", hard_mse, EXPECTED_HARD_MSE, atol=atol)
     print(f"通过：hard top-1 选择={hard_models}，MAE={hard_mae:.9f}，MSE={hard_mse:.9f}")
+
+    selected_counts = compute_selected_counts(hard_indices, model_columns)
+    if selected_counts != EXPECTED_SELECTED_COUNTS:
+        raise AssertionError(f"selected_counts 漂移：actual={selected_counts} expected={EXPECTED_SELECTED_COUNTS}")
+    entropy = compute_weight_entropy(GOLDEN_WEIGHTS)
+    max_weight = compute_max_weight(GOLDEN_WEIGHTS)
+    if tuple(entropy.shape) != (len(EXPECTED_SAMPLE_KEYS),):
+        raise AssertionError(f"weight entropy shape 漂移：actual={entropy.shape}")
+    if tuple(max_weight.shape) != (len(EXPECTED_SAMPLE_KEYS),):
+        raise AssertionError(f"max_weight shape 漂移：actual={max_weight.shape}")
+    np.testing.assert_allclose(max_weight, np.max(GOLDEN_WEIGHTS, axis=1), rtol=0.0, atol=atol)
+    print(f"通过：router weight diagnostics selected_counts={selected_counts}，max_weight={max_weight.tolist()}")
 
     raw_soft_result = raw_soft_fusion(y_pred=y_pred, y_true=y_true, weights=GOLDEN_WEIGHTS, model_columns=model_columns)
     if tuple(raw_soft_result.fused_pred.shape) != EXPECTED_Y_TRUE_SHAPE:

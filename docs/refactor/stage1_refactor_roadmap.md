@@ -143,6 +143,31 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改 `PredictionBatchReader` / `OracleTsfReader`。
 - 不改模型结构、loss 或正式输出目录。
 
+### P3b：router weight diagnostics helpers only
+
+目标：在 P3a 最小 fusion/metrics helper 基础上，只抽取 router/fusor weights 的纯 numpy 诊断 helper，覆盖 selected counts、weight entropy 和 max weight，不迁移正式入口。
+
+当前状态（2026-06-19）：已完成 P3b 诊断 helper 抽取并接入 `tests/smoke/stage1_golden_smoke.py` 的最小断言；完整 P3 的 calibration、summary、comparison、per-sample schema 收束和正式入口接入仍保留到后续小步。
+
+本次完成范围：
+
+- 在 `time_router/evaluation/metrics.py` 新增 `compute_selected_counts(...)`、`compute_weight_entropy(...)` 和 `compute_max_weight(...)`。
+- helper 保持纯 numpy，不引入 torch/sklearn 训练依赖。
+- helper 只接受调用方显式传入的 `selected_indices`、`weights` 和 `model_columns`，不读取 manifest、prediction cache、oracle/TSF 或正式训练输出目录。
+- 输入校验覆盖 `weights` 二维 `[sample, expert]`、`selected_indices` 一维 `[sample]`、`model_columns` 非空且不重复、`selected_indices` 不越界，以及权重有限非负。
+- `tests/smoke/stage1_golden_smoke.py` 基于 `GOLDEN_WEIGHTS` 的 hard top-1 下标复算 selected counts，并校验 entropy/max_weight shape 与 max_weight 数值。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不实现 temperature/top-k/calibration。
+- 不改变 summary/comparison/prediction output schema。
+- 不新增正式训练 CLI。
+- 不读取 oracle/TSF，不实现 oracle regret。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+- 不把 oracle/TSF 作为 test-time 动态特征。
+
 ### P4：extract logging/path/config
 
 目标：收束日志、路径解析、状态落盘和配置默认值，减少脚本内硬编码。

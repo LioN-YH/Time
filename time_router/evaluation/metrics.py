@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 文件功能：
-    提供 Stage 1 P3a 最小共享 fusion/metrics helper。
+    提供 Stage 1 P3a/P3b 最小共享 fusion/metrics/diagnostics helper。
 
 设计边界：
     - 只依赖 numpy，不引入 torch/sklearn 训练依赖；
-    - 只抽取 hard top-1 fusion、raw soft fusion、MAE、MSE 和必要输入校验；
+    - 只抽取 hard top-1 fusion、raw soft fusion、MAE、MSE、router 权重诊断和必要输入校验；
     - 不实现 calibration，不改变报告 schema，不迁移正式 Visual Router / TimeFuse 入口。
 """
 
@@ -111,6 +111,107 @@ def validate_fusion_inputs(
     if len(set(columns)) != len(columns):
         raise ValueError(f"model_columns 存在重复专家名：{columns}")
     return pred_arr, true_arr, weight_arr, columns
+
+
+def _validate_model_columns(model_columns: Sequence[str]) -> List[str]:
+    """
+    函数功能：
+        校验专家列名并返回稳定的字符串列表。
+
+    关键约束：
+        model_columns 是 router/fusor 权重诊断的唯一专家顺序来源，因此必须非空且
+        不允许重复，避免 selected counts 汇总时把两个专家合并到同一名称。
+    """
+    columns = [str(model_name) for model_name in model_columns]
+    if not columns:
+        raise ValueError("model_columns 不能为空")
+    if len(set(columns)) != len(columns):
+        raise ValueError(f"model_columns 存在重复专家名：{columns}")
+    return columns
+
+
+def _validate_weight_matrix(weights: np.ndarray) -> np.ndarray:
+    """
+    函数功能：
+        校验 router/fusor 权重诊断输入，并返回 numpy 二维数组。
+
+    关键约束：
+        P3b diagnostics 只消费调用方显式传入的权重矩阵，不读取 manifest、
+        prediction cache、oracle/TSF 或正式输出目录。
+    """
+    weight_arr = np.asarray(weights)
+    if weight_arr.ndim != 2:
+        raise ValueError(f"weights 必须是二维 [sample, expert]：actual={weight_arr.shape}")
+    if weight_arr.shape[1] <= 0:
+        raise ValueError(f"weights expert 维度必须大于 0：actual={weight_arr.shape}")
+    if not np.all(np.isfinite(weight_arr)):
+        raise ValueError("weights 包含 NaN 或 Inf")
+    if np.any(weight_arr < 0):
+        raise ValueError("weights 必须非负，才能计算 entropy/max-weight 诊断")
+    return weight_arr
+
+
+def compute_selected_counts(selected_indices: np.ndarray, model_columns: Sequence[str]) -> dict[str, int]:
+    """
+    函数功能：
+        根据 hard top-1 选中的专家下标统计每个专家被选择的次数。
+
+    输入：
+        selected_indices: 一维 `[sample]` 专家下标数组。
+        model_columns: 专家名称顺序，长度定义合法专家数。
+
+    输出：
+        按 model_columns 顺序构造的 `{model_name: count}` 字典，未被选中的专家计为 0。
+    """
+    columns = _validate_model_columns(model_columns)
+    index_arr = np.asarray(selected_indices)
+    if index_arr.ndim != 1:
+        raise ValueError(f"selected_indices 必须是一维 [sample]：actual={index_arr.shape}")
+    if not np.issubdtype(index_arr.dtype, np.integer):
+        if not np.all(np.equal(index_arr, np.floor(index_arr))):
+            raise ValueError("selected_indices 必须是整数专家下标")
+        index_arr = index_arr.astype(np.int64)
+    if index_arr.size > 0:
+        if int(index_arr.min()) < 0 or int(index_arr.max()) >= len(columns):
+            raise ValueError(
+                f"selected_indices 越界：min={int(index_arr.min())} max={int(index_arr.max())} expert_count={len(columns)}"
+            )
+    bincount = np.bincount(index_arr.astype(np.int64), minlength=len(columns))
+    return {model_name: int(bincount[index]) for index, model_name in enumerate(columns)}
+
+
+def compute_weight_entropy(weights: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+    """
+    函数功能：
+        计算每个 sample 的权重熵诊断值。
+
+    输入：
+        weights: 二维 `[sample, expert]` 权重矩阵。
+        eps: log 计算的数值稳定项。
+
+    输出：
+        shape 为 `[sample]` 的 numpy 数组。这里不做 temperature/top-k/calibration，
+        只按调用方传入的权重执行 `-sum(weights * log(weights + eps))`。
+    """
+    if eps <= 0:
+        raise ValueError(f"eps 必须为正数：actual={eps}")
+    weight_arr = _validate_weight_matrix(weights)
+    return -np.sum(weight_arr * np.log(weight_arr + eps), axis=1)
+
+
+def compute_max_weight(weights: np.ndarray) -> np.ndarray:
+    """
+    函数功能：
+        计算每个 sample 的最大 router/fusor 权重。
+
+    输入：
+        weights: 二维 `[sample, expert]` 权重矩阵。
+
+    输出：
+        shape 为 `[sample]` 的 numpy 数组，等于每行 weights 的最大值。
+    """
+    weight_arr = _validate_weight_matrix(weights)
+    return np.max(weight_arr, axis=1)
 
 
 def hard_top1_fusion(
