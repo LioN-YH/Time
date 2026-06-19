@@ -121,6 +121,28 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 对已有 1k 或 pressure 输出做 schema golden comparison。
 - 所有指标必须从同一批 `y_pred/y_true/weights` 复算，不能混用不同 reader 的中间结果。
 
+### P3a：minimal fusion/metrics helpers only
+
+目标：只抽取最小共享 fusion/metrics helper，让 golden smoke 通过共享模块复算既有 hard top-1、raw soft fusion、MAE 和 MSE，不迁移正式 Visual Router / TimeFuse fusor 入口。
+
+当前状态（2026-06-19）：已完成 P3a 最小抽取并接入 `tests/smoke/stage1_golden_smoke.py`；完整 P3 的 calibration、summary、comparison、per-sample schema 收束和正式入口接入仍保留到后续小步。
+
+本次完成范围：
+
+- 新增 `time_router/evaluation/metrics.py` 和 `time_router/evaluation/__init__.py`。
+- helper 保持纯 numpy，不引入 torch/sklearn 训练依赖。
+- 函数输入显式使用 `y_pred`、`y_true`、`weights`、`model_columns`。
+- `hard_top1_fusion(...)` 返回 `selected_indices`、`selected_models`、`fused_pred`、MAE 和 MSE。
+- `raw_soft_fusion(...)` 保持当前 golden smoke 的线性加权口径，不做 temperature/top-k/calibration。
+- `tests/smoke/stage1_golden_smoke.py` 已调用共享 helper，同时保留 golden 数值、sample_key 顺序、五专家顺序、row index 和 shape 断言。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不实现 calibration，不改变 output schema。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P4：extract logging/path/config
 
 目标：收束日志、路径解析、状态落盘和配置默认值，减少脚本内硬编码。
