@@ -959,6 +959,34 @@ EvaluationInputAdapter -> summary / per-sample rows
 - 不启动 pressure 或 full-scale。
 - 不改 TimeFuse 正式入口。
 
+### P9b/P9c：Visual Router evaluation adapter bypass and pressure verification
+
+目标：在 P9a 审计之后，只在 Visual Router 正式入口的 test evaluation batch 内加入默认关闭的 `--verify-evaluation-adapter` 旁路校验，并用小规模正式入口 pressure run 证明开启该 flag 不改变正式输出 artifact。
+
+当前状态（2026-06-20）：已完成 P9b 代码接入和 P9c pressure 验证。P9b 详见 `docs/refactor/visual_router_evaluation_adapter_bypass.md`；P9c 详见 `docs/refactor/visual_router_evaluation_adapter_pressure_verification.md`。
+
+本次完成范围：
+
+- P9b 在 `train_visual_router_online_streaming.py` 中新增默认关闭的 `--verify-evaluation-adapter`，只在 test evaluation batch 内用当前 batch 的 `sample_key`、`MODEL_COLUMNS`、router weights、`y_pred` 和 `y_true` 构造 `EvaluationInput`，通过 `EvaluationInputAdapter` 旁路复算 hard/raw-soft rows。
+- P9b helper 逐样本校验 `selected_model`、`selected_index`、hard MAE/MSE、raw soft MAE/MSE、`max_weight` 和 `weight_entropy`；`--skip-soft-fusion` 与 verify 同开会直接报错。
+- P9c 使用仓库内 `2026-06-14_stage1_full_scale_dry_run_v2` 小规模输入、CPU、`--local-files-only`、每 split 2 个样本和 1 epoch，分别运行关闭/开启 verify 的正式入口。
+- P9c 比较 `visual_router_predictions.csv`、`visual_router_soft_fusion_predictions.csv`、summary、soft summary、selected counts、comparison 和 `visual_router_streaming_summary.md` 核心表格；除 run_dir 路径和生成时间这类预期差异外，归一化后正式口径一致。
+- P9c 确认开启 verify 后不新增 adapter artifact，`visual_router_metadata.json`、`visual_router_online_metadata.json`、`status.json` 和 checkpoint index top-level schema 不漂移。
+
+明确不做：
+
+- 不继续迁移正式入口。
+- 不替换 `predict_stream_batch(...)`。
+- 不替换 `add_soft_fusion_metrics(...)`。
+- 不改 `EvaluationInputAdapter`。
+- 不新增 VisualFeatureProvider 或 ViT provider。
+- 不改 `VisualMLPRouter`、router head、training loop、`fusion_huber_kl` loss、optimizer、checkpoint/resume 语义。
+- 不改正式 CSV / summary / metadata / status schema。
+- 不新增 Bash/scripts。
+- 不访问 `/data2`。
+- 不启动 full-scale。
+- 不改 TimeFuse 正式入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
