@@ -220,6 +220,36 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改 `PredictionBatchReader` / `OracleTsfReader`。
 - 不改模型结构、loss 或正式输出目录。
 
+### P3e：evaluation package boundary review and consolidation plan only
+
+目标：对已完成 P3a/P3b/P3c/P3d 的 `time_router/evaluation` package 边界做一次文档化复核，明确模块职责、public API、private helper 和后续 consolidation 判断。
+
+当前状态（2026-06-19）：已完成 P3e 文档化 review；本阶段只新增设计文档，不改变 helper 行为、不移动/重命名 evaluation 文件、不实现 comparison/calibration、不迁移正式入口。
+
+本次完成范围：
+
+- 新增 `docs/refactor/evaluation_package_boundary.md`。
+- 明确 `metrics.py` 当前承载基础 MAE/MSE、fusion helper 和 router weight diagnostics；暂不拆成 `fusion.py` / `diagnostics.py`。
+- 明确 `summary.py` 只负责 `build_fusion_summary(...)` 的内存 summary dict，不代表正式 summary output schema。
+- 明确 `prediction_rows.py` 只负责内存中的 per-sample fusion rows，不写正式 CSV/JSON/Parquet，不代表正式 prediction output schema。
+- 明确 `time_router/evaluation/__init__.py` 是稳定 public API 聚合入口；后续正式入口迁移应优先从 `time_router.evaluation` 导入，而不是依赖深层私有 helper。
+- 明确当前不为“看起来整齐”而移动文件；若未来整理，应优先保持 `__init__.py` public API 不变，并运行 golden smoke、oracle/TSF smoke 和 compileall。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不实现 comparison。
+- 不实现 temperature/top-k/calibration。
+- 不改变正式 summary / comparison / prediction output schema。
+- 不新增正式训练 CLI。
+- 不读取 oracle/TSF，不实现 oracle regret。
+- 不接入 `OracleTsfReader` 或 full-scale 输出目录。
+- 不写 CSV / JSON / Parquet 到正式输出目录。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+- 不为整理而移动或重命名 evaluation 文件。
+- 不改变现有 public API 和 helper 行为。
+
 ### P4：extract logging/path/config
 
 目标：收束日志、路径解析、状态落盘和配置默认值，减少脚本内硬编码。
