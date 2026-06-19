@@ -24,7 +24,7 @@ ExperimentProtocol
   -> canonical runtime contract
 ```
 
-当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。
+当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。
 
 ## 2. 未来 Python Package 边界
 
@@ -97,6 +97,7 @@ ExperimentProtocol
 | ExpertProvider | 提供专家 `y_pred`、共享 `y_true`、`model_columns` 和 row index lineage | cache 是实现选项；未来允许 online expert prediction 和 joint training |
 | manifest reader | 统一 sample manifest、split、shard 和 sample_key 顺序 | 不改变 stable key，不隐式重排 |
 | prediction cache reader | batch 读取五专家 `y_pred` 与共享 `y_true` | 固定专家顺序；保留 `packed_npy_v1` row index；不得退回全量 Python lookup |
+| provider adapter boundary | 审查现有 reader/feature/head/evaluator 可适配点 | adapter 不决定 run_dir、不写 status/metadata、不硬编码 `/data2`；旧 OOM lookup、legacy CSV 反推和 offline ViT full-scale cache 不作为 canonical adapter |
 | oracle/TSF reader | 批量读取 oracle label 与 TSF enrichment | oracle/TSF 只能作为监督、上限或诊断，不进入 test-time 可部署特征 |
 | SQLite index | shard-local 建库、复用、损坏重建、split 下推和 batch query | 不把数千万记录留在 Python 内存；必须兼容恢复运行 |
 | metrics/fusion/report | 统一 hard、raw soft、calibration、MAE/MSE、comparison 和输出 schema | 所有指标从同一批数组复算；输出字段需兼容现有 calibration |

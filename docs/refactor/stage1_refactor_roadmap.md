@@ -583,6 +583,41 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
+### P5d：provider adapter boundary review only
+
+目标：基于 P5b provider interface design 和 P5c protocol types skeleton，审查现有代码中哪些模块/函数未来可以适配为 canonical provider/head/evaluator adapter，并明确哪些旧路线不应继续适配。
+
+当前状态（2026-06-19）：已完成 P5d 文档化边界审查；本阶段只新增 adapter boundary review 文档并更新路线图/目标架构/结构索引/实验日志，不实现 provider adapter、不修改任何代码行为。
+
+本次完成范围：
+
+- 新增 `docs/refactor/provider_adapter_boundary.md`。
+- 明确 ExpertProvider 第一批候选为基于 `PredictionBatchReader` 的 `PredictionCacheExpertProvider`；`prediction_array_io` grouped loading 是底层数组能力，应间接复用，不作为 provider 本体。
+- 明确 `packed_npy_v1` 是 full-scale 推荐读取边界，`per_sample_npy` 只保留 legacy/smoke 兼容；全量 Python lookup、每 sample 重复打开 packed 文件、legacy CSV 反推 prediction 和硬编码 `/data2` 的旧路线不应适配。
+- 明确 Visual pseudo image / ViT feature 路径可作为中期 `VisualOnlineVitFeatureProvider` 候选，但因牵涉 encoder、Quito 历史窗口、dtype、GPU/DataParallel 和 future finetune/joint 训练，不适合作为第一批最小 adapter。
+- 明确 TimeFuse 17 维 feature cache reader 可作为第二批 `TimeFuseFeatureCacheProvider` 候选，但必须拆出 feature-only provider，不能顺手读取 oracle/prediction arrays 或写入 runtime artifacts。
+- 明确 future online TimeFuse feature computation 是扩展点，offline ViT embedding cache 仅 reference-only / debug-only，不作为 full-scale canonical adapter。
+- 明确 Visual Router MLP 与 TimeFuse Linear-softmax 可以成为 RouterHead adapter；loss、optimizer、epoch loop、scaler fit、checkpoint/resume、DataParallel、prediction/oracle 读取和 CSV 写出不属于 RouterHead。
+- 明确 `time_router.evaluation` public API 是 Evaluator adapter 的基础能力；legacy CSV schema 不应反向污染 Evaluator。
+- 明确 provider/head/evaluator adapter 不决定 `run_dir`、不写 `status.json` / `metadata.json`、不创建 checkpoint index、不硬编码 `/data2`，由未来 launcher/runtime 显式编排。
+- 给出架构判断：先做 entrypoint migration plan，再实现最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可后续接入，Visual online ViT provider 不作为第一批最小实现。
+
+明确不做：
+
+- 不实现 provider adapter。
+- 不新增 ExpertProvider / FeatureProvider 读取代码。
+- 不修改 `PredictionBatchReader` / `OracleTsfReader` / evaluation / io helper。
+- 不修改 protocol types。
+- 不修改任何训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不实现 runtime / run_dir helper。
+- 不实现 config system。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不接入 `/data2`。
+- 不移动或删除历史代码。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
