@@ -118,6 +118,8 @@ Oracle backend 只能用于监督、诊断、baseline、upper-bound 和训练标
 1. **P10b：先抽 shared index prepare smoke helper**
    只抽 prediction SQLite prepare / fetch / metadata / atomic replace 的最小 helper，并用仓库内 packed fixture 或小 shard smoke 锁定 `sample_key + model_name` 完整性、row index lineage 和 grouped loading 行为。
 
+   当前状态（2026-06-20）：已完成 smoke-only helper，详见 `docs/refactor/prediction_sqlite_backend.md`。该 helper 未接 Visual Router / TimeFuse 正式入口，也未修改 provider、reader、adapter、launcher、loss 或输出 schema。
+
 2. **P10c：整理 launcher / run scripts 边界**
    在 provider 正式替换前，先把 run_dir、index artifact、status、metadata、resume、monitor 和停止命令边界文档化或轻量收束，避免 provider 接手 runtime 职责。
 

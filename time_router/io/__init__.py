@@ -15,16 +15,28 @@ from time_router.io.path_resolver import (
     resolve_under_root,
 )
 from time_router.io.prediction_cache_reader import DEFAULT_MODEL_COLUMNS, PredictionBatch, PredictionBatchReader
+from time_router.io.prediction_sqlite_backend import (
+    PreparedPredictionSQLiteBackend,
+    PredictionSQLiteBackendMetadata,
+    build_prediction_sqlite_backend,
+    load_prediction_sqlite_backend,
+    records_to_ordered_rows,
+)
 from time_router.io.run_metadata import build_run_metadata, write_run_metadata
 
 __all__ = [
     "DEFAULT_MODEL_COLUMNS",
+    "PreparedPredictionSQLiteBackend",
     "PredictionBatch",
     "PredictionBatchReader",
+    "PredictionSQLiteBackendMetadata",
     "atomic_write_json",
+    "build_prediction_sqlite_backend",
     "build_run_metadata",
     "build_status_payload",
     "find_repo_root",
+    "load_prediction_sqlite_backend",
+    "records_to_ordered_rows",
     "resolve_metadata_path",
     "resolve_status_path",
     "resolve_under_root",

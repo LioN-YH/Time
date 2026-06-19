@@ -1111,9 +1111,46 @@ TimeFuse 正式入口，不抽 helper 代码，不修改 provider/reader/adapter
 
 后续建议：
 
-- P10b 先抽 shared index prepare smoke helper。
+- P10b 已先抽 shared index prepare smoke helper。
 - P10c 再整理 launcher / run scripts 边界。
 - provider prepared backend 推迟到 Stage 1.5 / Stage 2。
+
+### P10b：minimal shared prediction SQLite backend smoke helper
+
+目标：在 P10a 审计边界内，只新增最小 shared prediction SQLite backend helper 和
+小规模 fixture smoke，验证 manifest chunk scan、target sample_keys 子集索引、batch
+fetch records、metadata、missing report 和 atomic replace / cleanup。不接 Visual Router /
+TimeFuse 正式入口。
+
+当前状态（2026-06-20）：已完成 `time_router/io/prediction_sqlite_backend.py`、
+`tests/smoke/stage1_prediction_sqlite_backend_smoke.py` 和
+`docs/refactor/prediction_sqlite_backend.md`。新增 helper 只由 smoke 使用，不替换
+`SQLitePredictionIndex`、`PredictionBatchReader`、`PredictionCacheExpertProvider` 或
+`EvaluationInputAdapter`。
+
+本次完成范围：
+
+- `build_prediction_sqlite_backend(...)` 接收 `manifest_path`、`target_sample_keys`、
+  `index_db_path`、`model_columns` 和 `chunk_read_rows`。
+- SQLite `prediction_index` 使用 `(sample_key, model_name)` 主键，记录 `y_pred/y_true`
+  path、MAE/MSE、`array_storage` 和 packed row index。
+- 构建过程分块读取 manifest，只写目标 sample/model records，不加载全量 manifest 到内存。
+- 构建使用同目录临时 SQLite 文件，成功后 `os.replace(...)` 原子替换；失败时删除临时文件。
+- `PreparedPredictionSQLiteBackend.fetch_records(sample_keys)` 返回当前 batch records，调用方
+  可用 `records_to_ordered_rows(...)` 按 `sample_keys + model_columns` 恢复顺序。
+- metadata 记录 target keys、expected/actual records、chunk rows、model columns、
+  manifest/index path、created_at 和 missing sample/model report。
+- smoke 使用临时 packed fixture 构造 4 sample × 5 model，验证 fetch 保序、row index
+  lineage、grouped packed loading、shape、缺失报错和 `allow_missing=True` missing report。
+
+明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不接正式入口，不新增 Bash/scripts，不访问 `/data2`，不启动 pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

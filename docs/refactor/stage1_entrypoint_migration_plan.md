@@ -462,3 +462,31 @@ prediction SQLite backend 文档化审计，详见
 `Stage1TimeFuseFusorStreamingReader` 整体上收为 shared provider。下一步更适合先做
 P10b shared index prepare smoke helper，再做 P10c launcher/run script 边界整理；provider
 prepared backend 接入推迟到 Stage 1.5 / Stage 2。
+
+## 17. P10b Minimal Shared Prediction SQLite Backend Smoke Helper
+
+P10a 之后，已新增最小 shared prediction SQLite backend helper，详见
+`docs/refactor/prediction_sqlite_backend.md`。
+
+当前完成内容：
+
+- `time_router/io/prediction_sqlite_backend.py` 提供
+  `build_prediction_sqlite_backend(...)`、`PreparedPredictionSQLiteBackend.fetch_records(...)`、
+  `load_prediction_sqlite_backend(...)` 和 `records_to_ordered_rows(...)`。
+- helper 接收调用方显式给出的 manifest、target sample_keys、index path、model columns
+  和 chunk rows；不推导 split、run_dir、训练模式或 launcher 状态。
+- SQLite 子集索引只覆盖 `(sample_key, model_name)` prediction records，保留 array path、
+  `array_storage`、packed row index、MAE/MSE 和 metadata。
+- 构建失败时不会留下目标 SQLite 半成品；缺失 sample/model 默认报错，也可在
+  `allow_missing=True` 的 smoke/审计路径写入 missing report。
+- `tests/smoke/stage1_prediction_sqlite_backend_smoke.py` 用临时 packed fixture 验证
+  4 sample × 5 model 的 index build、fetch order、grouped packed loading、row index
+  lineage 和 missing report。
+
+迁移含义：
+
+- 该 helper 是 future runtime/index prepare 的候选底层实现，不是新的 provider。
+- `PredictionCacheExpertProvider` 未来可以消费 prepared backend，但仍不应创建 run_dir、
+  扫描 full manifest、写 status/metadata 或绑定 `/data2`。
+- Visual Router / TimeFuse-style fusor 现有正式 SQLite path 仍保持不变；真正接入需要后续
+  独立小步验证正式入口输出 schema、loss、checkpoint/resume 和 evaluation 行为不漂移。
