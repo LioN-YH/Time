@@ -71,6 +71,7 @@
 | `docs/refactor/fusion_evaluator_adapter.md` | Stage 1 P6c FusionEvaluator compat adapter | 记录 `time_router.evaluation.FusionEvaluator` 的 legacy/compat API、`ExpertBatch + RouterOutput -> EvaluationInput -> EvaluationInputAdapter` 适配流程、纯内存 summary/rows 输出、明确不做范围和兼容 smoke 验收；本身不迁移正式 Visual Router / TimeFuse fusor 入口 |
 | `docs/refactor/timefuse_feature_cache_provider.md` | Stage 1 P7a TimeFuseFeatureCacheProvider | 记录 `time_router.features.TimeFuseFeatureCacheProvider` 的 smoke-only adapter API、`feature CSV -> FeatureBatch` 适配流程、`feature_schema` / `extra` 轻量 metadata、明确不做 prediction/oracle/scaler/run_dir/正式入口迁移的范围和 smoke 验收 |
 | `docs/refactor/timefuse_linear_head.md` | Stage 1 P7b TimeFuseLinearSoftmaxHead | 记录 `time_router.models.TimeFuseLinearSoftmaxHead` 的 smoke-only adapter API、`FeatureBatch.features -> RouterOutput(logits, weights)` 适配流程、固定线性权重和 stable softmax 约束、明确不训练/不读 cache/不写运行产物/不迁移正式入口的范围和 smoke 验收 |
+| `docs/refactor/timefuse_protocol_chain_smoke.md` | Stage 1 P7c TimeFuse protocol chain smoke | 记录 smoke-only 链路 `PredictionCacheExpertProvider -> ExpertBatch -> TimeFuseFeatureCacheProvider -> FeatureBatch -> TimeFuseLinearSoftmaxHead -> RouterOutput -> EvaluationInputAdapter -> summary/rows` 的目标、IO 边界、deterministic 口径和验收命令；本身不迁移正式 TimeFuse fusor / Visual Router 入口 |
 
 ### 1.2 根目录隐藏目录
 
@@ -240,6 +241,7 @@ visual_router_experiments/
 | `tests/smoke/stage1_fusion_evaluator_adapter_smoke.py` | Stage 1 P6c FusionEvaluator compat smoke | 默认读取同一 4 sample packed golden fixture，先用 `PredictionCacheExpertProvider` 显式构造 `ExpertBatch`，再用 golden weights 构造 `RouterOutput` 并调用兼容 `FusionEvaluator`；验证旧路径 `EvaluationInput` 保序、summary/rows 数值不漂移，并检查 diagnostics 中 `canonical_adapter_name=EvaluationInputAdapter`；adapter 调用阶段阻断 `open`、`Path.open` 和 `np.load`，并检查 `run_outputs` 一层目录集合不变，证明不重读 prediction cache/oracle/TSF、不创建正式输出目录 |
 | `tests/smoke/stage1_timefuse_feature_cache_provider_smoke.py` | Stage 1 P7a TimeFuseFeatureCacheProvider smoke | 使用测试内临时 feature CSV 构造 `TimeFuseFeatureCacheProvider` 并显式传入 sample_keys；验证 `FeatureBatch` 类型、sample_keys tuple 保序、`features=(2, 17)`、`feature_schema`、`extra`、空/重复 sample_key 拒绝；provider 阶段只允许读取临时 feature CSV 并阻断 `np.load`，检查 `run_outputs` 一层目录集合不变，证明不读取 prediction/oracle、不创建输出目录 |
 | `tests/smoke/stage1_timefuse_linear_head_smoke.py` | Stage 1 P7b TimeFuseLinearSoftmaxHead smoke | 使用测试内固定 `FeatureBatch`、固定线性权重和 bias 构造 `RouterOutput`；验证 sample_keys 保序、model_columns 对齐、logits/weights deterministic 数值、weights 逐样本和为 1、`__call__` 与 `predict` 一致以及非法 model_columns 拒绝；head 阶段阻断文件 IO、`np.load` 和 `np.save/np.savez`，检查 `run_outputs` 一层目录集合不变，证明不读取 cache/feature CSV、不训练、不写运行产物 |
+| `tests/smoke/stage1_timefuse_protocol_chain_smoke.py` | Stage 1 P7c TimeFuse protocol chain smoke | 使用 golden prediction fixture 构造 `ExpertBatch`，使用测试内临时 feature CSV 构造 `FeatureBatch`，用固定 `TimeFuseLinearSoftmaxHead` 权重生成 `RouterOutput`，再通过 `EvaluationInputAdapter` 复算 summary/rows；验证 sample_keys/model_columns/features/weights/summary/rows 保序且 deterministic；head/evaluator 阶段阻断文件 IO、`np.load` 和 `np.save/np.savez`，检查 `run_outputs` 一层目录集合不变，证明不回读 cache/oracle/TSF、不训练、不写运行产物 |
 
 ## 3. QuitoBench / Quito 代码与实验层
 

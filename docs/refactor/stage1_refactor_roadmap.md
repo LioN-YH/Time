@@ -818,6 +818,70 @@ P6c consolidation（2026-06-20）：已收束 evaluation adapter 命名和职责
 - 不新增 Bash 或 `scripts/` entrypoint。
 - 不迁移正式 TimeFuse fusor / Visual Router 入口。
 
+### P7b：minimal TimeFuseLinearSoftmaxHead smoke-only
+
+目标：新增最小 `TimeFuseLinearSoftmaxHead`，只把 `FeatureBatch.features` 转成 `RouterOutput(logits, weights)`，先供 smoke 使用，不接正式 TimeFuse fusor / Visual Router 入口。
+
+当前状态（2026-06-20）：已完成 P7b 最小 adapter 与 smoke；本阶段新增 `time_router/models/`，但不修改正式训练入口，不实现训练、loss、optimizer、checkpoint、runtime 或 launcher。
+
+本次完成范围：
+
+- 新增 `time_router/models/__init__.py`，导出 `TimeFuseLinearSoftmaxHead`。
+- 新增 `time_router/models/timefuse_linear.py`，使用纯 numpy 固定线性层和 stable softmax。
+- `TimeFuseLinearSoftmaxHead.predict(feature_batch, model_columns)` 输出 `RouterOutput`。
+- `sample_keys` 保持 `FeatureBatch.sample_keys` 顺序。
+- `logits` / `weights` 的专家维度与 `model_columns` 对齐。
+- `weights` 沿专家维度 softmax，逐样本和为 1。
+- 新增 `tests/smoke/stage1_timefuse_linear_head_smoke.py`，使用固定小矩阵和固定权重验证 deterministic 输出，并阻断文件 IO、`np.load`、`np.save/np.savez`。
+
+明确不做：
+
+- 不训练。
+- 不计算 loss。
+- 不创建 optimizer。
+- 不保存 checkpoint。
+- 不读取 prediction cache、oracle/TSF 或 feature CSV。
+- 不访问 `/data2`。
+- 不创建 `run_dir`。
+- 不写 status/metadata/CSV/JSON/Parquet。
+- 不新增 Bash 或 `scripts/` entrypoint。
+- 不迁移正式 TimeFuse fusor / Visual Router 入口。
+
+### P7c：TimeFuse protocol chain smoke-only
+
+目标：新增一个 smoke-only TimeFuse protocol chain，把已完成 adapter 串起来验证协议对象可组合：
+
+```text
+PredictionCacheExpertProvider -> ExpertBatch
+TimeFuseFeatureCacheProvider -> FeatureBatch
+TimeFuseLinearSoftmaxHead -> RouterOutput
+EvaluationInputAdapter -> summary / per-sample rows
+```
+
+当前状态（2026-06-20）：已完成 P7c 链路 smoke 与文档；本阶段只新增 `tests/smoke/stage1_timefuse_protocol_chain_smoke.py` 和 `docs/refactor/timefuse_protocol_chain_smoke.md`，不修改正式训练入口。
+
+本次完成范围：
+
+- 使用 golden prediction fixture 构造 `ExpertBatch`。
+- 使用测试内临时 TimeFuse feature CSV 构造 `FeatureBatch`。
+- `FeatureBatch.sample_keys` 必须与 `ExpertBatch.sample_keys` 对齐。
+- 使用固定 `TimeFuseLinearSoftmaxHead` 权重生成 `RouterOutput`。
+- 使用 `EvaluationInputAdapter` 复算内存 summary 和 per-sample rows。
+- 锁定 `sample_keys`、`model_columns`、features、weights、summary 和 rows 的 deterministic 输出。
+- head/evaluator 阶段阻断 `open`、`Path.open`、`np.load`、`np.save` 和 `np.savez`，并检查 `run_outputs` 一层目录集合不变。
+
+明确不做：
+
+- 不训练。
+- 不计算 loss。
+- 不创建 optimizer。
+- 不保存 checkpoint。
+- 不访问 `/data2`。
+- 不新增 Bash 或 `scripts/` entrypoint。
+- 不创建 `run_dir`。
+- 不写 status/metadata/CSV/JSON/Parquet。
+- 不迁移正式 TimeFuse fusor / Visual Router 入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
