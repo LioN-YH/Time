@@ -35,6 +35,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from time_router.io.prediction_cache_reader import PredictionBatchReader  # noqa: E402
+from time_router.evaluation.metrics import hard_top1_fusion, raw_soft_fusion  # noqa: E402
 
 
 DEFAULT_FIXTURE_ROOT = (
@@ -179,22 +180,26 @@ def run_smoke(fixture_root: Path, *, atol: float) -> None:
         raise AssertionError(f"y_true shape 漂移：actual={y_true.shape} expected={EXPECTED_Y_TRUE_SHAPE}")
     print(f"通过：y_pred shape={y_pred.shape}，y_true shape={y_true.shape}")
 
-    hard_indices = GOLDEN_WEIGHTS.argmax(axis=1)
-    hard_models = [model_columns[int(idx)] for idx in hard_indices]
+    hard_result = hard_top1_fusion(y_pred=y_pred, y_true=y_true, weights=GOLDEN_WEIGHTS, model_columns=model_columns)
+    hard_indices = hard_result.selected_indices
+    hard_models = hard_result.selected_models
+    if hard_indices is None or hard_models is None:
+        raise AssertionError("hard top-1 helper 未返回 selected_indices / selected_models")
     if hard_models != EXPECTED_HARD_MODELS:
         raise AssertionError(f"hard top-1 选择漂移：actual={hard_models} expected={EXPECTED_HARD_MODELS}")
-    hard_pred = y_pred[np.arange(len(EXPECTED_SAMPLE_KEYS)), hard_indices]
-    hard_error = hard_pred - y_true
-    hard_mae = float(np.mean(np.abs(hard_error)))
-    hard_mse = float(np.mean(hard_error**2))
+    if tuple(hard_result.fused_pred.shape) != EXPECTED_Y_TRUE_SHAPE:
+        raise AssertionError(f"hard top-1 fused_pred shape 漂移：actual={hard_result.fused_pred.shape} expected={EXPECTED_Y_TRUE_SHAPE}")
+    hard_mae = hard_result.mae
+    hard_mse = hard_result.mse
     assert_close("hard top-1 MAE", hard_mae, EXPECTED_HARD_MAE, atol=atol)
     assert_close("hard top-1 MSE", hard_mse, EXPECTED_HARD_MSE, atol=atol)
     print(f"通过：hard top-1 选择={hard_models}，MAE={hard_mae:.9f}，MSE={hard_mse:.9f}")
 
-    soft_pred = (GOLDEN_WEIGHTS.reshape(GOLDEN_WEIGHTS.shape[0], GOLDEN_WEIGHTS.shape[1], 1, 1) * y_pred).sum(axis=1)
-    soft_error = soft_pred - y_true
-    raw_soft_mae = float(np.mean(np.abs(soft_error)))
-    raw_soft_mse = float(np.mean(soft_error**2))
+    raw_soft_result = raw_soft_fusion(y_pred=y_pred, y_true=y_true, weights=GOLDEN_WEIGHTS, model_columns=model_columns)
+    if tuple(raw_soft_result.fused_pred.shape) != EXPECTED_Y_TRUE_SHAPE:
+        raise AssertionError(f"raw soft fused_pred shape 漂移：actual={raw_soft_result.fused_pred.shape} expected={EXPECTED_Y_TRUE_SHAPE}")
+    raw_soft_mae = raw_soft_result.mae
+    raw_soft_mse = raw_soft_result.mse
     assert_close("raw soft fusion MAE", raw_soft_mae, EXPECTED_RAW_SOFT_MAE, atol=atol)
     assert_close("raw soft fusion MSE", raw_soft_mse, EXPECTED_RAW_SOFT_MSE, atol=atol)
     print(f"通过：raw soft fusion MAE={raw_soft_mae:.9f}，MSE={raw_soft_mse:.9f}")
