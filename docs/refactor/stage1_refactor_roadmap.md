@@ -433,15 +433,46 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改 `PredictionBatchReader` / `OracleTsfReader` / evaluation helper。
 - 不改模型结构、loss 或正式输出目录。
 
+### P4f：paused config system; architecture pivot after P4
+
+目标：P4d/P4e 完成后，不继续沿“兼容历史输出”的路径实现 config system，而是先做架构转向决策，明确 Stage 1 新主干只保留哪些 canonical entrypoint、哪些历史入口降级为 archive/deprecated/reference-only，以及新 runtime 最小契约是什么。
+
+当前状态（2026-06-19）：已完成 P4 后 architecture pivot review；本阶段只新增决策文档，不改训练代码、不迁移入口、不实现 config system、不实现 checkpoint index、不接入 `/data2`、不移动或删除历史代码。
+
+本次完成范围：
+
+- 新增 `docs/refactor/stage1_architecture_pivot_after_p4.md`。
+- 明确 Visual Router canonical entrypoint 为 `train_visual_router_online_streaming.py`，路线固定为 `x -> pseudo image -> frozen ViT -> router`。
+- 明确 TimeFuse-style fusor baseline canonical entrypoint 为 `train_timefuse_fusor_streaming.py` 和 `launch_timefuse_fusor_full_scale.py`，路线固定为 `sample_key -> 17维 feature cache -> Linear-softmax fusor`。
+- 明确 LogisticRegression fusor、offline ViT embedding cache、旧 OOM lookup、pilot-only 脚本和非 streaming full-scale 入口不再作为正式主干，不再为其新增兼容 helper。
+- 明确继承 `sample_key`、固定五专家顺序、`packed_npy_v1` row index、oracle/TSF join 口径和 evaluation 复算口径；舍弃旧 pilot/status/metadata/checkpoint 的强兼容目标。
+- 定义新 canonical runtime 最小契约：`run_dir`、`status.json`、`metadata.json`、`checkpoints/`、`predictions/` 或 evaluation outputs、`logs/` 或 `main.log`。
+- 明确 P4 helper 只作为底层 JSON/path/metadata 能力接入，evaluation helper 负责统一复算，`PredictionBatchReader` 和 `OracleTsfReader` 作为契约来源但 full-scale 仍需 streaming/shard-aware 读取。
+- 决定暂停 P4f config system，转向 P5 canonical entrypoint design / FeatureProvider interface design。
+
+明确不做：
+
+- 不改任何训练脚本。
+- 不迁移入口。
+- 不实现 config system。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不接入 `/data2`。
+- 不为了兼容历史输出新增 helper。
+- 不改变 `PredictionBatchReader` / `OracleTsfReader` / evaluation / IO helper 行为。
+- 不移动或删除历史代码。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P5：introduce FeatureProvider interface
 
-目标：引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦。
+目标：在 P4 后 architecture pivot 已确认 canonical entrypoint 的基础上，引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦；P5 之前不再先实现共享 config system。
 
 范围：
 
 - `VisualFeatureProvider`：`x -> pseudo image -> frozen ViT embedding`，在线 batch 生成，不落盘 full-scale embedding。
 - `TimeFuseFeatureProvider`：`sample_key -> 17维 feature cache`，支持 feature-only scaler 和 shard-aware 读取。
 - 定义统一输出：`sample_keys`、`features`、dtype/device metadata 和可选诊断信息。
+- 同步设计 canonical runtime 的 `run_dir/status/metadata/checkpoint/evaluation/logs` 契约，再决定哪些参数进入共享 config。
 
 门禁：
 

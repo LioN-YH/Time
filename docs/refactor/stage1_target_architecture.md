@@ -6,6 +6,8 @@
 
 Stage 1 后续目标不是把 Visual Router 和 TimeFuse-style fusor 合并成一套模型，而是把二者共享的数据、索引、监督和评估主干收束到稳定 Python package 中，再把特征生成和 router head 保留为显式分支。本文只定义未来架构边界，不代表代码已经迁移；本次不移动、不删除、不重命名、不改写任何正式代码。
 
+P4 后架构转向结论：Stage 1 后续先收束 canonical entrypoint 和 runtime 契约，再设计 FeatureProvider 与共享 config。正式训练主干只保留 streaming Visual Router 和 streaming TimeFuse-style fusor baseline 两条；LogisticRegression fusor、offline ViT embedding cache、旧 OOM lookup、pilot-only 脚本和非 streaming full-scale 入口不再作为新架构兼容目标。
+
 目标运行形态如下：
 
 ```text
@@ -108,6 +110,8 @@ sample batch
 
 该分支的研究变量是视觉表示和 MLP router。full-scale 主线固定为在线生成，不长期保存 pseudo image tensor 或 ViT embedding cache。未来迁移时应复用 `common/pseudo_imageization.py` 和 `common/vit_embedding_utils.py` 的既有行为，并用 golden smoke 确认迁移没有改变 prediction batch 与 fusion 指标。
 
+当前 canonical entrypoint 是 `visual_router_experiments/stage1_vali_test_router/train_visual_router_online_streaming.py`。`train_visual_router.py` 和 `train_visual_router_online.py` 继续保留小规模复现和历史对照价值，但不作为 full-scale 主干。
+
 ### 4.2 TimeFuseFeatureProvider 分支
 
 ```text
@@ -120,6 +124,21 @@ sample batch
 
 该分支的研究变量是 TimeFuse-derived 17 维历史窗口元特征和单层 softmax fusor。feature cache 只来自历史窗口 `x`，不读取未来 `y`、专家预测或 oracle label。scaler 和训练阶段应优先复用 shard-aware reader、split 下推和 batch-level grouped packed npy 读取。
 
+当前 canonical entrypoint 是 `visual_router_experiments/stage1_vali_test_router/train_timefuse_fusor_streaming.py`，正式 full-scale 后台编排入口是 `launch_timefuse_fusor_full_scale.py`。早期 LogisticRegression hard-label router 只作为 legacy/deprecated 历史口径。
+
+## 4.3 Canonical Runtime 最小契约
+
+未来两条正式分支都应收束到同一类 runtime 目录契约：
+
+- `run_dir/`：单次运行独立目录，不覆盖已完成正式结果。
+- `status.json`：记录 `status`、`phase`、`updated_at`、关键进度、错误和可恢复状态。
+- `metadata.json`：记录 entrypoint、config、args、inputs、outputs、model columns、array storage、feature schema、checkpoint 和资源策略。
+- `checkpoints/`：训练型入口保存 epoch checkpoint、latest checkpoint 和 latest index；纯 eval-only 入口在 metadata 中说明 checkpoint 来源。
+- `predictions/` 或 evaluation outputs：保存 per-sample predictions、summary、comparison 或 calibration 输出。
+- `logs/` 或 `main.log`：保存主日志、launcher 日志和后台接手所需命令。
+
+P4 helper 只提供原子 JSON、路径解析和 metadata-like payload 基础能力；run_dir 命名、launcher、checkpoint payload、resume policy、best/latest 选择和 logging framework 仍属于 runtime/training 层。
+
 ## 5. 未来进入 `archive/` 的旧代码类别
 
 以下类别未来应在有替代模块和验证证据后进入 `archive/`，但本次不移动任何文件。
@@ -128,6 +147,7 @@ sample batch
 - logistic regression fusor：TimeFuse-derived hard-label LogisticRegression router 已是 legacy/deprecated，不作为正式 TimeFuse-style fusor。
 - old OOM routes：全量 Python prediction lookup、旧 `_1epoch/` OOM 输出路线，以及只适合 120/1k 的全量暂存 embedding 入口。
 - pilot-only scripts：固定小规模、固定 1k、dry-run 或历史验证脚本；迁移正式逻辑后应只作为历史复现材料。
+- 非 streaming / 早期 online full-scale 入口：不再承担 canonical training，不再为其新增 status/metadata/checkpoint 兼容 helper。
 
 ## 6. Golden Smoke 门禁
 
