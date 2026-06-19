@@ -379,3 +379,33 @@ P9c pressure 结论（2026-06-20）：
 - 关闭和开启 `--verify-evaluation-adapter` 后，`visual_router_predictions.csv`、`visual_router_soft_fusion_predictions.csv`、summary、soft summary、selected counts、comparison 和 streaming summary 核心表格在归一化 run_dir/生成时间后保持一致。
 - 开启 verify 不新增 adapter artifact；metadata、online metadata、status 和 checkpoint index top-level schema 不漂移。
 - 该结论只证明旁路校验不改变现有正式输出，不代表 Visual FeatureProvider、ViT provider、router head 或 training loop 已迁移。
+
+## 14. P9e Visual Router Prediction Cache Provider Gap Audit
+
+P9d 之后，已完成 `PredictionCacheExpertProvider` / `PredictionBatchReader` 与
+Visual Router 正式 SQLite prediction path 的能力差距审计，详见
+`docs/refactor/visual_router_prediction_cache_provider_gap_audit.md`。
+
+审计结论：
+
+- `PredictionCacheExpertProvider` 当前已具备显式 `sample_keys` batch 输入、固定五专家
+  `model_columns`、`y_pred/y_true` 读取、`row_index_metadata`、`verify_metrics`、
+  `packed_npy_v1` / `per_sample_npy` 和 `ExpertBatch` 输出能力。
+- Visual Router 正式入口的 SQLite path 仍承担 `required_prediction_sample_keys(...)`、
+  `build_lightweight_prediction_index(...)`、大 manifest chunk scan、只为 required
+  sample_keys 建 SQLite 子集索引、`prediction_index.fetch_records(...)`、batch-level
+  packed row index 读取、`fusion_huber_kl` 训练 loss 所需 `expert_errors`、eval raw soft
+  fusion 所需 lookup、`prediction_manifest_index.sqlite` runtime artifact 和 index metadata。
+- provider 应只负责 `load_batch(sample_keys) -> ExpertBatch`、sample/model 保序、
+  `y_pred/y_true` 读取和 row index lineage；不应创建 run_dir、写 status/metadata/CSV、
+  推导 split required keys、决定 SQLite index 路径、管理 checkpoint/resume 或绑定 `/data2`。
+- 最小安全路线是继续保留 Visual SQLitePredictionIndex，只在 batch 后包装 `ExpertBatch`
+  做旁路校验；P9f 可优先做 training loss `ExpertBatch` bypass check。
+- 中期可抽 shared prediction index prepare helper；真正让 provider 消费 prepared
+  index / batch query backend 应推迟到 Stage 1.5 或 Stage 2，并在 smoke + pressure 后再进入正式入口。
+
+P9e 不修改 `train_visual_router_online_streaming.py`，不替换 SQLitePredictionIndex，不接
+`PredictionCacheExpertProvider` 到正式入口，不迁移 `PredictionBatchReader`，不改
+`EvaluationInputAdapter`、Visual FeatureProvider、ViT provider、router head、training loop、
+`fusion_huber_kl` loss、checkpoint/status/metadata/CSV schema，也不访问 `/data2` 或启动
+pressure/full-scale。

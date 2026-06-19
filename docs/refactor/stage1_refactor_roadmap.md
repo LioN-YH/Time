@@ -994,6 +994,49 @@ EvaluationInputAdapter -> summary / per-sample rows
 - 不启动 full-scale。
 - 不改 TimeFuse 正式入口。
 
+### P9e：Visual Router PredictionCacheExpertProvider full-scale gap audit only
+
+目标：在 P9d ExpertBatch evaluation bridge 之后，只审计
+`PredictionCacheExpertProvider` / `PredictionBatchReader` 与 Visual Router 正式入口
+`SQLitePredictionIndex`、`build_lightweight_prediction_index(...)`、
+`load_prediction_tensors_from_lightweight_index(...)` 的能力差距，并给出后续迁移路线。
+
+当前状态（2026-06-20）：已完成 P9e 文档化审计；新增
+`docs/refactor/visual_router_prediction_cache_provider_gap_audit.md`，本阶段不修改正式入口，
+不替换 SQLite index，不新增 full-scale provider 实现。
+
+本次完成范围：
+
+- 梳理 `PredictionCacheExpertProvider` 当前已具备的显式 sample_keys batch 输入、固定五专家
+  `model_columns`、`y_pred/y_true`、`row_index_metadata`、`verify_metrics`、
+  `packed_npy_v1` / `per_sample_npy` 和 `ExpertBatch` 输出能力。
+- 梳理 Visual Router 正式 SQLite path 仍承担的 `required_prediction_sample_keys(...)`、
+  大 manifest chunk scan、SQLite 子集索引、batch query、packed row index 读取、
+  `fusion_huber_kl` 训练 loss 所需 `expert_errors`、eval raw soft fusion lookup、
+  `prediction_manifest_index.sqlite` runtime artifact 和 index metadata。
+- 明确 provider 应只负责 `load_batch(sample_keys) -> ExpertBatch`、sample/model 保序、
+  读取 `y_pred/y_true` 和保留 row index lineage，不应创建 run_dir、写 status/metadata/CSV、
+  推导 split、决定 SQLite path、管理 checkpoint/resume、执行 full-scale preflight 或绑定 `/data2`。
+- 比较三种迁移方案：A 保留 Visual SQLitePredictionIndex 并在 batch 后包装 ExpertBatch；
+  B 给 provider 增加可选 prepared index / batch query 后端；C 直接用 `PredictionBatchReader`
+  替换 Visual SQLite path。结论是 A 风险最低，B 可作为 Stage 1.5 候选，C 默认不建议。
+- 明确 P9f/P10 建议：先做 training loss ExpertBatch bypass check，再抽 shared prediction index
+  prepare helper，再整理 launcher/run script 层，真正 provider 替换推迟到 Stage 1.5 / Stage 2。
+
+明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py` 行为。
+- 不替换 `SQLitePredictionIndex`。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不迁移 `PredictionBatchReader` 到正式入口。
+- 不改 `PredictionBatchReader`、`PredictionCacheExpertProvider` 或 `EvaluationInputAdapter`。
+- 不改 VisualFeatureProvider / ViT provider / router head / training loop / `fusion_huber_kl` loss。
+- 不改 checkpoint / status / metadata / CSV schema。
+- 不新增 Bash/scripts。
+- 不访问 `/data2`。
+- 不启动 pressure/full-scale。
+- 不改 TimeFuse 正式入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
