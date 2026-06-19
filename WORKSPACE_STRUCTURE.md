@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 15:52:26 CST
+更新日期：2026-06-19 16:16:47 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -46,6 +46,7 @@
 | `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计和公共模块迁移候选，不表示重构已执行 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_migration_candidates.md` | manifest、prediction cache、oracle/TSF、SQLite/batch reader、metrics、logging、路径和训练骨架的后续收束候选 | 只记录建议；实际重构完成后更新状态与兼容性结论 |
+| `docs/refactor/golden_fixture.md` | Stage 1 重构前 golden fixture 说明，记录 4 sample packed dry-run fixture 来源、锁定契约和 smoke 运行命令 | 后续调整 golden fixture 或重构验收口径时同步更新；不代表正式逻辑已重构 |
 
 ### 1.2 根目录隐藏目录
 
@@ -75,6 +76,9 @@ experiment_logs/
 ├── 2026-06-12_*.md
 ├── 2026-06-13_*.md
 └── run_outputs/
+
+tests/
+└── smoke/
 
 /data2/syh/Time/
 ├── run_outputs/
@@ -169,6 +173,12 @@ visual_router_experiments/
 | `visual_router_experiments/stage1_vali_test_router/` | Stage 1 主实验目录 | 保存 vali 训练 router、test 测试 router 的 prediction cache、oracle labels、TSF enrichment、TimeFuse feature cache、embedding、训练、评估和汇总脚本；`README.md` 现作为当前主线导航页，明确 visual router full-scale 正式入口、中小规模复现入口、baseline 支线入口、共享库、pilot 边界和下一步；`stage1_visual_router_mainline.md` 只记录视觉路由主线、`96_48_S` 正确路线、废弃路线和扩 config 标准步骤，明确 TimeFuse-style fusor 是 baseline 支线；`stage1_history_results.md` 保存从 README 拆出的 120 sample smoke、1k、dry-run 和 full-scale 长跑历史结果索引；当前已有 `prediction_cache_design.md`、`feature_and_rl_extension_notes.md`、`stage1_cache_contract.md`、`stage1_visual_router_mainline.md`、`stage1_protocol_and_plan.md`、`stage1_history_results.md`、`stage1_timefuse_fusor_streaming_reader_design.md`、`build_stage1_sample_manifest.py`、`build_full_scale_sample_manifest.py`、`build_prediction_cache_from_manifest.py`、`merge_prediction_cache_shards.py`、`launch_full_scale_prediction_cache.py`、`build_full_scale_window_oracle_labels.py`、`build_full_scale_tsf_enrichment.py`、`validate_full_scale_oracle_tsf_outputs.py`、`build_timefuse_feature_cache_from_manifest.py`、`launch_timefuse_feature_cache_full_scale.py`、`stage1_timefuse_fusor_streaming_reader.py`、`train_timefuse_fusor_streaming.py`、`launch_timefuse_fusor_full_scale.py`、`run_full_scale_dry_run.py`、`evaluate_router_baselines.py`、`fusion_utils.py`、`train_visual_router.py`、`train_visual_router_online.py`、`train_visual_router_online_streaming.py`、`evaluate_soft_fusion_calibration.py`、`pilot/` 和 package 初始化文件；baseline evaluator 现可同时输出统计 baseline、TimeFuse-style fusor hard/raw-soft、oracle 和统一 comparison；visual full-scale 路线使用 packed prediction cache 与 streaming online router，不落盘 ViT embedding `.npy` 或伪图像 tensor；TimeFuse-style fusor full-scale 读取层已支持 feature shard、oracle parquet、五专家 shard/merged prediction manifest 的 shard-local SQLite + batch reader，streaming train/eval 入口已完成 1-shard smoke、checkpoint eval-only 和 2-shard小切片压力测试，并已支持 CUDA 多卡 `DataParallel`；2026-06-19 起 fusor reader/train 支持 index 复用、feature-only scaler、split 下推、packed npy batch-level grouped loading 和大块 CSV 后切 batch；正式 64-shard GPU2/3 后台 launcher 独立追踪于 `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/` |
 | `visual_router_experiments/stage1_vali_test_router/pilot/` | Stage 1 pilot 脚本目录 | 保存 `build_prediction_cache_pilot.py`、`build_vit_embeddings_pilot.py`、`build_online_pseudo_image_pilot.py`、`build_structure_feature_cache_pilot.py`、`train_structure_router_pilot.py`、`compute_window_oracle_from_cache.py`、`enrich_cache_with_tsf_cell.py`、`launch_96_48_s_1k_prediction_cache_pilot.py`、`launch_96_48_s_1k_vit_embedding_pilot.py` 等小规模验证、离线 embedding 历史对照、过渡性 launcher 和固定规模资源编排脚本；用于打通 cache/oracle/enrichment/feature/router 流程或复现 1k smoke 编排，不作为通用正式实验入口 |
 | `visual_router_experiments/stage2_heldout_cell/` | Stage 2 泛化实验目录 | 后续保存 7-cell 训练、held-out cell 测试的 zero-shot 泛化实验脚本 |
+
+### 2.5 `tests/smoke/`
+
+| 路径 | 层级角色 | 功能 |
+| --- | --- | --- |
+| `tests/smoke/stage1_golden_smoke.py` | Stage 1 重构前只读 golden smoke | 默认读取 `experiment_logs/run_outputs/2026-06-14_stage1_full_scale_dry_run_v2/merged_cache/` 的 4 sample packed fixture，锁定 sample_key 顺序、五专家顺序、`y_pred/y_true` shape、hard top-1、raw soft fusion MAE/MSE 和 `packed_npy_v1` row index 读取一致性；用于后续公共 reader/metrics 重构前后等价验证，不训练、不写正式输出 |
 
 ## 3. QuitoBench / Quito 代码与实验层
 
