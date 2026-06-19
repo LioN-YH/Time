@@ -460,8 +460,9 @@ prediction SQLite backend 文档化审计，详见
 
 后续不应直接把 `PredictionBatchReader` 替换进 Visual Router full-scale 入口，也不应把
 `Stage1TimeFuseFusorStreamingReader` 整体上收为 shared provider。下一步更适合先做
-P10b shared index prepare smoke helper，再做 P10c launcher/run script 边界整理；provider
-prepared backend 接入推迟到 Stage 1.5 / Stage 2。
+P10b shared index prepare smoke helper，再做 P10c prediction array IO boundary consolidation。
+P10d 已根据当前方向调整为先冻结 canonical SampleManifest / Split / Supervision 边界；
+launcher/run script 边界整理继续后移。provider prepared backend 接入推迟到 Stage 1.5 / Stage 2。
 
 ## 17. P10b Minimal Shared Prediction SQLite Backend Smoke Helper
 
@@ -490,3 +491,40 @@ P10a 之后，已新增最小 shared prediction SQLite backend helper，详见
   扫描 full manifest、写 status/metadata 或绑定 `/data2`。
 - Visual Router / TimeFuse-style fusor 现有正式 SQLite path 仍保持不变；真正接入需要后续
   独立小步验证正式入口输出 schema、loss、checkpoint/resume 和 evaluation 行为不漂移。
+
+## 18. P10c Prediction Array IO Boundary Consolidation
+
+P10b 之后，已将 prediction array IO canonical 边界上收到 `time_router.io`，详见
+`docs/refactor/prediction_sqlite_backend.md`。
+
+迁移含义：
+
+- `time_router/io/prediction_array_io.py` 现在承载 `packed_npy_v1` 与 legacy
+  `per_sample_npy` 的路径解析、单样本读取和 grouped batch 读取。
+- `visual_router_experiments/common/prediction_array_io.py` 只保留兼容 re-export。
+- 该步骤只整理 IO 边界，不接 Visual Router / TimeFuse 正式入口，不改变 provider、
+  reader、adapter、loss、checkpoint/resume 或正式输出 schema。
+
+## 19. P10d Canonical SampleManifest and Supervision Boundary
+
+P10d 根据允许重跑 Stage 1 的新方向，先冻结 canonical `SampleManifest` /
+`SplitStrategy` / `SupervisionProvider` 边界，详见
+`docs/refactor/stage1_canonical_sample_supervision_boundary.md`。
+
+入口迁移计划新增约束：
+
+- Visual Router 与 TimeFuse-style fusor 后续都应从同一 `SampleManifest` 获取 sample source、
+  split 和 ordered `sample_keys`。
+- `SampleManifest` 推荐字段包括 `sample_key`、`split`、`config_name`、`dataset_name`、
+  `item_id`、`channel_id`、`window_index`，以及可选 `seq_len` / `pred_len` 和 lineage/extra。
+- split 不应继续散落在 labels CSV、feature CSV、oracle reader 和 prediction reader 中。
+- `ExpertProvider` 只负责专家预测 `y_pred/y_true`；`SupervisionProvider` 负责
+  `oracle_model`、`oracle_value`、`per_model_errors`、`model_columns` 和 `metric`。
+- oracle / per-model error 只进入训练监督、诊断、baseline 和 upper-bound，不进入
+  deployable `FeatureProvider`。
+- 当前 Visual Router labels CSV 同时承担 manifest/split/oracle/metadata，以及 TimeFuse feature
+  CSV + oracle SQLite/parquet + prediction SQLite 的分工，均视为历史实现差异，不作为长期接口边界。
+
+本步不改正式入口、不新增 provider 或 SampleManifest 代码、不改 protocols/types，不访问 `/data2`，
+不启动 pressure/full-scale，不改正式 artifact schema。P11/P12 可以在该边界上冻结新的
+run artifact schema；旧 schema 不再强行作为最高兼容目标。
