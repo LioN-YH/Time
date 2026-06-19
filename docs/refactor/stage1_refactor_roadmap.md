@@ -294,6 +294,40 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改 `PredictionBatchReader` / `OracleTsfReader`。
 - 不改模型结构、loss 或正式输出目录。
 
+### P4b：minimal path resolver helper only
+
+目标：在 P4a atomic JSON / status writer 之后，抽出 P4 中最低风险的路径解析基础能力，用于 repo root、root 内安全拼接和 status/metadata path 计算；不迁移正式入口、不接入 full-scale 输出目录。
+
+当前状态（2026-06-19）：已完成 P4b 最小 path resolver helper 抽取和 repo-level / tempfile smoke；完整 P4 的 config system、logging framework、checkpoint index、launcher/monitor/resume 替换仍保留到后续小步。
+
+本次完成范围：
+
+- 新增 `time_router/io/path_resolver.py`，提供 `find_repo_root(...)`、`resolve_under_root(...)`、`resolve_status_path(...)` 和 `resolve_metadata_path(...)`。
+- `find_repo_root(...)` 从调用方起点或当前 helper 文件位置向上查找 `.git`、`WORKSPACE_STRUCTURE.md` 或 pyproject-like marker，找不到时明确报错。
+- `resolve_under_root(...)` 返回 root 内部 resolved path，拒绝通过 `..` 或绝对路径逃逸 root；`must_exist=True` 时路径不存在会明确报错。
+- `resolve_status_path(...)` / `resolve_metadata_path(...)` 只返回 `run_dir / "status.json"` 和 `run_dir / "metadata.json"`，不创建目录、不写文件、不假设正式输出目录。
+- 新增 `tests/smoke/stage1_path_resolver_smoke.py`，覆盖 repo root 查找、`WORKSPACE_STRUCTURE.md` 定位、tempfile 正常路径、逃逸 root 报错、`must_exist=True` 不存在报错和 status/metadata helper 不创建文件。
+- 新增 `docs/refactor/path_resolver.md`，记录 P4b helper 边界和完整门禁。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不修改任何现有正式训练脚本。
+- 不替换现有 launcher / monitor / resume 行为。
+- 不接入 `/data2` 或任何 full-scale 输出目录。
+- 不改变既有正式输出目录含义。
+- 不改变既有 `status.json` / `metadata.json` schema。
+- 不实现 config system。
+- 不实现 logging framework。
+- 不实现 checkpoint index。
+- 不创建正式输出目录。
+- 不写 JSON 文件。
+- 不改 evaluation helper。
+- 不实现 comparison / calibration / report schema。
+- 不读取 oracle/TSF。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P5：introduce FeatureProvider interface
 
 目标：引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦。

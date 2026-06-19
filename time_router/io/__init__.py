@@ -4,6 +4,12 @@
 """
 
 from time_router.io.json_utils import atomic_write_json, build_status_payload, write_status_json
+from time_router.io.path_resolver import (
+    find_repo_root,
+    resolve_metadata_path,
+    resolve_status_path,
+    resolve_under_root,
+)
 from time_router.io.prediction_cache_reader import DEFAULT_MODEL_COLUMNS, PredictionBatch, PredictionBatchReader
 
 __all__ = [
@@ -12,5 +18,9 @@ __all__ = [
     "PredictionBatchReader",
     "atomic_write_json",
     "build_status_payload",
+    "find_repo_root",
+    "resolve_metadata_path",
+    "resolve_status_path",
+    "resolve_under_root",
     "write_status_json",
 ]
