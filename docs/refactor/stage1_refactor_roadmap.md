@@ -401,6 +401,38 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或重命名 `time_router/io` 文件。
 - 不改变现有 public API 和 helper 行为。
 
+### P4e：checkpoint index boundary review and integration plan only
+
+目标：在 P4d 确认 checkpoint index 应单独处理之后，对 Visual Router / TimeFuse-style fusor 当前 checkpoint、best/latest model、resume、launcher、monitor、`status.json` 和 `metadata.json` 约定做文档化边界复核，并规划后续是否抽取 checkpoint index helper。
+
+当前状态（2026-06-19）：已完成 P4e 文档化 review；本阶段只新增 checkpoint index 边界复核和接入规划，不实现 checkpoint index helper，不修改正式训练入口，不替换 launcher / monitor / resume 行为。
+
+本次完成范围：
+
+- 新增 `docs/refactor/checkpoint_index_boundary.md`，审查 `train_visual_router_online_streaming.py`、`train_timefuse_fusor_streaming.py`、`launch_timefuse_fusor_full_scale.py`、`launch_full_scale_prediction_cache.py` 和 `build_prediction_cache_from_manifest.py` 的 checkpoint/resume/status/metadata 约定。
+- 明确非 streaming `train_visual_router.py` / `train_visual_router_online.py` 当前只有 metadata 与评估输出，没有通用 checkpoint/resume 语义，不应为统一 P4e 而补历史 checkpoint index。
+- 明确 streaming Visual Router 当前使用 `checkpoints/router_{config}_epoch_000N.pt`、`latest_{config}.pt` 和 `latest_checkpoint_index.json`，字段为 `completed_epochs`。
+- 明确 TimeFuse-style fusor 当前使用 `checkpoints/timefuse_fusor_epoch_000N.pt`、`latest_timefuse_fusor.pt` 和 `latest_checkpoint_index.json`，字段为 `completed_epoch`。
+- 明确 TimeFuse full-scale launcher 依赖 `command.sh`、`command_resume.sh`、`launcher.sh`、`stop.sh`、`resume.sh`、`pid.txt`、`pgid.txt`、`main.log`、`status.json` 和 `metadata.json`；checkpoint index helper 不能替代 launcher 进程管理和 resume policy。
+- 明确 prediction cache builder/launcher 的 `--resume` 与 `checkpoint_selection` 是 cache 构建和专家 checkpoint 选择口径，不是 router/fusor checkpoint index。
+- 建议未来 checkpoint index helper 应属于 training/runtime 层，IO 层只复用原子 JSON；本次不放入 `time_router/io`，不改任何 helper 行为。
+
+明确不做：
+
+- 不实现 checkpoint index。
+- 不修改任何正式训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不替换 launcher / monitor / resume 行为。
+- 不改变 `status.json` / `metadata.json` / checkpoint 文件 schema。
+- 不接入 `/data2` 或 full-scale 输出目录。
+- 不创建输出目录。
+- 不自动调用 git。
+- 不实现 config system。
+- 不实现 logging framework。
+- 不改 `time_router/io` helper 行为。
+- 不改 `PredictionBatchReader` / `OracleTsfReader` / evaluation helper。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P5：introduce FeatureProvider interface
 
 目标：引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦。

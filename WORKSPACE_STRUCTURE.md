@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 20:07:39 CST
+更新日期：2026-06-19 20:22:51 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -44,7 +44,7 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
-| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明和 P4d run artifacts 边界复核 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核和 P4e checkpoint index 边界复核 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
 | `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a-P3e 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、router weight diagnostics、summary、per-sample rows、evaluation package 边界复核、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
@@ -57,6 +57,7 @@
 | `docs/refactor/path_resolver.md` | Stage 1 P4b 最小 path resolver 边界说明 | 记录 `find_repo_root`、`resolve_under_root`、`resolve_status_path`、`resolve_metadata_path` 的职责、root marker、逃逸 root 防护和不实现 config/logging/checkpoint index、不接入 full-scale 输出目录的边界 |
 | `docs/refactor/run_metadata.md` | Stage 1 P4c 最小 run metadata payload builder 边界说明 | 记录 `build_run_metadata` 和 `write_run_metadata` 的字段约束、UTC 时间、Path 转字符串、`extra` 边界，以及不自动调用 git、不读取命令行/训练配置、不改变既有 metadata schema 的边界 |
 | `docs/refactor/run_artifacts_boundary.md` | Stage 1 P4d run artifacts 边界复核与接入规划 | 复核 `time_router/io` 中 prediction cache reader、JSON/status writer、path resolver、run metadata 和 public API 聚合入口的职责边界；明确低风险 IO helper 与正式训练入口/launcher/resume 层的分工、接入前 status/metadata 字段审计要求、P4e/P4f/P4g 后续候选和不接入 full-scale 的边界 |
+| `docs/refactor/checkpoint_index_boundary.md` | Stage 1 P4e checkpoint index 边界复核与接入规划 | 审查 Visual Router / TimeFuse-style fusor 当前 checkpoint、latest 指针、resume、launcher、monitor、`status.json` 和 `metadata.json` 约定；明确现有 `latest_checkpoint_index.json` 仍是入口私有文件，未来 helper 更适合 training/runtime 层而不是低风险 `time_router/io` helper；本身不实现 checkpoint index、不改训练入口 |
 
 ### 1.2 根目录隐藏目录
 
