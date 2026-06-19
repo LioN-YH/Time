@@ -2,6 +2,8 @@
 
 创建日期：2026-06-20
 
+P6c consolidation 更新（2026-06-20）：`EvaluationInputAdapter` 是 evaluation adapter 的 canonical 实现。`FusionEvaluator` 若继续保留，只作为 legacy/compat wrapper，内部必须委托 `EvaluationInputAdapter`，不得复制 `hard_top1_fusion`、`raw_soft_fusion`、`build_fusion_summary` 或 `build_per_sample_fusion_rows` 调用逻辑。
+
 ## 1. 目标
 
 本文记录 Stage 1 P6b 最小 `EvaluationInputAdapter`。该 adapter 基于 P5c protocol types、P5d adapter boundary、P6a `PredictionCacheExpertProvider` 和 P6a.5 专家系统边界审计，只把当前 Stage 1 canonical experiment 的 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights 包装为 `EvaluationInput`，再复用 `time_router.evaluation` public API 生成内存 summary 和 per-sample rows。
@@ -18,7 +20,7 @@
 - `time_router/evaluation/fusion_evaluator.py`
 - `tests/smoke/stage1_fusion_evaluator_adapter_smoke.py`
 
-`FusionEvaluator` 是较早 P6b 命名下的兼容 adapter；新的验收主入口以 `EvaluationInputAdapter` 为准。
+`FusionEvaluator` 是较早 P6b 命名下的兼容 adapter；P6c 后验收主入口以 `EvaluationInputAdapter` 为准，兼容 smoke 只检查旧路径不漂移。
 
 ## 2. Public API
 
@@ -73,6 +75,8 @@ adapter 原样复用：
 
 如需 lineage，只从 `ExpertBatch.row_index_metadata`、`ExpertBatch.extra` 和 `RouterOutput.extra` 读取轻量信息，并放入 `EvaluationInput.extra` / result `extra`。
 
+P6c 后，`EvaluationInputAdapter.evaluate_input(...)` 是 adapter 层唯一调用 evaluation public API 的实现点。兼容包装应传入已经构造好的 `EvaluationInput` 并复用该方法，避免 adapter 层出现两份 summary/rows 复算逻辑。
+
 ## 4. 边界
 
 明确不做：
@@ -124,6 +128,7 @@ adapter 原样复用：
 - 检查 per-sample rows 数量、字段集合、selected_model、selected_index、hard/raw-soft MAE/MSE、max_weight、weight_entropy。
 - adapter 调用阶段阻断 `open`、`Path.open` 和 `np.load`，验证不重新读取 prediction cache、oracle/TSF。
 - 检查 `experiment_logs/run_outputs/` 一层目录集合不变，验证不创建正式输出目录。
+- 兼容 `FusionEvaluator` smoke 额外检查 diagnostics 中的 `canonical_adapter_name=EvaluationInputAdapter`。
 
 ## 6. 后续接入顺序
 

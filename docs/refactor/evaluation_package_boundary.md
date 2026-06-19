@@ -13,7 +13,7 @@
 
 本次只做文档化 review、API 边界说明和 consolidation 规划，不迁移 Visual Router / TimeFuse-style fusor 正式训练入口，不改变 helper 行为，不改变 golden 数值，不实现 comparison/calibration，不改变正式 output schema，也不移动或重命名 evaluation 文件。
 
-P6b 补充（2026-06-20）：已在该 package 下新增 `evaluation_input_adapter.py`，提供 smoke-only `EvaluationInputAdapter`。该 adapter 只把 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights 包装为 `EvaluationInput`，再调用 public API 复算 summary 与 per-sample rows；它不改变 P3a-P3d helper 行为，也不代表正式 Evaluator interface、report writer 或训练入口已经迁移。此前 `fusion_evaluator.py` 继续保留为兼容 adapter。
+P6b/P6c 补充（2026-06-20）：已在该 package 下新增 `evaluation_input_adapter.py`，提供 smoke-only canonical `EvaluationInputAdapter`。该 adapter 只把 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights 包装为 `EvaluationInput`，再调用 public API 复算 summary 与 per-sample rows；它不改变 P3a-P3d helper 行为，也不代表正式 Evaluator interface、report writer 或训练入口已经迁移。此前 `fusion_evaluator.py` 继续保留为 legacy/compat wrapper，并委托 `EvaluationInputAdapter`，不再维护独立复算逻辑。
 
 ## 2. 当前模块职责
 
@@ -82,7 +82,7 @@ P6b 补充（2026-06-20）：已在该 package 下新增 `evaluation_input_adapt
 
 - 定义 `EvaluationInputAdapterResult`，作为 adapter 的纯内存结果对象。
 - 定义 `EvaluationInputAdapter`，从 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights 构造 `EvaluationInput`。
-- 调用 `hard_top1_fusion(...)`、`raw_soft_fusion(...)`、`build_fusion_summary(...)` 和 `build_per_sample_fusion_rows(...)` 复算当前 batch 的 summary 与 rows。
+- `evaluate_input(...)` 是 adapter 层唯一调用 `hard_top1_fusion(...)`、`raw_soft_fusion(...)`、`build_fusion_summary(...)` 和 `build_per_sample_fusion_rows(...)` 的实现点，负责复算当前 batch 的 summary 与 rows。
 
 边界说明：
 
@@ -96,6 +96,7 @@ P6b 补充（2026-06-20）：已在该 package 下新增 `evaluation_input_adapt
 当前判断：
 
 - `evaluation_input_adapter.py` 是 P6b 的最小 adapter 层，不应合回 `metrics.py`、`summary.py` 或 `prediction_rows.py`。
+- P6c 后它也是唯一 canonical evaluation adapter；兼容包装必须复用它。
 - 该文件可以作为未来 Evaluator interface 的原型输入输出参考，但当前不定义完整 runtime/report 边界。
 - 正式入口迁移时仍应通过 `time_router.evaluation` public API 导入，而不是依赖内部私有 helper。
 
@@ -104,11 +105,12 @@ P6b 补充（2026-06-20）：已在该 package 下新增 `evaluation_input_adapt
 当前职责：
 
 - 保留较早 P6b 命名下的 `FusionEvaluator` / `FusionEvaluationResult` 兼容 adapter。
-- 支持从 `ExpertBatch + RouterOutput` 或调用方已有 `EvaluationInput` 复算同一套 summary 与 rows。
+- 支持从 `ExpertBatch + RouterOutput` 或调用方已有 `EvaluationInput` 复算同一套 summary 与 rows，但实际复算委托 `EvaluationInputAdapter.evaluate_input(...)`。
 
 当前判断：
 
 - 新增代码优先使用 `EvaluationInputAdapter`；旧 smoke 和文档引用可继续通过 `FusionEvaluator` 回归。
+- `FusionEvaluator` 不应新增独立 adapter 逻辑，也不应直接调用 metrics/summary/rows helper。
 
 ### `__init__.py`
 

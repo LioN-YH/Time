@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 文件功能：
-    Stage 1 P6b FusionEvaluator adapter smoke。
+    Stage 1 P6c FusionEvaluator compat adapter smoke。
 
 输入：
     默认读取 2026-06-14 的 4 sample packed golden fixture，通过
@@ -15,7 +15,8 @@
 关键约束：
     该 smoke 只允许 provider 阶段读取 golden fixture；进入 FusionEvaluator
     adapter 后会阻断常见文件读取 API，验证 adapter 不重新读取 prediction cache、
-    不访问 oracle/TSF、不创建正式输出目录，也不写任何结果文件。
+    不访问 oracle/TSF、不创建正式输出目录，也不写任何结果文件。本 smoke 只验证
+    旧命名兼容路径不漂移；canonical 主验收路径是 EvaluationInputAdapter smoke。
 """
 
 from __future__ import annotations
@@ -222,7 +223,7 @@ def assert_adapter_result(result: FusionEvaluationResult, *, expert_batch: Exper
 
 
 def run_smoke(fixture_root: Path, *, atol: float) -> None:
-    """函数功能：执行 FusionEvaluator adapter 最小 contract smoke。"""
+    """函数功能：执行 FusionEvaluator 兼容路径最小 contract smoke。"""
     fixture_root = fixture_root.resolve()
     print(f"开始 Stage 1 FusionEvaluator adapter smoke：fixture_root={fixture_root}")
     if str(fixture_root).startswith("/data2/"):
@@ -250,6 +251,8 @@ def run_smoke(fixture_root: Path, *, atol: float) -> None:
 
     if result.diagnostics.get("adapter_name") != "FusionEvaluator":
         raise AssertionError(f"adapter diagnostics 漂移：{result.diagnostics}")
+    if result.diagnostics.get("canonical_adapter_name") != "EvaluationInputAdapter":
+        raise AssertionError(f"FusionEvaluator 必须委托 EvaluationInputAdapter：{result.diagnostics}")
     if "lineage" not in result.diagnostics:
         raise AssertionError("adapter diagnostics 应保留来自 ExpertBatch/RouterOutput 的轻量 lineage")
     print(

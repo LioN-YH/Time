@@ -131,6 +131,19 @@ class EvaluationInputAdapter:
             fusion_weights=fusion_weights,
             extra=extra,
         )
+        return self.evaluate_input(evaluation_input=evaluation_input)
+
+    def evaluate_input(self, *, evaluation_input: EvaluationInput) -> EvaluationInputAdapterResult:
+        """
+        函数功能：
+            对调用方已经构造好的 EvaluationInput 复算内存评估产物。
+
+        关键约束：
+            该方法是 adapter 内唯一调用 evaluation public API 的实现点；
+            legacy/compat wrapper 应复用这里，避免再次复制 fusion 逻辑。
+        """
+        if evaluation_input.weights is None:
+            raise ValueError("EvaluationInputAdapter 需要 EvaluationInput.weights 才能复算 fusion")
 
         hard_result = hard_top1_fusion(
             y_pred=evaluation_input.y_pred,

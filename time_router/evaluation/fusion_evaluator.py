@@ -1,12 +1,11 @@
 """
 文件功能：
-    Stage 1 P6b 最小 FusionEvaluator adapter。
+    Stage 1 P6c FusionEvaluator 兼容包装。
 
 设计边界：
-    本模块只把 ExpertBatch + RouterOutput / EvaluationInput 适配为
-    time_router.evaluation public API 可消费的内存对象，并复算 summary 与
-    per-sample rows。它不读取 prediction cache、manifest、packed npy、
-    oracle/TSF，也不创建 run_dir 或写任何输出文件。
+    EvaluationInputAdapter 是 canonical adapter。本模块只保留较早 P6b 命名下的
+    FusionEvaluator / FusionEvaluationResult 兼容 API，并委托
+    EvaluationInputAdapter 完成 EvaluationInput 构造和 public API 复算。
 """
 
 from __future__ import annotations
@@ -14,9 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from time_router.evaluation.metrics import FusionMetricsResult, hard_top1_fusion, raw_soft_fusion
-from time_router.evaluation.prediction_rows import build_per_sample_fusion_rows
-from time_router.evaluation.summary import build_fusion_summary
+from time_router.evaluation.evaluation_input_adapter import EvaluationInputAdapter
+from time_router.evaluation.metrics import FusionMetricsResult
 from time_router.protocols import EvaluationInput, ExpertBatch, RouterOutput
 
 
@@ -45,14 +43,17 @@ class FusionEvaluationResult:
 class FusionEvaluator:
     """
     类功能：
-        将 P5c protocol types 适配到 evaluation public API。
+        兼容旧 `FusionEvaluator` 调用方。
 
     关键约束：
-        该 adapter 不拥有数据读取能力；调用方必须已经准备好 ExpertBatch 与
-        RouterOutput，或直接传入 EvaluationInput。
+        新代码应优先使用 `EvaluationInputAdapter`；本类不再维护独立 fusion
+        逻辑，避免两套 adapter 并行生长。
     """
 
     evaluator_name = "FusionEvaluator"
+
+    def __init__(self, adapter: EvaluationInputAdapter | None = None) -> None:
+        self._adapter = adapter or EvaluationInputAdapter()
 
     def build_evaluation_input(
         self,
@@ -73,36 +74,13 @@ class FusionEvaluator:
         输出：
             EvaluationInput；y_pred/y_true 原样引用 ExpertBatch，不重新读取 cache。
         """
-        _assert_same_tuple(
-            "sample_keys",
-            tuple(expert_batch.sample_keys),
-            tuple(router_output.sample_keys),
-        )
-        _assert_same_tuple(
-            "model_columns",
-            tuple(expert_batch.model_columns),
-            tuple(router_output.model_columns),
-        )
-
-        merged_extra: dict[str, Any] = {
-            "adapter_name": self.evaluator_name,
-            "expert_extra": dict(expert_batch.extra),
-            "router_extra": dict(router_output.extra),
-        }
-        if expert_batch.row_index_metadata is not None:
-            # 只转递 provider 已经给出的轻量 lineage，不在 adapter 内读取外部文件。
-            merged_extra["row_index_metadata"] = expert_batch.row_index_metadata
+        compat_extra = {"compat_adapter_name": self.evaluator_name}
         if extra:
-            merged_extra.update(extra)
-
-        return EvaluationInput(
-            sample_keys=tuple(expert_batch.sample_keys),
-            model_columns=tuple(expert_batch.model_columns),
-            y_pred=expert_batch.y_pred,
-            y_true=expert_batch.y_true,
-            logits=router_output.logits,
-            weights=router_output.weights,
-            extra=merged_extra,
+            compat_extra.update(extra)
+        return self._adapter.build_evaluation_input(
+            expert_batch=expert_batch,
+            router_output=router_output,
+            extra=compat_extra,
         )
 
     def evaluate(
@@ -130,38 +108,11 @@ class FusionEvaluator:
         elif expert_batch is not None or router_output is not None:
             raise ValueError("传入 evaluation_input 时不要同时传入 expert_batch/router_output，避免口径歧义")
 
-        if evaluation_input.weights is None:
-            raise ValueError("FusionEvaluator 需要 EvaluationInput.weights 才能复算 fusion")
-
-        hard_result = hard_top1_fusion(
-            y_pred=evaluation_input.y_pred,
-            y_true=evaluation_input.y_true,
-            weights=evaluation_input.weights,
-            model_columns=evaluation_input.model_columns,
-        )
-        raw_soft_result = raw_soft_fusion(
-            y_pred=evaluation_input.y_pred,
-            y_true=evaluation_input.y_true,
-            weights=evaluation_input.weights,
-            model_columns=evaluation_input.model_columns,
-        )
-        summary = build_fusion_summary(
-            model_columns=evaluation_input.model_columns,
-            hard_result=hard_result,
-            raw_soft_result=raw_soft_result,
-            weights=evaluation_input.weights,
-        )
-        per_sample_rows = build_per_sample_fusion_rows(
-            sample_keys=evaluation_input.sample_keys,
-            model_columns=evaluation_input.model_columns,
-            hard_result=hard_result,
-            raw_soft_result=raw_soft_result,
-            y_true=evaluation_input.y_true,
-            weights=evaluation_input.weights,
-        )
+        adapter_result = self._adapter.evaluate_input(evaluation_input=evaluation_input)
 
         diagnostics = {
             "adapter_name": self.evaluator_name,
+            "canonical_adapter_name": self._adapter.adapter_name,
             "sample_keys": tuple(evaluation_input.sample_keys),
             "model_columns": tuple(evaluation_input.model_columns),
         }
@@ -170,15 +121,9 @@ class FusionEvaluator:
 
         return FusionEvaluationResult(
             evaluation_input=evaluation_input,
-            hard_result=hard_result,
-            raw_soft_result=raw_soft_result,
-            summary=summary,
-            per_sample_rows=per_sample_rows,
+            hard_result=adapter_result.hard_result,
+            raw_soft_result=adapter_result.raw_soft_result,
+            summary=adapter_result.summary,
+            per_sample_rows=adapter_result.per_sample_rows,
             diagnostics=diagnostics,
         )
-
-
-def _assert_same_tuple(name: str, left: tuple[Any, ...], right: tuple[Any, ...]) -> None:
-    """函数功能：检查 adapter 输入两侧的顺序完全一致。"""
-    if left != right:
-        raise ValueError(f"{name} 不一致：expert_batch={left} router_output={right}")

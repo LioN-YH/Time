@@ -4,8 +4,8 @@
 
 说明：
     当前暴露 Stage 1 P3a-P3d 的最小 numpy fusion/metrics/diagnostics/summary/rows helper，
-    以及 P6b 的最小 EvaluationInput/FusionEvaluator adapter；正式训练入口、
-    calibration 和报告 schema 尚未迁移。
+    以及 P6b/P6c 的 canonical EvaluationInputAdapter。FusionEvaluator 只作为
+    旧命名兼容包装保留；正式训练入口、calibration 和报告 schema 尚未迁移。
 """
 
 from time_router.evaluation.evaluation_input_adapter import EvaluationInputAdapter, EvaluationInputAdapterResult

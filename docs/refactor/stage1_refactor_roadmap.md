@@ -720,7 +720,7 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 
 ### P6a.5：expert system boundary review only
 
-目标：在 P6a `PredictionCacheExpertProvider` 之后、P6b FusionEvaluator adapter 之前，冻结专家系统边界，明确 `ExpertProvider / ExpertBatch` 是 Time framework 长期专家系统契约，而 `PredictionCacheExpertProvider` 只是当前 Stage 1 canonical experiment 的 prediction-cache adapter implementation。
+目标：在 P6a `PredictionCacheExpertProvider` 之后、P6b evaluation adapter 之前，冻结专家系统边界，明确 `ExpertProvider / ExpertBatch` 是 Time framework 长期专家系统契约，而 `PredictionCacheExpertProvider` 只是当前 Stage 1 canonical experiment 的 prediction-cache adapter implementation。
 
 当前状态（2026-06-19）：已完成文档化边界审计；本阶段只新增 `docs/refactor/expert_system_boundary_review.md` 并更新相关文档索引，不修改 provider/reader 行为，不实现 evaluator adapter、runtime、config、launcher 或正式入口迁移。
 
@@ -733,7 +733,7 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 明确当前 P6a provider 可以保留固定五专家顺序校验，因为它服务的是 Stage 1 canonical experiment。
 - 明确未来 `ExpertProvider` 可以来自 prediction cache、statistical baselines、online expert models、external expert systems、dynamic expert pools 和 TimeFuse-style fusor branch 所需专家输出。
 - 明确 Visual Router 主线和 TimeFuse-style fusor 支线后续都应依赖 `ExpertBatch` / protocol types，而不是直接绑定 packed prediction cache。
-- 明确 P6b FusionEvaluator adapter 后续应消费 `ExpertBatch + RouterOutput/EvaluationInput`，不重新读取 prediction cache。
+- 明确 P6b evaluation adapter 后续应消费 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights，不重新读取 prediction cache。
 - 明确 `ExpertProvider` 不承担 feature generation、oracle/TSF supervision、loss、evaluation、runtime artifact、run_dir 或 Bash launcher 等职责。
 
 明确不做：
@@ -757,14 +757,17 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 
 当前状态（2026-06-20）：已完成 smoke-only adapter；新增 `time_router/evaluation/evaluation_input_adapter.py`、`tests/smoke/stage1_evaluation_input_adapter_smoke.py` 和 `docs/refactor/evaluation_input_adapter.md`。此前的 `FusionEvaluator` adapter 继续作为兼容层保留。本阶段不接 Visual Router / TimeFuse fusor 正式训练入口，不新增 runtime、launcher、config、run_dir 或文件写出。
 
+P6c consolidation（2026-06-20）：已收束 evaluation adapter 命名和职责。`EvaluationInputAdapter` 是 canonical adapter；`FusionEvaluator` 只作为 legacy/compat wrapper，内部委托 `EvaluationInputAdapter`，不再保留独立 metrics/summary/rows 复算逻辑。
+
 本次完成范围：
 
 - 新增 `EvaluationInputAdapter` 和 `EvaluationInputAdapterResult`，并从 `time_router.evaluation` public API 导出。
 - `EvaluationInputAdapter.build_evaluation_input(...)` 检查 `sample_keys` 与 `model_columns` 在 `ExpertBatch` / `RouterOutput` 两侧完全一致。
 - adapter 原样复用 `ExpertBatch.y_pred`、`ExpertBatch.y_true` 和 `RouterOutput.weights` 或显式 fusion weights，不重新读取 prediction cache。
-- adapter 内部只调用 `hard_top1_fusion`、`raw_soft_fusion`、`build_fusion_summary` 和 `build_per_sample_fusion_rows`。
+- canonical adapter 内部只在 `EvaluationInputAdapter.evaluate_input(...)` 调用 `hard_top1_fusion`、`raw_soft_fusion`、`build_fusion_summary` 和 `build_per_sample_fusion_rows`。
 - 输出保持为纯内存 `summary`、`per_sample_rows`、`hard_result`、`raw_soft_result`、`evaluation_input` 和轻量 `extra`。
 - smoke 使用 golden fixture，经 `PredictionCacheExpertProvider` 显式加载 golden sample_keys 得到 `ExpertBatch`，再用 golden weights 构造 `RouterOutput`，并覆盖显式 fusion weights 输入路径。
+- `FusionEvaluator` 兼容 smoke 只检查旧路径不漂移，并确认 diagnostics 中 `canonical_adapter_name=EvaluationInputAdapter`。
 - smoke 检查 sample_keys 保序、固定五专家顺序、summary golden 数值、per-sample rows 字段集合和逐样本 hard/raw-soft MAE/MSE、max_weight、weight_entropy。
 - smoke 在 adapter 调用阶段阻断 `open`、`Path.open` 和 `np.load`，证明 adapter 不重新读取 prediction cache、oracle/TSF 或其他文件。
 - smoke 检查 `experiment_logs/run_outputs/` 一层目录集合不变，证明 adapter 不创建正式输出目录。
