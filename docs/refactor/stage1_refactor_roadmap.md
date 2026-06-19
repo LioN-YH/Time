@@ -328,6 +328,42 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改 `PredictionBatchReader` / `OracleTsfReader`。
 - 不改模型结构、loss 或正式输出目录。
 
+### P4c：minimal run metadata payload builder only
+
+目标：在 P4a atomic JSON/status writer 和 P4b path resolver 之后，抽出 P4 中最低风险的 run metadata payload builder，用于构造 metadata-like JSON payload；不迁移正式入口、不替换既有 launcher metadata schema、不接入 full-scale 输出目录。
+
+当前状态（2026-06-19）：已完成 P4c 最小 run metadata payload builder 抽取和 tempfile smoke；完整 P4 的 config system、logging framework、checkpoint index、launcher/monitor/resume 替换仍保留到后续小步。
+
+本次完成范围：
+
+- 新增 `time_router/io/run_metadata.py`，提供 `build_run_metadata(...)` 和 `write_run_metadata(...)`。
+- `build_run_metadata(...)` 校验 `stage` 为非空字符串，`inputs`、`outputs`、`extra` 为 dict 或 None，payload 至少包含 `stage`、`created_at_utc`、`inputs`、`outputs`。
+- `created_at_utc` 使用 timezone-aware UTC ISO 字符串。
+- `Path` / `os.PathLike` 会在内存中转换为字符串，便于 JSON 写入；不检查路径是否存在。
+- `write_run_metadata(...)` 只写调用方显式传入的 path，内部调用 `atomic_write_json(...)`。
+- 新增 `tests/smoke/stage1_run_metadata_smoke.py`，只在 `tempfile.TemporaryDirectory` 下验证 payload 构造、字段校验、UTC 时间、Path 转字符串和 writer JSON 可读。
+- 新增 `docs/refactor/run_metadata.md`，记录 P4c helper 边界和完整门禁。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不修改任何现有正式训练脚本。
+- 不替换现有 launcher / monitor / resume 行为。
+- 不接入 `/data2` 或任何 full-scale 输出目录。
+- 不改变既有正式输出目录含义。
+- 不改变既有 `metadata.json` schema。
+- 不实现 config system。
+- 不实现 logging framework。
+- 不实现 checkpoint index。
+- 不自动调用 git。
+- 不自动读取命令行或训练配置。
+- 不创建正式输出目录。
+- 不改 evaluation helper。
+- 不实现 comparison / calibration / report schema。
+- 不读取 oracle/TSF。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P5：introduce FeatureProvider interface
 
 目标：引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦。

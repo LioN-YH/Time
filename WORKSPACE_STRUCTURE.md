@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 19:40:54 CST
+更新日期：2026-06-19 19:51:57 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -44,7 +44,7 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
-| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明和 P4b path resolver 边界说明 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明和 P4c run metadata 边界说明 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
 | `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a-P3e 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、router weight diagnostics、summary、per-sample rows、evaluation package 边界复核、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
@@ -55,6 +55,7 @@
 | `docs/refactor/evaluation_package_boundary.md` | Stage 1 P3e `time_router/evaluation` package 边界复核与 consolidation 规划 | 记录 `metrics.py`、`summary.py`、`prediction_rows.py`、`__init__.py` 的职责、public/private API、当前不合并/不拆分判断和未来整理门禁；本身不改变 helper 行为或正式 output schema |
 | `docs/refactor/json_utils.md` | Stage 1 P4a JSON 原子写入和最小 status writer 边界说明 | 记录 `atomic_write_json`、`build_status_payload`、`write_status_json` 的职责、UTF-8 / 同目录临时文件 / `flush + fsync + os.replace` 约束，以及不实现 path/config/logging framework、不迁移正式入口的边界 |
 | `docs/refactor/path_resolver.md` | Stage 1 P4b 最小 path resolver 边界说明 | 记录 `find_repo_root`、`resolve_under_root`、`resolve_status_path`、`resolve_metadata_path` 的职责、root marker、逃逸 root 防护和不实现 config/logging/checkpoint index、不接入 full-scale 输出目录的边界 |
+| `docs/refactor/run_metadata.md` | Stage 1 P4c 最小 run metadata payload builder 边界说明 | 记录 `build_run_metadata` 和 `write_run_metadata` 的字段约束、UTC 时间、Path 转字符串、`extra` 边界，以及不自动调用 git、不读取命令行/训练配置、不改变既有 metadata schema 的边界 |
 
 ### 1.2 根目录隐藏目录
 
@@ -193,10 +194,11 @@ visual_router_experiments/
 | `time_router/evaluation/metrics.py` | Stage 1 P3a/P3b 最小 fusion/metrics/diagnostics helper | 纯 numpy 实现 `compute_mae`、`compute_mse`、`validate_fusion_inputs`、`hard_top1_fusion`、`raw_soft_fusion`、`compute_selected_counts`、`compute_weight_entropy` 和 `compute_max_weight`；函数输入显式使用 `y_pred`、`y_true`、`weights`、`selected_indices`、`model_columns`，用于 golden smoke 复算 hard top-1/raw soft 指标和 router weight 诊断，不读取 manifest/oracle/TSF/正式输出目录，不引入 torch/sklearn 训练依赖 |
 | `time_router/evaluation/prediction_rows.py` | Stage 1 P3d 最小 per-sample evaluation rows helper | 纯 numpy / Python 标准库实现 `build_per_sample_fusion_rows`，只消费显式传入的 `sample_keys`、`FusionMetricsResult`、`y_true`、`weights` 和 `model_columns`，输出当前 batch 的 sample_key、hard top-1 选择、逐样本 hard/raw-soft MAE/MSE、max weight 和 weight entropy；不读取 manifest、prediction cache、oracle/TSF 或正式输出目录，不写 CSV/JSON/Parquet，不实现 calibration、oracle regret 或正式 output schema 迁移 |
 | `time_router/evaluation/summary.py` | Stage 1 P3c 最小 evaluation summary helper | 纯 numpy / Python 标准库实现 `build_fusion_summary`，只消费显式传入的 `FusionMetricsResult`、`weights` 和 `model_columns`，汇总 hard/raw-soft MAE/MSE、selected counts、mean entropy、mean max weight、样本数、专家数和专家顺序；不读取 manifest、prediction cache、oracle/TSF 或正式输出目录，不实现 calibration、oracle regret、comparison 或正式 output schema 迁移 |
-| `time_router/io/__init__.py` | 共享 IO 子包入口 | 导出 `DEFAULT_MODEL_COLUMNS`、`PredictionBatch`、`PredictionBatchReader`、`atomic_write_json`、`build_status_payload`、`write_status_json`、`find_repo_root`、`resolve_under_root`、`resolve_status_path` 和 `resolve_metadata_path` |
+| `time_router/io/__init__.py` | 共享 IO 子包入口 | 导出 `DEFAULT_MODEL_COLUMNS`、`PredictionBatch`、`PredictionBatchReader`、`atomic_write_json`、`build_status_payload`、`write_status_json`、`find_repo_root`、`resolve_under_root`、`resolve_status_path`、`resolve_metadata_path`、`build_run_metadata` 和 `write_run_metadata` |
 | `time_router/io/prediction_cache_reader.py` | Stage 1 共享 prediction batch reader | 从 `merged_cache/manifest.csv` 或 fixture root 读取五专家 `y_pred` 和共享 `y_true`；支持 `packed_npy_v1`、`per_sample_npy`、固定专家顺序、共享 y_true 校验、row index 元数据和 manifest MAE/MSE 复算；P1 只接入 golden smoke，尚未迁移正式 Visual Router / TimeFuse fusor 入口 |
 | `time_router/io/json_utils.py` | Stage 1 P4a 最小 JSON/status writer | 纯标准库实现 `atomic_write_json`、`build_status_payload` 和 `write_status_json`；只写调用方显式传入的 path，使用同目录临时文件、`flush + fsync` 和 `os.replace` 原子替换，默认 UTF-8 / `ensure_ascii=False`；不读取训练状态，不实现 path resolver、config system 或 logging framework |
 | `time_router/io/path_resolver.py` | Stage 1 P4b 最小 path resolver | 纯标准库实现 `find_repo_root`、`resolve_under_root`、`resolve_status_path` 和 `resolve_metadata_path`；只做 repo root 查找、root 内安全拼接和 status/metadata path 计算，不创建目录、不写文件、不读取训练配置、不访问 `/data2` 或 full-scale 输出目录 |
+| `time_router/io/run_metadata.py` | Stage 1 P4c 最小 run metadata payload builder | 纯标准库实现 `build_run_metadata` 和 `write_run_metadata`；构造至少包含 `stage`、`created_at_utc`、`inputs`、`outputs` 的 metadata-like payload，支持 Path 转字符串和 tempfile writer；不自动调用 git、不读取命令行/训练配置、不改变既有正式 metadata schema |
 
 ### 2.6 `tests/smoke/`
 
@@ -206,6 +208,7 @@ visual_router_experiments/
 | `tests/smoke/stage1_oracle_tsf_smoke.py` | Stage 1 oracle/TSF reader 只读 smoke | 默认读取同一 dry-run fixture 的 `window_oracle_labels_with_tsf_cell.csv` 和 `manifest_with_tsf_cell.csv`；验证 `OracleTsfReader` 的 `allow_full_scan` 默认禁止无 sample_key 全扫描、显式 sample_key 保序、oracle label、TSF metadata、oracle/TSF join、`missing_policy=error` 缺失报错、`missing_policy=report` 缺失报告和冲突重复 sample_key 报错；不训练、不生成 oracle/TSF、不写正式输出 |
 | `tests/smoke/stage1_json_utils_smoke.py` | Stage 1 P4a JSON utils 临时目录 smoke | 在 `tempfile.TemporaryDirectory` 下验证 `write_status_json` / `atomic_write_json` 的文件存在、JSON 可读、中文 message 不被 ASCII 转义、第二次写入覆盖旧内容、nested parent directory 自动创建和 `extra` 类型检查；不读取训练状态、不写正式输出目录 |
 | `tests/smoke/stage1_path_resolver_smoke.py` | Stage 1 P4b path resolver 临时目录 smoke | 验证从 `tests/smoke` 定位仓库根、root 下定位 `WORKSPACE_STRUCTURE.md`、tempfile root 下正常路径解析、`..` 逃逸 root 报错、`must_exist=True` 不存在报错，以及 status/metadata helper 只返回路径不创建目录或文件；不访问 `/data2` 或 full-scale 输出目录 |
+| `tests/smoke/stage1_run_metadata_smoke.py` | Stage 1 P4c run metadata 临时目录 smoke | 验证 `build_run_metadata` 的基础字段、timezone-aware UTC 时间、Path 转字符串、`stage` 非空校验、`inputs/outputs/extra` 类型校验，以及 `write_run_metadata` 只在 tempfile 下写入 JSON 且可读；不访问 `/data2` 或 full-scale 输出目录 |
 
 ## 3. QuitoBench / Quito 代码与实验层
 
