@@ -6,7 +6,7 @@
 
 本文记录 P6a `PredictionCacheExpertProvider` 之后、P6b FusionEvaluator adapter 之前的专家系统边界审计。结论只冻结架构边界和文档口径，不实现新的训练入口，不迁移正式入口，不新增 runtime、launcher、config 或 run_dir。
 
-P6b 更新（2026-06-19）：后续已按本文边界新增 smoke-only `time_router.evaluation.FusionEvaluator` adapter。该实现只消费 `ExpertBatch + RouterOutput/EvaluationInput`，不修改 `PredictionBatchReader` 或 `PredictionCacheExpertProvider` 行为。
+P6b 更新（2026-06-20）：后续已按本文边界新增 smoke-only `time_router.evaluation.EvaluationInputAdapter`。该实现只消费 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights，不修改 `PredictionBatchReader` 或 `PredictionCacheExpertProvider` 行为。较早的 `FusionEvaluator` 兼容 adapter 继续保留。
 
 核心结论：
 
@@ -88,17 +88,17 @@ Stage 1 canonical experiment 当前仍绑定更具体的实验契约：
 
 Visual Router 主线和 TimeFuse-style fusor 支线后续都应依赖 `ExpertBatch` / protocol types，而不是直接绑定 packed prediction cache。packed cache 的路径、manifest schema、array storage 和 row index 细节应留在 `PredictionCacheExpertProvider` 与 `PredictionBatchReader` 内部，除非 evaluator 或 runtime metadata 明确需要记录 lineage。
 
-## 4. P6b FusionEvaluator Adapter 边界
+## 4. P6b EvaluationInput Adapter 边界
 
-P6b FusionEvaluator adapter 消费显式 protocol 对象：
+P6b EvaluationInput adapter 消费显式 protocol 对象：
 
 ```text
-ExpertBatch + RouterOutput
+ExpertBatch + RouterOutput.weights / explicit fusion weights
   -> EvaluationInput
   -> Evaluator / time_router.evaluation public API
 ```
 
-当前 P6b 实现见 `time_router/evaluation/fusion_evaluator.py` 和 `docs/refactor/fusion_evaluator_adapter.md`。它不重新读取 prediction cache，也不绕过 `ExpertBatch` 直接从 manifest 或 packed npy 组装 `y_pred/y_true`。如果需要 row index、array storage 或 manifest path 作为诊断信息，只从 `ExpertBatch.row_index_metadata` 或 `ExpertBatch.extra` 获取轻量 lineage。
+当前 P6b 实现见 `time_router/evaluation/evaluation_input_adapter.py` 和 `docs/refactor/evaluation_input_adapter.md`。它不重新读取 prediction cache，也不绕过 `ExpertBatch` 直接从 manifest 或 packed npy 组装 `y_pred/y_true`。如果需要 row index、array storage 或 manifest path 作为诊断信息，只从 `ExpertBatch.row_index_metadata` 或 `ExpertBatch.extra` 获取轻量 lineage。
 
 该边界确保：
 
@@ -152,7 +152,7 @@ P6a provider 当前可以继续：
 - 不修改 Visual Router / TimeFuse fusor 正式入口。
 - 不改模型结构、loss 或正式输出目录。
 - 不新增正式 provider abstraction 代码。
-- 不把 `FusionEvaluator` 接入正式 Visual Router / TimeFuse fusor 入口。
+- 不把 `EvaluationInputAdapter` 接入正式 Visual Router / TimeFuse fusor 入口。
 
 ## 8. 验收命令
 
@@ -166,6 +166,6 @@ P6a provider 当前可以继续：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_run_metadata_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_protocol_types_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_cache_expert_provider_smoke.py
-/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_fusion_evaluator_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_evaluation_input_adapter_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke
 ```

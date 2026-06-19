@@ -107,7 +107,7 @@ P6a 明确不做：
 - `PredictionCacheExpertProvider` 可以继续校验固定五专家顺序，因为它服务的是当前 Stage 1 canonical experiment。
 - 固定五专家顺序不应上升为所有 `ExpertProvider` 的全局专家系统契约。
 - Visual Router 主线和 TimeFuse-style fusor 支线后续应依赖 `ExpertBatch` / protocol types，而不是直接读取 packed prediction cache。
-- P6b FusionEvaluator adapter 后续应消费 `ExpertBatch + RouterOutput/EvaluationInput`，不重新读取 prediction cache。
+- P6b EvaluationInput adapter 后续应消费 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights，不重新读取 prediction cache。
 - `ExpertProvider` 不承担 feature generation、oracle/TSF supervision、loss、evaluation、runtime artifact、run_dir、Bash launcher 或 config system 职责。
 
 ## 6. 为什么放在 `time_router/experts/`
@@ -147,7 +147,7 @@ P5d/P5e 的 `ExpertProvider` 语义只覆盖专家预测与共享 `y_true`，不
 P6a 之后建议继续小步推进：
 
 1. 保持 `PredictionCacheExpertProvider` 先只由 smoke 使用。
-2. 新增 evaluator adapter smoke，从 `ExpertBatch + RouterOutput` 构造 `EvaluationInput` 并复算 summary/rows。
+2. 新增 evaluator adapter smoke，从 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights 构造 `EvaluationInput` 并复算 summary/rows。
 3. 再考虑最小 config skeleton，让 smoke 可以从 config 构造 provider。
 4. 最后再新增 `scripts/` thin entrypoint 和 `exp_scripts/` Bash launcher。
 

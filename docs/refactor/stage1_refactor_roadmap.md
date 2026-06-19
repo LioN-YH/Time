@@ -751,20 +751,20 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改模型结构、loss 或正式输出目录。
 - 不新增正式 provider abstraction 代码。
 
-### P6b：minimal FusionEvaluator adapter from ExpertBatch + RouterOutput
+### P6b：minimal EvaluationInput adapter from ExpertBatch + RouterOutput/weights
 
-目标：在 P6a `PredictionCacheExpertProvider` 和 P6a.5 Expert System Boundary Review 之后，新增最小 `FusionEvaluator` adapter。该 adapter 只把 `ExpertBatch + RouterOutput` 或显式 `EvaluationInput` 转成 `time_router.evaluation` public API 可消费的内存对象，并复算 summary 与 per-sample rows。
+目标：在 P6a `PredictionCacheExpertProvider` 和 P6a.5 Expert System Boundary Review 之后，新增最小 `EvaluationInputAdapter`。该 adapter 只把 `ExpertBatch + RouterOutput.weights` 或显式 fusion weights 包装为 `EvaluationInput`，再调用 `time_router.evaluation` public API 复算 summary 与 per-sample rows。
 
-当前状态（2026-06-19）：已完成 smoke-only adapter；新增 `time_router/evaluation/fusion_evaluator.py`、`tests/smoke/stage1_fusion_evaluator_adapter_smoke.py` 和 `docs/refactor/fusion_evaluator_adapter.md`。本阶段不接 Visual Router / TimeFuse fusor 正式训练入口，不新增 runtime、launcher、config、run_dir 或文件写出。
+当前状态（2026-06-20）：已完成 smoke-only adapter；新增 `time_router/evaluation/evaluation_input_adapter.py`、`tests/smoke/stage1_evaluation_input_adapter_smoke.py` 和 `docs/refactor/evaluation_input_adapter.md`。此前的 `FusionEvaluator` adapter 继续作为兼容层保留。本阶段不接 Visual Router / TimeFuse fusor 正式训练入口，不新增 runtime、launcher、config、run_dir 或文件写出。
 
 本次完成范围：
 
-- 新增 `FusionEvaluator` 和 `FusionEvaluationResult`，并从 `time_router.evaluation` public API 导出。
-- `FusionEvaluator.build_evaluation_input(...)` 检查 `sample_keys` 与 `model_columns` 在 `ExpertBatch` / `RouterOutput` 两侧完全一致。
-- adapter 原样复用 `ExpertBatch.y_pred`、`ExpertBatch.y_true` 和 `RouterOutput.weights`，不重新读取 prediction cache。
+- 新增 `EvaluationInputAdapter` 和 `EvaluationInputAdapterResult`，并从 `time_router.evaluation` public API 导出。
+- `EvaluationInputAdapter.build_evaluation_input(...)` 检查 `sample_keys` 与 `model_columns` 在 `ExpertBatch` / `RouterOutput` 两侧完全一致。
+- adapter 原样复用 `ExpertBatch.y_pred`、`ExpertBatch.y_true` 和 `RouterOutput.weights` 或显式 fusion weights，不重新读取 prediction cache。
 - adapter 内部只调用 `hard_top1_fusion`、`raw_soft_fusion`、`build_fusion_summary` 和 `build_per_sample_fusion_rows`。
-- 输出保持为纯内存 `summary`、`per_sample_rows`、`hard_result`、`raw_soft_result`、`evaluation_input` 和轻量 diagnostics。
-- smoke 使用 golden fixture，经 `PredictionCacheExpertProvider` 显式加载 golden sample_keys 得到 `ExpertBatch`，再用 golden weights 构造 `RouterOutput`。
+- 输出保持为纯内存 `summary`、`per_sample_rows`、`hard_result`、`raw_soft_result`、`evaluation_input` 和轻量 `extra`。
+- smoke 使用 golden fixture，经 `PredictionCacheExpertProvider` 显式加载 golden sample_keys 得到 `ExpertBatch`，再用 golden weights 构造 `RouterOutput`，并覆盖显式 fusion weights 输入路径。
 - smoke 检查 sample_keys 保序、固定五专家顺序、summary golden 数值、per-sample rows 字段集合和逐样本 hard/raw-soft MAE/MSE、max_weight、weight_entropy。
 - smoke 在 adapter 调用阶段阻断 `open`、`Path.open` 和 `np.load`，证明 adapter 不重新读取 prediction cache、oracle/TSF 或其他文件。
 - smoke 检查 `experiment_logs/run_outputs/` 一层目录集合不变，证明 adapter 不创建正式输出目录。
