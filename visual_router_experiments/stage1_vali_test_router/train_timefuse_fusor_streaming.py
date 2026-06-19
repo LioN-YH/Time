@@ -52,6 +52,8 @@ DEFAULT_PREDICTION_SHARD_ROOT = FULL_SCALE_ROOT / "prediction_cache_full_scale_l
 if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
+from time_router.evaluation import EvaluationInputAdapter  # noqa: E402
+from time_router.protocols import EvaluationInput  # noqa: E402
 from visual_router_experiments.stage1_vali_test_router.fusion_utils import (  # noqa: E402
     EPS,
     MODEL_COLUMNS,
@@ -240,6 +242,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume-checkpoint", type=Path, default=None, help="从 checkpoint 加载 fusor/scaler。")
     parser.add_argument("--eval-only", action="store_true", help="只加载 checkpoint 并执行 test streaming eval。")
     parser.add_argument("--train-only", action="store_true", help="只训练和保存 checkpoint，不执行 test eval。")
+    parser.add_argument(
+        "--verify-evaluation-adapter",
+        action="store_true",
+        help="仅用于 pressure/smoke：在 evaluation batch 内用 EvaluationInputAdapter 旁路复算并校验指标一致性。",
+    )
     return parser.parse_args()
 
 
@@ -747,6 +754,107 @@ def array_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     return {"mae": float(np.mean(np.abs(diff))), "mse": float(np.mean(diff ** 2))}
 
 
+def verify_evaluation_adapter_batch(
+    *,
+    batch: TimeFuseFusorBatch,
+    weights_np: np.ndarray,
+    selected_indices: np.ndarray,
+    entropy: np.ndarray,
+    max_weight: np.ndarray,
+    shard_name: str,
+    batch_index: int,
+    atol: float = 1e-5,
+) -> None:
+    """
+    函数功能：
+        在正式 evaluation batch 内构造 EvaluationInput，并用 EvaluationInputAdapter
+        复算 hard/raw-soft 指标，确认与当前手写 CSV 逻辑一致。
+
+    输入：
+        batch: 当前 reader 已经读出的 test batch，不额外回读 prediction cache。
+        weights_np: torch fusor 当前 batch 输出的权重矩阵。
+        selected_indices/entropy/max_weight: 现有手写评估逻辑已计算的诊断数组。
+        shard_name/batch_index: 失败时用于定位的上下文。
+
+    输出：
+        无返回值；发现不一致时抛出携带 shard、batch 和 sample_key 的错误。
+
+    关键约束：
+        该函数只做内存旁路校验，不写任何 CSV/summary/checkpoint/status/metadata，
+        不改变正式 evaluation 输出 schema。
+    """
+    evaluation_input = EvaluationInput(
+        sample_keys=tuple(str(sample_key) for sample_key in batch.sample_keys),
+        model_columns=tuple(MODEL_COLUMNS),
+        y_pred=batch.y_pred,
+        y_true=batch.y_true,
+        weights=weights_np,
+        extra={
+            "source": "train_timefuse_fusor_streaming.evaluate_streaming",
+            "shard_name": str(shard_name),
+            "batch_index": int(batch_index),
+        },
+    )
+    try:
+        result = EvaluationInputAdapter().evaluate_input(evaluation_input=evaluation_input)
+    except Exception as exc:
+        preview_keys = list(evaluation_input.sample_keys[:5])
+        raise RuntimeError(
+            "EvaluationInputAdapter 复算失败："
+            f"shard={shard_name} batch={batch_index} sample_key_preview={preview_keys}"
+        ) from exc
+
+    if len(result.per_sample_rows) != len(batch.sample_keys):
+        raise AssertionError(
+            "EvaluationInputAdapter rows 数量不一致："
+            f"shard={shard_name} batch={batch_index} "
+            f"adapter_rows={len(result.per_sample_rows)} expected={len(batch.sample_keys)}"
+        )
+
+    for row_idx, adapter_row in enumerate(result.per_sample_rows):
+        sample_key = str(batch.sample_keys[row_idx])
+        if adapter_row["sample_key"] != sample_key:
+            raise AssertionError(
+                "EvaluationInputAdapter sample_key 顺序不一致："
+                f"shard={shard_name} batch={batch_index} row={row_idx} "
+                f"adapter={adapter_row['sample_key']} expected={sample_key}"
+            )
+
+        label = batch.labels[row_idx]
+        hard_pred = batch.y_pred[row_idx, int(selected_indices[row_idx])]
+        soft_pred = np.sum(
+            batch.y_pred[row_idx] * weights_np[row_idx].reshape((-1, *([1] * (batch.y_pred.ndim - 2)))),
+            axis=0,
+        )
+        hard_metrics = array_metrics(batch.y_true[row_idx], hard_pred)
+        soft_metrics = array_metrics(batch.y_true[row_idx], soft_pred)
+        comparisons = {
+            "selected_index": (int(adapter_row["selected_index"]), int(selected_indices[row_idx])),
+            "hard_mae": (float(adapter_row["hard_mae"]), hard_metrics["mae"]),
+            "hard_mse": (float(adapter_row["hard_mse"]), hard_metrics["mse"]),
+            "raw_soft_mae": (float(adapter_row["raw_soft_mae"]), soft_metrics["mae"]),
+            "raw_soft_mse": (float(adapter_row["raw_soft_mse"]), soft_metrics["mse"]),
+            "max_weight": (float(adapter_row["max_weight"]), float(max_weight[row_idx])),
+            "weight_entropy": (float(adapter_row["weight_entropy"]), float(entropy[row_idx])),
+        }
+        for metric_name, (adapter_value, manual_value) in comparisons.items():
+            if metric_name == "selected_index":
+                if adapter_value != manual_value:
+                    raise AssertionError(
+                        "EvaluationInputAdapter selected_index 不一致："
+                        f"shard={shard_name} batch={batch_index} row={row_idx} sample_key={sample_key} "
+                        f"config_name={label['config_name']} adapter={adapter_value} manual={manual_value}"
+                    )
+                continue
+            if not np.isclose(adapter_value, manual_value, rtol=1e-5, atol=atol):
+                raise AssertionError(
+                    "EvaluationInputAdapter 指标不一致："
+                    f"shard={shard_name} batch={batch_index} row={row_idx} sample_key={sample_key} "
+                    f"config_name={label['config_name']} metric={metric_name} "
+                    f"adapter={adapter_value} manual={manual_value}"
+                )
+
+
 def evaluate_streaming(
     *,
     fusor: nn.Module,
@@ -801,6 +909,17 @@ def evaluate_streaming(
                 entropy = -(weights_np * np.log(np.clip(weights_np, EPS, 1.0))).sum(axis=1)
                 normalized_entropy = entropy / math.log(len(MODEL_COLUMNS))
                 max_weight = weights_np.max(axis=1)
+                current_batch_index = batch_count + 1
+                if bool(getattr(args, "verify_evaluation_adapter", False)):
+                    verify_evaluation_adapter_batch(
+                        batch=batch,
+                        weights_np=weights_np,
+                        selected_indices=selected_indices,
+                        entropy=entropy,
+                        max_weight=max_weight,
+                        shard_name=shard_name,
+                        batch_index=current_batch_index,
+                    )
                 for row_idx, sample_key in enumerate(batch.sample_keys):
                     label = batch.labels[row_idx]
                     selected_model = MODEL_COLUMNS[int(selected_indices[row_idx])]
