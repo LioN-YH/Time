@@ -24,7 +24,7 @@ import ast
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -34,10 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from visual_router_experiments.common.prediction_array_io import (  # noqa: E402
-    load_prediction_array,
-    resolve_cache_array_path,
-)
+from time_router.io.prediction_cache_reader import PredictionBatchReader  # noqa: E402
 
 
 DEFAULT_FIXTURE_ROOT = (
@@ -144,82 +141,6 @@ def load_manifest(fixture_root: Path) -> pd.DataFrame:
     return df
 
 
-def make_absolute_record(row: Mapping[str, object], fixture_root: Path) -> Dict[str, object]:
-    """函数功能：把 manifest 相对数组路径转换为 load_prediction_array 可读取的绝对路径。"""
-    record = dict(row)
-    record["y_true_path"] = str(resolve_cache_array_path(str(record["y_true_path"]), fixture_root))
-    record["y_pred_path"] = str(resolve_cache_array_path(str(record["y_pred_path"]), fixture_root))
-    return record
-
-
-def assemble_prediction_batch(
-    manifest_df: pd.DataFrame,
-    fixture_root: Path,
-    model_columns: Sequence[str],
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    函数功能：
-        按 sample_key golden 顺序和 MODEL_COLUMNS golden 顺序组装 batch。
-
-    关键约束：
-        manifest 中每个 sample 的原始专家行顺序不是正式动作空间顺序，本函数明确
-        验证并重排到 MODEL_COLUMNS，防止未来公共 reader 误用 CSV 当前行顺序。
-    """
-    y_pred_batch: List[np.ndarray] = []
-    y_true_batch: List[np.ndarray] = []
-    for sample_key in EXPECTED_SAMPLE_KEYS:
-        group = manifest_df[manifest_df["sample_key"].astype(str) == sample_key]
-        manifest_order = group["model_name"].astype(str).tolist()
-        if manifest_order != EXPECTED_MANIFEST_MODEL_ORDER:
-            raise AssertionError(f"manifest 原始专家顺序漂移：sample_key={sample_key} order={manifest_order}")
-
-        expected_true_row_index, expected_pred_row_index = EXPECTED_ROW_INDICES[sample_key]
-        sample_predictions: List[np.ndarray] = []
-        shared_y_true: np.ndarray | None = None
-        for model_name in model_columns:
-            model_rows = group[group["model_name"].astype(str) == model_name]
-            if len(model_rows) != 1:
-                raise AssertionError(f"sample/model 唯一性不满足：sample_key={sample_key} model={model_name}")
-            record = make_absolute_record(model_rows.iloc[0].to_dict(), fixture_root)
-            if int(record["y_true_row_index"]) != expected_true_row_index:
-                raise AssertionError(f"y_true_row_index 漂移：sample_key={sample_key} model={model_name}")
-            if int(record["y_pred_row_index"]) != expected_pred_row_index:
-                raise AssertionError(f"y_pred_row_index 漂移：sample_key={sample_key} model={model_name}")
-
-            y_true = load_prediction_array(record, "y_true")
-            y_pred = load_prediction_array(record, "y_pred")
-            if y_true.shape != (48, 1) or y_pred.shape != (48, 1):
-                raise AssertionError(
-                    f"数组 shape 不一致：sample_key={sample_key} model={model_name} "
-                    f"y_true={y_true.shape} y_pred={y_pred.shape}"
-                )
-            if shared_y_true is None:
-                shared_y_true = y_true
-            elif not np.array_equal(shared_y_true, y_true):
-                raise AssertionError(f"同一 sample_key 的五专家 y_true 不一致：{sample_key}")
-
-            # 这里复算单专家指标，确保 row index 读取到的窗口与 manifest 行一致。
-            error = y_pred - y_true
-            assert_close(
-                f"{sample_key}/{model_name} mae",
-                float(np.mean(np.abs(error))),
-                float(record["mae"]),
-                atol=1e-6,
-            )
-            assert_close(
-                f"{sample_key}/{model_name} mse",
-                float(np.mean(error**2)),
-                float(record["mse"]),
-                atol=1e-6,
-            )
-            sample_predictions.append(y_pred)
-        if shared_y_true is None:
-            raise AssertionError(f"sample_key 无 y_true：{sample_key}")
-        y_pred_batch.append(np.stack(sample_predictions, axis=0))
-        y_true_batch.append(shared_y_true)
-    return np.stack(y_pred_batch, axis=0), np.stack(y_true_batch, axis=0)
-
-
 def run_smoke(fixture_root: Path, *, atol: float) -> None:
     """函数功能：执行全部 Stage 1 golden smoke 检查并输出中文日志。"""
     fixture_root = fixture_root.resolve()
@@ -236,7 +157,22 @@ def run_smoke(fixture_root: Path, *, atol: float) -> None:
         raise AssertionError(f"sample_key 顺序漂移：actual={sample_keys} expected={EXPECTED_SAMPLE_KEYS}")
     print(f"通过：sample_key 顺序固定，sample_count={len(sample_keys)}")
 
-    y_pred, y_true = assemble_prediction_batch(manifest_df, fixture_root, model_columns)
+    reader = PredictionBatchReader(fixture_root=fixture_root, model_columns=model_columns)
+    batch = reader.load(EXPECTED_SAMPLE_KEYS, verify_metrics=True)
+    if batch.sample_keys != EXPECTED_SAMPLE_KEYS:
+        raise AssertionError(f"reader sample_key 顺序漂移：actual={batch.sample_keys} expected={EXPECTED_SAMPLE_KEYS}")
+    manifest_orders = batch.metadata["manifest_model_order_by_sample"]
+    row_indices = batch.metadata["row_indices_by_sample_model"]
+    for sample_key in EXPECTED_SAMPLE_KEYS:
+        if manifest_orders[sample_key] != EXPECTED_MANIFEST_MODEL_ORDER:
+            raise AssertionError(f"manifest 原始专家顺序漂移：sample_key={sample_key} order={manifest_orders[sample_key]}")
+        for model_name in model_columns:
+            if tuple(row_indices[sample_key][model_name]) != EXPECTED_ROW_INDICES[sample_key]:
+                raise AssertionError(
+                    f"row index 漂移：sample_key={sample_key} model={model_name} "
+                    f"actual={row_indices[sample_key][model_name]} expected={EXPECTED_ROW_INDICES[sample_key]}"
+                )
+    y_pred, y_true = batch.y_pred, batch.y_true
     if tuple(y_pred.shape) != EXPECTED_Y_PRED_SHAPE:
         raise AssertionError(f"y_pred shape 漂移：actual={y_pred.shape} expected={EXPECTED_Y_PRED_SHAPE}")
     if tuple(y_true.shape) != EXPECTED_Y_TRUE_SHAPE:

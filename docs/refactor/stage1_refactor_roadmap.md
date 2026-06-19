@@ -37,6 +37,8 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 
 目标：抽出统一 prediction batch reader，使 Visual Router 和 TimeFuse-style fusor 能从同一批 sample key 读取五专家 `y_pred` 与共享 `y_true`。
 
+当前状态（2026-06-19）：已完成本阶段的共享 reader 抽取和 golden smoke 接入；尚未迁移正式 Visual Router / TimeFuse fusor 训练入口，入口迁移仍保留到 P6。
+
 范围：
 
 - 读取 `per_sample_npy` 与 `packed_npy_v1`。
@@ -49,6 +51,13 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 迁移前后运行 `tests/smoke/stage1_golden_smoke.py`。
 - 对比迁移前后的 sample_key 顺序、shape、hard top-1 和 raw soft fusion。
 - 不允许回退到每 sample 重复打开 packed 文件或全量 Python lookup。
+
+本次完成范围：
+
+- 新增 `time_router/io/prediction_cache_reader.py`，提供 `PredictionBatchReader` 与 `PredictionBatch`。
+- `PredictionBatchReader` 支持 `fixture_root` 或 `manifest_path` 输入、显式 sample_key 顺序或 manifest 首次出现顺序、固定五专家 `model_columns`、共享 y_true 校验、row index 元数据和 manifest MAE/MSE 复算。
+- 将 packed npy 按路径分组读取 helper 下沉到 `visual_router_experiments/common/prediction_array_io.py`，避免正式 reader 默认每 sample 重复打开 packed 文件。
+- `tests/smoke/stage1_golden_smoke.py` 已改为使用共享 reader 组装 `y_pred/y_true`，并保留原有 golden 检查。
 
 ### P2：extract oracle/TSF reader
 
