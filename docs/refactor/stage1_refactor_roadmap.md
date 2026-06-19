@@ -1080,6 +1080,41 @@ P9f 之后，下一步应进入 shared prediction SQLite backend / index prepare
 而不是直接抽 VisualFeatureProvider / ViT provider，也不是直接用
 `PredictionBatchReader` 替换 Visual Router 正式 SQLite path。
 
+### P10a：shared prediction SQLite backend audit
+
+目标：在 P9f 完成 Visual Router training/evaluation ExpertBatch 旁路对齐之后，只做
+shared prediction SQLite backend / index prepare 文档化审计，明确 Visual Router 与
+TimeFuse-style fusor 现有 SQLite path 的共同 backend 能力和不可共享边界。
+
+当前状态（2026-06-20）：已完成文档化审计，详见
+`docs/refactor/shared_prediction_sqlite_backend_audit.md`。本阶段不改 Visual Router /
+TimeFuse 正式入口，不抽 helper 代码，不修改 provider/reader/adapter，不新增 Bash/scripts，
+不访问 `/data2`，不启动 pressure/full-scale。
+
+审计结论：
+
+- Visual Router 当前 SQLite path 包含 `required_prediction_sample_keys(...)`、
+  `build_lightweight_prediction_index(...)`、`SQLitePredictionIndex.fetch_records(...)`、
+  `load_prediction_tensors_from_lightweight_index(...)`、run_dir 下
+  `prediction_manifest_index.sqlite`、`fusion_huber_kl` expert_errors 和 eval soft lookup。
+- TimeFuse-style fusor 当前 path 包含 feature-only scaler、feature shard split 下推、
+  shard-local oracle/prediction SQLite index、batch 查询和 packed npy grouped mmap 读取。
+- 可共享的是 prediction SQLite backend implementation：manifest chunk scan、target
+  sample_keys、SQLite 子集索引、batch fetch records、packed row index lineage、
+  grouped mmap loading、index metadata 和 atomic replace / cleanup。
+- 不应共享到 backend 的是 Visual Quito/pseudo image/ViT、TimeFuse 17 维 feature/scaler、
+  training loss/optimizer/checkpoint、status/metadata/CSV、launcher/Bash、`/data2` 路径绑定。
+- `ExpertProvider` 边界仍是 `load_batch(sample_keys) -> ExpertBatch`；provider 可消费
+  prepared backend，但不创建 run_dir、不写 status/metadata、不知道 launcher 或 `/data2`。
+- prediction backend 可进入 `ExpertProvider`；oracle 只用于监督、诊断、baseline 和
+  upper-bound，不进入 deployable `FeatureProvider`。
+
+后续建议：
+
+- P10b 先抽 shared index prepare smoke helper。
+- P10c 再整理 launcher / run scripts 边界。
+- provider prepared backend 推迟到 Stage 1.5 / Stage 2。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
