@@ -463,15 +463,19 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
-### P5：introduce FeatureProvider interface
+### P5：introduce canonical provider interface
 
-目标：在 P4 后 architecture pivot 已确认 canonical entrypoint 的基础上，引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦；P5 之前不再先实现共享 config system。
+目标：在 P4 后 architecture pivot 和 P5a canonical runtime contract 已确认的基础上，引入显式 provider interface 边界，把一次实验拆成 `ExperimentProtocol -> SplitStrategy -> ExpertProvider -> FeatureProvider -> RouterHead -> Evaluator`。P5 之前不再先实现共享 config system，也不把当前 frozen ViT 或 17 维 feature cache 写死为接口本身。
 
 范围：
 
+- `ExperimentProtocol`：描述一次实验如何绑定 split、expert、feature、head、evaluator 和 runtime contract，不等于某个脚本。
+- `SplitStrategy`：当前默认 vali train/test eval，未来兼容 cell holdout 和 cross-cell generalization，并明确 split 下推边界。
+- `ExpertProvider`：当前默认由 `PredictionBatchReader + packed_npy_v1` 实现，未来兼容 online expert prediction 和 router-expert joint training。
 - `VisualFeatureProvider`：`x -> pseudo image -> frozen ViT embedding`，在线 batch 生成，不落盘 full-scale embedding。
 - `TimeFuseFeatureProvider`：`sample_key -> 17维 feature cache`，支持 feature-only scaler 和 shard-aware 读取。
-- 定义统一输出：`sample_keys`、`features`、dtype/device metadata 和可选诊断信息。
+- `RouterHead`：把 feature tensor 或 structured feature 转成专家 logits/weights，不读取 prediction cache，不写 evaluation output。
+- `Evaluator`：接收 sample_key、`y_pred`、`y_true`、weights/logits 和 `model_columns`，使用 `time_router.evaluation` public API 输出 summary、rows、comparison 和 calibration-ready object。
 - 同步设计 canonical runtime 的 `run_dir/status/metadata/checkpoint/evaluation/logs` 契约，再决定哪些参数进入共享 config。
 
 门禁：
@@ -510,14 +514,49 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改变 `PredictionBatchReader` / `OracleTsfReader` / evaluation / IO helper 行为。
 - 不改模型结构、loss 或正式输出目录。
 
+### P5b：canonical provider interface design only
+
+目标：在 P5a runtime contract 之后，只做 Stage 1 canonical provider interface 设计，明确 `ExperimentProtocol`、`SplitStrategy`、`ExpertProvider`、`FeatureProvider`、`RouterHead` 和 `Evaluator` 的共享 contract、分支扩展点和历史路线舍弃边界。
+
+当前状态（2026-06-19）：已完成 P5b 文档化 interface 设计；本阶段只新增设计文档，不改训练代码、不迁移入口、不实现 Python interface / abstract class、不实现 config system、run_dir helper、checkpoint index 或 logging framework、不接入 `/data2`、不移动或删除历史代码。
+
+本次完成范围：
+
+- 新增 `docs/refactor/stage1_provider_interface.md`。
+- 明确 `ExperimentProtocol` 描述一次实验的 protocol，不等于某个脚本；只绑定 split、expert、feature、head、evaluator 和 runtime contract，不直接读写 full-scale 输出目录。
+- 明确 `SplitStrategy` 当前默认 vali train/test eval，未来兼容 cell holdout 和 cross-cell generalization，并定义其向 `ExpertProvider`、`FeatureProvider` 和 `Evaluator` 下推的边界。
+- 明确 `ExpertProvider` 当前可由 `PredictionBatchReader + packed_npy_v1` 实现，但 interface 只要求输出 `sample_key`、`model_columns`、`y_pred`、`y_true` 和 row index metadata，不假设专家一定来自离线 cache。
+- 明确 `FeatureProvider` 同时覆盖 Visual Router 的 pseudo image / encoder feature 和 TimeFuse-style fusor 的 feature cache / online feature computation，允许 frozen encoder、finetuned encoder、joint-trained encoder、offline cache、online computation 和 branch-specific schema。
+- 明确 oracle/TSF 只可用于监督、诊断、baseline 或分层分析，不进入可部署 Visual Router test-time 动态调权特征。
+- 明确 `RouterHead` 只消费 feature 并输出 logits/weights，不读取 prediction cache、不写 evaluation output。
+- 明确 `Evaluator` 只消费显式 `sample_key/y_pred/y_true/weights/logits/model_columns`，使用 `time_router.evaluation` public API 输出 summary、per-sample rows、comparison 和 calibration-ready object，不依赖 legacy output schema。
+- 明确 provider interface 不决定 `run_dir` 位置，不硬编码 `/data2` 或 repo 内路径。
+- 明确 Visual Router 主线、TimeFuse-style fusor baseline 的共享 contract 与 branch-specific implementation 边界，并把 LogisticRegression hard-label router、offline ViT embedding full-scale cache、旧 OOM lookup、pilot-only 和非 streaming full-scale 入口标为 deprecated/reference-only，不再适配新 interface。
+
+明确不做：
+
+- 不实现 Python interface / abstract class。
+- 不新增 `time_router/protocols` 或 runtime 代码。
+- 不修改任何训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不实现 config system。
+- 不实现 run_dir helper。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不接入 `/data2`。
+- 不为了兼容历史输出新增 helper。
+- 不改变 `PredictionBatchReader` / `OracleTsfReader` / evaluation / IO helper 行为。
+- 不移动或删除历史代码。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
-目标：让两个正式入口逐步消费共享 reader、FeatureProvider、metrics/report 和 logging/path/config，但保留各自 head、loss 与实验变量。
+目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
 
 范围：
 
-- Visual Router 入口迁移到共享 batch reader + `VisualFeatureProvider` + Visual MLP head。
-- TimeFuse fusor 入口迁移到共享 batch reader + `TimeFuseFeatureProvider` + Linear-softmax head。
+- Visual Router 入口迁移到 `SplitStrategy + ExpertProvider + VisualFeatureProvider + Visual RouterHead + Evaluator`。
+- TimeFuse fusor 入口迁移到 `SplitStrategy + ExpertProvider + TimeFuseFeatureProvider + Linear-softmax RouterHead + Evaluator`。
 - 保留 eval-only、train-only、checkpoint/resume、DataParallel 和现有 full-scale 路径兼容。
 
 门禁：
