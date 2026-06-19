@@ -49,6 +49,8 @@ for path in [WORKSPACE, QUITO_DIR]:
 
 from quito.config.training import TaskType  # noqa: E402
 from quito.datasets import load_datasets  # noqa: E402
+from time_router.evaluation import EvaluationInputAdapter  # noqa: E402
+from time_router.protocols import EvaluationInput  # noqa: E402
 from visual_router_experiments.common.prediction_cache_schema import PredictionCacheKey  # noqa: E402
 from visual_router_experiments.common.prediction_array_io import resolve_cache_array_path  # noqa: E402
 from visual_router_experiments.common.vit_embedding_utils import (  # noqa: E402
@@ -142,6 +144,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--print-rows", type=int, default=10, help="运行结束打印多少行预测预览。")
     parser.add_argument("--resume-checkpoint", type=Path, default=None, help="从已有 router checkpoint 继续训练或 eval-only。")
     parser.add_argument("--train-only", action="store_true", help="只训练并保存 checkpoint，不执行 test streaming 预测。")
+    parser.add_argument(
+        "--verify-evaluation-adapter",
+        action="store_true",
+        help="默认关闭；仅在 test evaluation batch 内用 EvaluationInputAdapter 旁路复算并校验 hard/raw soft 指标。",
+    )
     return parser.parse_args()
 
 
@@ -1135,6 +1142,217 @@ def predict_stream_batch(
     return pd.DataFrame(rows)
 
 
+def _load_evaluation_arrays_for_batch(
+    *,
+    sample_keys: Sequence[str],
+    prediction_lookup: Mapping[Tuple[str, str], Dict[str, object]],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    函数功能：
+        按当前 test batch 的 sample_key 顺序读取五专家 y_pred 和共享 y_true。
+
+    关键约束：
+        这是 P9b evaluation adapter 旁路校验的输入重建步骤，只读取当前 batch
+        已经用于 `add_soft_fusion_metrics(...)` 的 prediction_lookup，不建立新
+        provider，不改变正式训练、CSV、summary、metadata 或 status schema。
+    """
+    y_pred, y_true, _ = load_prediction_tensors_for_samples(
+        [str(sample_key) for sample_key in sample_keys],
+        prediction_lookup,
+        error_metric="mae",
+    )
+    return y_pred, y_true
+
+
+def _adapter_mismatch_message(
+    *,
+    field_name: str,
+    old_value: object,
+    adapter_value: object,
+    row: Mapping[str, object],
+    batch_index: int,
+    row_offset: int,
+    output_dir: Path,
+) -> str:
+    """
+    函数功能：
+        统一生成 adapter 旁路校验失败信息，保证定位信息足够直接。
+    """
+    return (
+        "EvaluationInputAdapter 旁路校验不一致："
+        f"config_name={row.get('config_name')} "
+        f"split={row.get('split')} "
+        f"batch_index={int(batch_index)} "
+        f"row_offset={int(row_offset)} "
+        f"sample_key={row.get('sample_key')} "
+        f"field={field_name} "
+        f"old_value={old_value} "
+        f"adapter_value={adapter_value} "
+        f"output_dir={output_dir}"
+    )
+
+
+def verify_evaluation_adapter_bypass_batch(
+    *,
+    pred_df: pd.DataFrame,
+    soft_df: pd.DataFrame,
+    prediction_lookup: Mapping[Tuple[str, str], Dict[str, object]] | None = None,
+    y_pred: np.ndarray | None = None,
+    y_true: np.ndarray | None = None,
+    output_dir: Path,
+    batch_index: int,
+    atol: float = 1e-5,
+) -> None:
+    """
+    函数功能：
+        在 Visual Router test evaluation batch 内旁路调用 EvaluationInputAdapter，
+        逐样本校验 adapter 复算 rows 与现有正式 soft_df 字段一致。
+
+    输入：
+        pred_df: `predict_stream_batch(...)` 生成的 hard top-1 batch rows。
+        soft_df: `add_soft_fusion_metrics(...)` 生成的正式 raw soft batch rows。
+        prediction_lookup: 当前 batch 从 SQLite index 查询出的专家 prediction record。
+        y_pred/y_true: 可选内存数组，供 smoke 测试避免访问磁盘 prediction cache。
+        output_dir/batch_index: 仅用于失败信息定位，不写入任何 artifact。
+
+    输出：
+        无返回值；不一致时抛出 AssertionError。
+
+    关键约束：
+        该 helper 只做 P9b 内存旁路验证，不替换正式 append/write 逻辑，不修改
+        VisualFeatureProvider、ViT provider、VisualMLPRouter、training loop 或
+        fusion_huber_kl loss。
+    """
+    if pred_df.empty:
+        return
+    sample_keys = pred_df["sample_key"].astype(str).tolist()
+    if soft_df["sample_key"].astype(str).tolist() != sample_keys:
+        adapter_keys = soft_df["sample_key"].astype(str).tolist()
+        mismatch_offset = next(
+            (idx for idx, (old_key, adapter_key) in enumerate(zip(sample_keys, adapter_keys)) if old_key != adapter_key),
+            min(len(sample_keys), len(adapter_keys)),
+        )
+        context_row = pred_df.iloc[min(mismatch_offset, len(pred_df) - 1)].to_dict()
+        raise AssertionError(
+            _adapter_mismatch_message(
+                field_name="sample_key_order",
+                old_value=sample_keys,
+                adapter_value=adapter_keys,
+                row=context_row,
+                batch_index=batch_index,
+                row_offset=mismatch_offset,
+                output_dir=output_dir,
+            )
+        )
+    if y_pred is None or y_true is None:
+        if prediction_lookup is None:
+            raise ValueError("verify_evaluation_adapter_bypass_batch 需要 prediction_lookup 或显式 y_pred/y_true")
+        y_pred, y_true = _load_evaluation_arrays_for_batch(sample_keys=sample_keys, prediction_lookup=prediction_lookup)
+
+    # P9b 要求从正式 hard prediction rows 恢复 router 权重，soft_df 只作为旧路径指标对照。
+    weights = pred_df[[f"weight_{model_name}" for model_name in MODEL_COLUMNS]].to_numpy(dtype=np.float32)
+    evaluation_input = EvaluationInput(
+        sample_keys=tuple(sample_keys),
+        model_columns=tuple(MODEL_COLUMNS),
+        y_pred=np.asarray(y_pred, dtype=np.float32),
+        y_true=np.asarray(y_true, dtype=np.float32),
+        weights=weights,
+        extra={
+            "source": "train_visual_router_online_streaming.verify_evaluation_adapter_bypass_batch",
+            "batch_index": int(batch_index),
+            "output_dir": str(output_dir),
+        },
+    )
+    try:
+        adapter_result = EvaluationInputAdapter().evaluate_input(evaluation_input=evaluation_input)
+    except Exception as exc:
+        preview_keys = sample_keys[:5]
+        raise RuntimeError(
+            "EvaluationInputAdapter 旁路复算失败："
+            f"batch_index={int(batch_index)} sample_key_preview={preview_keys} output_dir={output_dir}"
+        ) from exc
+
+    adapter_rows = adapter_result.per_sample_rows
+    if len(adapter_rows) != len(soft_df):
+        context_row = soft_df.iloc[0].to_dict()
+        raise AssertionError(
+            _adapter_mismatch_message(
+                field_name="row_count",
+                old_value=len(soft_df),
+                adapter_value=len(adapter_rows),
+                row=context_row,
+                batch_index=batch_index,
+                row_offset=0,
+                output_dir=output_dir,
+            )
+        )
+
+    comparison_fields = {
+        "selected_model": "selected_model",
+        "hard_top1_mae_from_array": "hard_mae",
+        "hard_top1_mse_from_array": "hard_mse",
+        "soft_fusion_mae": "raw_soft_mae",
+        "soft_fusion_mse": "raw_soft_mse",
+        "max_weight": "max_weight",
+        "weight_entropy": "weight_entropy",
+    }
+    for row_offset, (old_row, adapter_row) in enumerate(zip(soft_df.to_dict(orient="records"), adapter_rows)):
+        if str(adapter_row["sample_key"]) != str(old_row["sample_key"]):
+            raise AssertionError(
+                _adapter_mismatch_message(
+                    field_name="sample_key",
+                    old_value=old_row["sample_key"],
+                    adapter_value=adapter_row["sample_key"],
+                    row=old_row,
+                    batch_index=batch_index,
+                    row_offset=row_offset,
+                    output_dir=output_dir,
+                )
+            )
+        old_selected_index = MODEL_COLUMNS.index(str(old_row["selected_model"]))
+        if int(adapter_row["selected_index"]) != old_selected_index:
+            raise AssertionError(
+                _adapter_mismatch_message(
+                    field_name="selected_index",
+                    old_value=old_selected_index,
+                    adapter_value=adapter_row["selected_index"],
+                    row=old_row,
+                    batch_index=batch_index,
+                    row_offset=row_offset,
+                    output_dir=output_dir,
+                )
+            )
+        for old_field, adapter_field in comparison_fields.items():
+            old_value = old_row[old_field]
+            adapter_value = adapter_row[adapter_field]
+            if isinstance(old_value, str) or isinstance(adapter_value, str):
+                if str(old_value) != str(adapter_value):
+                    raise AssertionError(
+                        _adapter_mismatch_message(
+                            field_name=old_field,
+                            old_value=old_value,
+                            adapter_value=adapter_value,
+                            row=old_row,
+                            batch_index=batch_index,
+                            row_offset=row_offset,
+                            output_dir=output_dir,
+                        )
+                    )
+                continue
+            if not np.isclose(float(old_value), float(adapter_value), rtol=1e-5, atol=float(atol)):
+                raise AssertionError(
+                    _adapter_mismatch_message(
+                        field_name=old_field,
+                        old_value=old_value,
+                        adapter_value=adapter_value,
+                        row=old_row,
+                        batch_index=batch_index,
+                        row_offset=row_offset,
+                        output_dir=output_dir,
+                    )
+                )
+
+
 def append_csv(path: Path, frame: pd.DataFrame) -> None:
     """函数功能：追加写 CSV，首批自动写 header。"""
     if frame.empty:
@@ -1222,6 +1440,8 @@ def main() -> None:
     args = parse_args()
     if int(args.epochs) < 0:
         raise ValueError("--epochs 必须 >= 0；resume/eval-only 可使用 --epochs 0")
+    if bool(args.verify_evaluation_adapter) and bool(args.skip_soft_fusion):
+        raise ValueError("--verify-evaluation-adapter 需要 raw soft fusion 对齐证据，不能与 --skip-soft-fusion 同时使用")
     train_args = build_train_args(args)
     validate_training_args(train_args)
     set_seed(int(args.seed))
@@ -1423,6 +1643,7 @@ def main() -> None:
             )
 
         hard_rows_seen = 0
+        test_batch_index = 0
         if not args.train_only:
             router.eval()
             for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
@@ -1451,6 +1672,15 @@ def main() -> None:
                         raise ValueError("soft fusion 需要 prediction_index")
                     soft_lookup = prediction_index.fetch_records(pred_df["sample_key"].astype(str).tolist())
                     soft_df = add_soft_fusion_metrics(pred_df, soft_lookup)
+                    test_batch_index += 1
+                    if bool(args.verify_evaluation_adapter):
+                        verify_evaluation_adapter_bypass_batch(
+                            pred_df=pred_df,
+                            soft_df=soft_df,
+                            prediction_lookup=soft_lookup,
+                            output_dir=output_dir,
+                            batch_index=test_batch_index,
+                        )
                     append_csv(output_dir / "visual_router_soft_fusion_predictions.csv", soft_df)
                 hard_rows_seen += int(len(pred_df))
                 total_embedding_batches += 1
