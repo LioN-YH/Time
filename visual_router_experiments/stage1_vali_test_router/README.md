@@ -10,27 +10,29 @@ Stage 1 的基本约束：
 - full-scale 不长期保存伪图像 tensor 或 ViT embedding `.npy`；
 - prediction cache、router 输出和 calibration 结果写入 `experiment_logs/run_outputs/` 或 `/data2/syh/Time/run_outputs/`，不写入代码目录。
 
-详细字段契约见 `stage1_cache_contract.md`，完整历史结果索引见 `stage1_history_results.md`。
+视觉路由主线见 `stage1_visual_router_mainline.md`，详细字段契约见 `stage1_cache_contract.md`，完整历史结果索引见 `stage1_history_results.md`。
 
 ## 当前主线
 
-当前 full-scale 路线应按以下顺序推进：
+当前 visual router full-scale 主线应按以下顺序推进：
 
 ```text
 build_full_scale_sample_manifest.py
--> launch_timefuse_feature_cache_full_scale.py  # 可在 prediction cache merge/oracle 前独立预计算
 -> launch_full_scale_prediction_cache.py
 -> build_prediction_cache_from_manifest.py
 -> merge_prediction_cache_shards.py
--> pilot/compute_window_oracle_from_cache.py
--> pilot/enrich_cache_with_tsf_cell.py
+-> build_full_scale_window_oracle_labels.py
+-> build_full_scale_tsf_enrichment.py
+-> validate_full_scale_oracle_tsf_outputs.py
 -> evaluate_router_baselines.py
 -> train_visual_router_online_streaming.py
 -> evaluate_soft_fusion_calibration.py
 -> final unified report
 ```
 
-截至最近一次检查，`96_48_S` full-scale 五专家 prediction cache shard 已全部完成；TimeFuse-derived 单变量 feature cache 已作为独立 CPU 任务从 sample manifest shard index 启动。prediction cache merge/oracle/TSF 仍是 fusor 训练的前置条件，但 TimeFuse 元特征本身只依赖历史窗口 `x`，不需要等待 oracle label 或专家预测。
+截至最近一次检查，`96_48_S` full-scale sample manifest、五专家 prediction cache、merged cache、oracle labels、TSF enrichment、1 epoch streaming visual router checkpoint 和 checkpoint eval-only 均已完成。eval-only 结果覆盖 `13,924,650` 个 test window：visual hard top-1 MAE=`0.5615367653135453`，raw soft fusion MAE=`0.5174675759559787`，oracle MAE=`0.33862214116809347`。下一步只看视觉主线时，应优先确认 `evaluate_soft_fusion_calibration.py` 的 full-scale streaming/SQLite 读取口径，然后对已完成 eval-only 输出做 calibration 和视觉主线报告。
+
+TimeFuse-style fusor 是 baseline 支线，相关 reader、feature cache 和 GPU2/3 launcher 单独追踪；它不再作为视觉路由主线的前置步骤。
 
 ## 入口分层
 
@@ -42,12 +44,20 @@ build_full_scale_sample_manifest.py
 | `launch_full_scale_prediction_cache.py` | 基于 full-scale sample shard index 生成可恢复 launcher；DLinear/PatchTST/CrossFormer 绑定 GPU，ES/NaiveForecaster 走 CPU，默认 `packed_npy_v1` |
 | `build_prediction_cache_from_manifest.py` | 读取 sample manifest 和专家 evaluate config，生成单专家或多专家 prediction cache shard；支持 `per_sample_npy` 和 full-scale 推荐的 `packed_npy_v1` |
 | `merge_prediction_cache_shards.py` | 合并 prediction cache shards，校验 `sample_key + model_name` 唯一、五专家完整、共享 y_true 一致；packed 模式会重建 merged y_true row index |
-| `build_timefuse_feature_cache_from_manifest.py` | 正式 TimeFuse-derived 单变量 feature cache builder；读取单个 sample manifest shard，重新加载历史窗口 `x` 提取 17 维元特征，按 shard 写 `feature_cache.csv`、`metadata.json`、`status.json`、`main.log`；不读取未来 `y`、专家预测或 oracle label |
-| `launch_timefuse_feature_cache_full_scale.py` | 基于 full-scale sample shard index 生成/启动多 lane CPU launcher；每个 lane 顺序处理若干 sample shard，支持 `--resume` 跳过 completed shard，正式输出写 `/data2/.../timefuse_feature_cache_full_scale_launcher/` |
 | `evaluate_router_baselines.py` | 统一 baseline 入口；用 vali 学 global/dataset/TSF-cell/dataset+TSF-cell 统计规则，并可训练 TimeFuse-style 单层 fusor，在 test 上输出 comparison |
 | `train_visual_router_online_streaming.py` | full-scale online visual router 主入口；batch 内生成 ViT embedding，scaler 只在 vali 上 `partial_fit`，test 流式 forward，不落盘 embedding |
 | `evaluate_soft_fusion_calibration.py` | 对 router test 权重做 raw soft、temperature scaling、top-k truncation、top1 hard、top2/top3 fusion 统一评估 |
 | `run_full_scale_dry_run.py` | 小样本验证 full-scale 框架闭环和恢复语义；用于模板检查，不作为正式指标 |
+
+### Baseline 支线入口
+
+| 文件 | 功能 |
+| --- | --- |
+| `build_timefuse_feature_cache_from_manifest.py` | TimeFuse-derived 单变量 feature cache builder；读取单个 sample manifest shard，重新加载历史窗口 `x` 提取 17 维元特征；不读取未来 `y`、专家预测或 oracle label |
+| `launch_timefuse_feature_cache_full_scale.py` | 基于 full-scale sample shard index 生成/启动 TimeFuse feature cache 多 lane CPU launcher |
+| `stage1_timefuse_fusor_streaming_reader.py` | TimeFuse-style fusor 的 streaming/shard-aware 数据读取层和 smoke 入口；支持 split 下推、packed npy batch-level grouped loading，并在大块 CSV 读取后切成稳定 batch，避免训练前误读非目标 split arrays |
+| `train_timefuse_fusor_streaming.py` | TimeFuse-style fusor 的 streaming train/eval 入口；支持 shard-local index 复用、feature-only scaler 和 CUDA 双卡 `DataParallel` |
+| `launch_timefuse_fusor_full_scale.py` | TimeFuse-style fusor 64-shard baseline 后台 launcher；正式公平比较使用 `--device cuda --cuda-visible-devices 2,3`，当前正式目录 `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/` 已进入 train |
 
 ### 中小规模和复现入口
 
@@ -69,9 +79,11 @@ build_full_scale_sample_manifest.py
 | 文件 | 功能 |
 | --- | --- |
 | `stage1_cache_contract.md` | 固定 prediction cache、oracle labels、feature cache、router evaluation 字段契约和 full-scale shard/resume 约定 |
+| `stage1_visual_router_mainline.md` | 只梳理 Stage 1 visual router 主线、`96_48_S` 已沉淀的正确路线、废弃路线和扩 config 标准步骤 |
 | `stage1_protocol_and_plan.md` | 记录 per-config 主实验协议、Stage 1B 迁移实验设计、已完成事项和后续验收标准 |
 | `prediction_cache_design.md` | 早期 Quito evaluate/data/model 数据流阅读记录，以及 prediction cache 导出点设计 |
 | `feature_and_rl_extension_notes.md` | TimeFuse-style 结构特征支线、contextual bandit/RL 扩展判断和后续研究路线 |
+| `stage1_timefuse_fusor_streaming_reader_design.md` | 固定 full-scale TimeFuse-style fusor reader 的输入输出契约、SQLite 索引策略、并行策略和 1-shard smoke 验证结果 |
 | `stage1_history_results.md` | 历史 smoke、1k、dry-run、full-scale 长跑状态和代表输出目录索引 |
 
 ## Pilot 目录
@@ -99,10 +111,8 @@ build_full_scale_sample_manifest.py
 
 ## 下一步
 
-1. 合并 full-scale 五专家 prediction cache shards，并做完整性校验。
-2. 继续监控 full-scale TimeFuse feature cache 到 64 个 shard 全部 completed，并校验 sample_key 覆盖和 17 维特征有限。
-3. 在 merged cache 上生成 oracle labels 和 TSF cell enrichment。
-4. 等 feature cache、oracle labels 和 prediction cache 都齐全后，运行 `evaluate_router_baselines.py` 得到统计 baseline 与 TimeFuse-style fusor comparison。
-5. 使用 `train_visual_router_online_streaming.py` 训练/评估 full-scale visual router。
-6. 使用 `evaluate_soft_fusion_calibration.py` 评估 raw soft、temperature/top-k 和 hard top-1。
-7. 补最终 unified report，把 oracle、global/dataset/TSF baseline、TimeFuse-style fusor、visual hard top-1、raw soft 和 best calibrated soft 放到同一张表。
+1. 只读审查 `evaluate_soft_fusion_calibration.py`，确认 full-scale 下不会全量加载 116M 行 merged manifest。
+2. 如有必要，为 calibration 增加 SQLite/streaming 读取路径。
+3. 基于已完成的 `96_48_S` eval-only 输出评估 raw soft、temperature/top-k 和 hard top-1。
+4. 补视觉主线报告，把 `oracle_top1`、`global_best_single`、visual hard top-1、raw soft 和 best calibrated soft 放到同一张表。
+5. 再决定追加 `96_48_S` epoch，或把同一主线复制到下一个 config。

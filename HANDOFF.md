@@ -1,5 +1,707 @@
 # Stage 1 `96_48_S` Full-Scale Handoff
 
+## 最新状态（2026-06-19 11:55:23 CST）
+
+### 当前结论：visual router eval-only 已完成；TimeFuse-style fusor GPU2/3 已完成 reader/scaler 优化并进入 train
+
+用户指出 TimeFuse fusor index/scaler 阶段持续超过 24 小时不合理。复核确认旧路径确实有问题：旧 scaler 复用完整 reader，误读 oracle/prediction arrays；旧 train reader 的 split 过滤发生在 prediction arrays 读取之后；packed `.npy` 在 batch 内按 sample 重复 `np.load`。当前已实现 shard-local index 复用、feature-only scaler、reader split 下推、batch-level grouped packed npy 读取，以及大块 CSV 读取后再切 `batch_size`。正式 GPU2/3 后台任务已恢复并进入训练。
+
+| 项目 | 值 |
+| --- | --- |
+| fusor 正式输出目录 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/` |
+| launcher 脚本 | `/home/shiyuhong/Time/visual_router_experiments/stage1_vali_test_router/launch_timefuse_fusor_full_scale.py` |
+| 训练入口 | `/home/shiyuhong/Time/visual_router_experiments/stage1_vali_test_router/train_timefuse_fusor_streaming.py` |
+| reader | `/home/shiyuhong/Time/visual_router_experiments/stage1_vali_test_router/stage1_timefuse_fusor_streaming_reader.py` |
+| 当前 PID/PGID | `1845436 / 1845436` |
+| 当前 Python 子进程 | `1845438` |
+| 设备策略 | `--device cuda`，`CUDA_VISIBLE_DEVICES=2,3` |
+| 双卡口径 | `main.log` 已写 `启用 DataParallel 双卡训练 logical_devices=[0, 1]` |
+| SQLite index | 64/64 oracle index 已复用，64/64 prediction index 已复用 |
+| scaler | `feature-only`，约 `11:50:32` 到 `11:51:49 CST` 完成 64 shard，`vali_samples=9,350,520` |
+| 当前状态 | `status=running`，`phase=train`，`epoch=1`，`current_shard=sample_shard_0002_of_0064`，`train_batches=1200`，`train_samples=307,052`，`latest_loss=0.11619359254837036` |
+| GPU 占用 | GPU2/GPU3 均有 PyTorch 显存占用，约 `441 MiB / 441 MiB` |
+| checkpoint/summary | 截至本记录尚未写出，等待训练 epoch 完成后检查 |
+
+推荐轻量监控命令：
+
+```bash
+ps -p 1845436,1845438 -o pid,ppid,pgid,stat,etime,%cpu,%mem,rss,cmd
+cat /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/status.json
+tail -n 120 /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/main.log
+nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits
+find /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23 -maxdepth 3 \( -name 'latest_timefuse_fusor.pt' -o -name 'summary.md' -o -name 'timefuse_fusor_summary.csv' \) -printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n' 2>/dev/null | sort
+```
+
+停止命令：
+
+```bash
+bash /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/stop.sh
+```
+
+恢复命令：
+
+```bash
+bash /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/resume.sh
+```
+
+禁止监控方式：
+
+```text
+不要对 /data2/.../prediction_cache_full_scale_launcher/merged_cache/manifest.csv 执行 wc -l、head、tail 或全表扫描。
+不要删除已有 smoke/pressure 结果，也不要另启重复 full-scale fusor 任务。
+不要引用 CPU 停止目录作为正式 TimeFuse fusor baseline。
+```
+
+本轮同步更新：
+
+```text
+visual_router_experiments/stage1_vali_test_router/stage1_timefuse_fusor_streaming_reader.py
+visual_router_experiments/stage1_vali_test_router/train_timefuse_fusor_streaming.py
+experiment_logs/2026-06-19_stage1_timefuse_fusor_reader_scaler_optimization_restart.md
+experiment_logs/README.md
+HANDOFF.md
+WORKSPACE_STRUCTURE.md
+visual_router_experiments/stage1_vali_test_router/README.md
+```
+
+---
+
+## 最新状态（2026-06-19 11:36:04 CST）
+
+### 当前结论：visual router eval-only 已完成；TimeFuse-style fusor GPU2/3 已优化重启，正在 feature-only scaler
+
+用户要求为了公平比较，TimeFuse fusor 至少训练时也要使用 GPU2/GPU3 双卡。因此 CPU 版半程任务已停止并标记为非正式结果。GPU2/3 版旧进程在 `scaler_partial_fit` 阶段被优化性停止，因为旧 scaler 路径复用了完整 reader 并读取 oracle/prediction arrays；同一正式目录已通过 `command_resume.sh` 重启，已复用已有 shard-local SQLite index，并进入 feature-only scaler。visual router eval-only 任务已在 `2026-06-18 17:48:18 CST` 完成。
+
+| 项目 | 值 |
+| --- | --- |
+| fusor 正式输出目录 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/` |
+| CPU 停止留痕目录 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_cpu/`，`status=stopped_for_gpu_fairness_requirement`，不作为正式结果 |
+| launcher 脚本 | `/home/shiyuhong/Time/visual_router_experiments/stage1_vali_test_router/launch_timefuse_fusor_full_scale.py` |
+| 训练入口 | `/home/shiyuhong/Time/visual_router_experiments/stage1_vali_test_router/train_timefuse_fusor_streaming.py`，已支持 CUDA 多卡 `nn.DataParallel` |
+| 当前 PID/PGID | `1840046 / 1840046` |
+| 当前 Python 子进程 | `1840048` |
+| 旧 GPU2/3 进程 | `1271090 / 1271092`，已写入 `stopped_for_scaler_feature_only_optimization` |
+| 启动方式 | `setsid bash command.sh > main.log 2>&1 < /dev/null &` |
+| 设备策略 | `--device cuda`，`CUDA_VISIBLE_DEVICES=2,3` |
+| 双卡口径 | `CUDA_VISIBLE_DEVICES=2,3` 下 PyTorch 可见 `device_count=2`；进入模型训练后 `DataParallel` 使用两个 logical CUDA device |
+| preflight | 通过；64 个 feature shard completed，feature 行数 `23,275,170`，320 个 prediction manifest，oracle/merged cache completed，`/data2` 约 2.3T 可用 |
+| 当前状态 | `status=running`，`phase=scaler_partial_fit`，`scaler_mode=feature_only`，`current_shard=sample_shard_0001_of_0064`，`vali_samples=292,204` |
+| SQLite index | 64/64 oracle index 完成，64/64 prediction index 完成 |
+| 已有产物 | `metadata.json` 和 64 shard indexes 已存在；checkpoint、summary、predictions 尚未出现 |
+| 主日志 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/main.log` |
+| 状态文件 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/status.json` |
+| metadata | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/metadata.json` |
+| preflight report | `/data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/preflight_report.json` |
+
+短时健康检查：
+
+```text
+2026-06-19 11:36 CST:
+PID 1840046 alive, PPID=1, PGID=1840046
+Python child PID 1840048 alive, PGID=1840046
+status=running, phase=scaler_partial_fit, scaler_mode=feature_only
+current shard=sample_shard_0001_of_0064
+vali_samples=292204
+64/64 oracle SQLite and 64/64 prediction SQLite reused
+visual router eval-only status=completed, router_predictions=13924650
+```
+
+说明：当前尚未进入 fusor 模型训练，所以 checkpoint、summary 和 predictions 尚未生成。当前阶段是 feature-only scaler，只读取 feature CSV，不读取 oracle/prediction arrays；后续应进入 train。进入训练阶段后应确认 `main.log` 出现 `启用 DataParallel 双卡训练`。visual router eval-only 已产出 full-scale 结果：hard top-1 MAE=`0.5615367653135453`，raw soft fusion MAE=`0.5174675759559787`，oracle MAE=`0.33862214116809347`。
+
+推荐轻量监控命令：
+
+```bash
+ps -p 1840046,1840048 -o pid,ppid,pgid,stat,etime,%cpu,%mem,rss,cmd
+cat /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/status.json
+tail -n 120 /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/main.log
+find /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/indexes -maxdepth 2 \( -name '*.sqlite' -o -name '*.sqlite.tmp' \) -printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n' 2>/dev/null | sort | tail -n 20
+nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits
+df -h /data2 /home
+```
+
+停止命令：
+
+```bash
+bash /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/stop.sh
+```
+
+恢复命令：
+
+```bash
+bash /data2/syh/Time/run_outputs/2026-06-18_stage1_timefuse_fusor_full_scale_gpu23/resume.sh
+```
+
+恢复语义：若 `checkpoints/latest_timefuse_fusor.pt` 已存在，`resume.sh` 会使用 `--resume-checkpoint`，跳过已完成 epoch 并继续 eval；若 checkpoint 尚不存在，则重新构建 shard-local index 并从头训练。
+
+预期完成产物：
+
+```text
+metadata.json
+status.json  # 预期 status=completed, phase=done
+summary.md
+timefuse_fusor_predictions.csv
+timefuse_fusor_summary.csv
+timefuse_fusor_raw_soft_fusion_summary.csv
+timefuse_fusor_selected_model_counts.csv
+sample_predictions.csv
+checkpoints/latest_timefuse_fusor.pt
+checkpoints/latest_checkpoint_index.json
+indexes/*/oracle_labels_index.sqlite
+indexes/*/prediction_manifest_index.sqlite
+```
+
+禁止监控方式：
+
+```text
+不要对 /data2/.../prediction_cache_full_scale_launcher/merged_cache/manifest.csv 执行 wc -l、head、tail 或全表扫描。
+不要删除已有 smoke/pressure 结果，也不要另启重复 full-scale fusor 任务。
+不要引用 CPU 停止目录作为正式 TimeFuse fusor baseline。
+```
+
+本轮同步更新：
+
+```text
+experiment_logs/2026-06-18_stage1_timefuse_fusor_gpu23_fairness_relaunch.md
+experiment_logs/2026-06-18_stage1_timefuse_fusor_gpu23_completion_check.md
+experiment_logs/2026-06-18_stage1_timefuse_fusor_full_scale_launcher_launch.md
+experiment_logs/README.md
+visual_router_experiments/stage1_vali_test_router/README.md
+WORKSPACE_STRUCTURE.md
+```
+
+---
+
+## 最新状态（2026-06-18 01:04:15 CST）
+
+### 当前结论：1 epoch checkpoint eval-only 已后台启动，正在构建 test SQLite index
+
+本轮按任务拆分执行 Calibration 前置步骤：用已完成的 `96_48_S` full-scale 1 epoch checkpoint 跑 eval-only，目标是在 test split 上生成 full-scale router predictions，供后续 soft fusion calibration 使用。
+
+| 项目 | 值 |
+| --- | --- |
+| eval-only 输出目录 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/` |
+| checkpoint | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/latest_96_48_S.pt` |
+| PID/PGID | `1264073 / 1264073` |
+| 启动方式 | `setsid bash ... > main.log 2>&1 < /dev/null &` |
+| GPU 限制 | `CUDA_VISIBLE_DEVICES=2,3` |
+| 命令语义 | `--resume-checkpoint ... --epochs 0`，不追加训练，不使用 `--train-only` |
+| 主日志 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/main.log` |
+| 状态文件 | `/data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/status.json` |
+| launcher | `/data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/launcher.sh` |
+
+短时健康检查：
+
+```text
+2026-06-18 01:03 CST:
+PID 1264073 alive, PPID=1, PGID=1264073
+RSS=17,545,916 KiB
+status=running, phase=init, completed_epochs=1
+main.log:
+[manifest_index] chunks=1 rows_seen=1000000 matched_rows=1000000 target_sample_keys=13924650
+prediction_manifest_index.sqlite.tmp=2.1G
+GPU2=693 MiB, GPU3=12 MiB
+```
+
+说明：当前仍在 CPU/I/O 为主的 test prediction manifest SQLite index 构建阶段。进入 `test_predict` 后，GPU2/GPU3 才会明显执行 ViT 前向。`status.json` 在 index 构建期间仍可能停留在 `phase=init`，以 `main.log` 的 `[manifest_index]` 进度和 SQLite tmp 增长辅助判断。
+
+DeepSeek sidecar 已按用户要求启用：
+
+```text
+stage1-vr-evalonly-precheck: idle
+stage1-vr-evalonly-monitor: idle
+```
+
+两个任务均为只读辅助检查/监督。后续尝试 resume 取简报时 wrapper 报旧 profile 兼容错误，但这发生在取报告阶段，不影响 eval-only 主进程。
+
+推荐轻量监控命令：
+
+```bash
+ps -p 1264073 -o pid,ppid,pgid,stat,etime,%cpu,%mem,rss,cmd
+cat /data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/status.json
+tail -n 120 /data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/main.log
+stat -c '%y %s %n' /data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/prediction_manifest_index.sqlite.tmp /data2/syh/Time/run_outputs/2026-06-18_stage1_96_48_s_streaming_visual_router_eval_only_1epoch_ckpt/prediction_manifest_index.sqlite 2>/dev/null
+nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits
+```
+
+禁止监控方式：
+
+```text
+不要对 /data2/.../prediction_cache_full_scale_launcher/merged_cache/manifest.csv 执行 wc -l、head、tail 或全表扫描。
+```
+
+预期完成产物：
+
+```text
+visual_router_predictions.csv
+visual_router_summary.csv
+visual_router_soft_fusion_predictions.csv
+visual_router_soft_fusion_summary.csv
+visual_router_selected_model_counts.csv
+visual_router_comparison.csv
+visual_router_metadata.json
+visual_router_online_metadata.json
+visual_router_streaming_summary.md
+status.json  # 预期 status=completed, phase=done
+```
+
+完成后下一步：再启动 soft fusion calibration。注意 `evaluate_soft_fusion_calibration.py` 可能仍需 full-scale streaming/SQLite 适配，不能默认直接全量加载 116M 行 manifest。
+
+停止命令：
+
+```bash
+kill -TERM 1264073
+```
+
+---
+
+## 最新状态（2026-06-18 00:38:33 CST）
+
+### 当前结论：v2 训练已完成，1 epoch train-only checkpoint 已写出
+
+`96_48_S` full-scale streaming visual router v2 已正常结束，当前没有遗留 `PID 919803` 或 `train_visual_router_online_streaming.py` 进程。
+
+| 项目 | 值 |
+| --- | --- |
+| 正式完成目录 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/` |
+| 状态 | `status=completed`，`phase=train_only_done` |
+| 完成 epoch | `completed_epochs=1` |
+| 完成时间 | `2026-06-17 20:09:12 CST` |
+| latest checkpoint | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/latest_96_48_S.pt` |
+| epoch checkpoint | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/router_96_48_S_epoch_0001.pt` |
+| checkpoint index | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/latest_checkpoint_index.json` |
+
+训练摘要：
+
+```text
+vali_sample_count=9350520
+test_sample_count=13924650
+test_predictions=0
+epoch=1
+loss=0.2646199787870476
+huber_loss=0.2595411924736033
+kl_loss=0.5078786429804912
+```
+
+注意：本轮使用 `--train-only`，因此没有生成 `visual_router_predictions.csv` 或 `visual_router_summary.csv`，也没有完成 test 评估或 calibration。若要评估当前 checkpoint，应使用 `--resume-checkpoint .../checkpoints/latest_96_48_S.pt --epochs 0` 并去掉 `--train-only`，建议写入新的独立输出目录。
+
+旧目录 `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/` 是 OOM 失败产物，`status.json` 仍停在 `running/training` 且没有 checkpoint，不应引用为完成结果。
+
+---
+
+## 最新状态（2026-06-17 09:46:07 CST）
+
+### 当前结论：OOM 修复已穿过旧崩溃点，训练 v2 正在运行
+
+本轮先审查 qoder 的 OOM 修复，再重启 `96_48_S` full-scale streaming visual router `--epochs 1 --train-only`。请后续接手优先阅读本节。
+
+#### 关键审查结论
+
+- qoder 原方案“轻量级路径索引 + 按需读取”方向是对的，但实现不够可靠：
+  - full-scale `packed_npy_v1` 必须保留 `array_storage`、`y_true_row_index`、`y_pred_row_index`，只保存路径会误读 packed 大数组或触发 shape/内存错误；
+  - 即使只保存路径，约 4675 万条 `(sample_key, model_name)` 仍是千万级 Python dict/string 对象，不足以保证不 OOM。
+- 已将 `train_visual_router_online_streaming.py` 改为 SQLite 磁盘索引：
+  - `SQLitePredictionIndex` 负责 batch 级查询；
+  - `build_lightweight_prediction_index()` 分块扫描 manifest，只把匹配行写入 SQLite，不常驻 Python dict；
+  - `load_prediction_tensors_from_lightweight_index()` 每个 embedding batch 查询当前 sample_key 的五专家 record，并用 packed row index 读取单行；
+  - soft fusion 分支也改为 batch 查询，避免 eval-only 退回全量 lookup。
+- 验证：
+  - `py_compile` 通过；
+  - 正式 manifest 前 5 行 mini packed 验证通过：`y_pred_shape=(1,5,48,1)`、`y_true_shape=(1,48,1)`，复算 MAE 与 manifest 对齐。
+
+#### 当前运行状态
+
+| 项目 | 值 |
+| --- | --- |
+| 输出目录 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/` |
+| Python PID/PGID | `919803 / 919803` |
+| 启动时间 | 约 2026-06-17 08:39 CST |
+| 主日志 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/main.log` |
+| 状态文件 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/status.json` |
+| SQLite 索引 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/prediction_manifest_index.sqlite.tmp`（构建中） |
+| 物理 GPU 限制 | `CUDA_VISIBLE_DEVICES=2,3`，不应占用 GPU0/GPU1 |
+| 当前阶段 | manifest -> SQLite index，尚未进入 `scaler_fit` |
+
+#### 已穿过旧 OOM 压力点
+
+上一轮 OOM killer 发生在约 `rows_seen=100M / matched_rows≈40M`。本轮截至 2026-06-17 09:46 CST：
+
+```text
+[manifest_index] chunks=25 rows_seen=25000000 matched_rows=9769890 target_sample_keys=9350520
+[manifest_index] chunks=50 rows_seen=50000000 matched_rows=19723770 target_sample_keys=9350520
+[manifest_index] chunks=75 rows_seen=75000000 matched_rows=29950910 target_sample_keys=9350520
+[manifest_index] chunks=100 rows_seen=100000000 matched_rows=40167530 target_sample_keys=9350520
+```
+
+同等压力下进程 RSS 仍约 `16-17GB`，SQLite 临时索引约 `14.3GB`，没有复现旧方案 `117GB anon-rss` 的线性内存膨胀。
+
+#### GPU 状态说明
+
+当前仍在 CPU/I/O 为主的 manifest index 阶段，GPU3 未明显使用是正常现象。`--vit-data-parallel` 只有进入 ViT embedding forward（`scaler_fit` / `train_epoch_1`）后才会把 batch 分发到物理 GPU2/GPU3。
+
+最新观测：
+
+```text
+GPU0: 17342 MiB, 0% util（既有 python3.10，不是本训练）
+GPU1:    12 MiB, 0% util
+GPU2:   693 MiB, 0% util（本训练 CUDA 上下文）
+GPU3:    12 MiB, 0% util
+```
+
+#### 启动命令与修正
+
+旧 v2 launcher 失败过两次，均已保留日志：
+
+- `main_failed_missing_numpy_2026-06-17_0003.log`：错误 conda 路径导致 `ModuleNotFoundError: No module named 'numpy'`。
+- `main_failed_bad_config_path_2026-06-17_0837.log`：handoff 中旧 config path 不存在。
+
+当前有效 launcher：
+
+```text
+/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/launcher.sh
+```
+
+关键点：
+
+```text
+PY=/home/shiyuhong/application/miniconda3/envs/quito/bin/python
+CUDA_VISIBLE_DEVICES=2,3
+--config-path /home/shiyuhong/Time/quito/outputs/default_baseline/dlinear/96_48_S/seed_16/EVALUATE/ver_0/config.yaml
+--output-dir /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2
+```
+
+#### 轻量监控命令
+
+不要对 52GB `merged_cache/manifest.csv` 执行 `wc -l`、`head`、`tail` 或全表扫描；这些会和主训练抢 I/O。推荐只用：
+
+```bash
+ps -p 919803 -o pid,pgid,stat,etime,%cpu,%mem,rss,cmd
+tail -n 220 /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/main.log
+stat -c '%y %s %n' /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/prediction_manifest_index.sqlite.tmp /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/prediction_manifest_index.sqlite 2>/dev/null
+cat /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/status.json
+nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits
+free -h
+```
+
+DeepSeek sidecar：
+
+- 首轮 `monitor-stage1-96-48-s` 启动成功，但误扫大 manifest，已中断。
+- 当前轻量版 `monitor-stage1-lite` 已启动，要求只做 3 轮轻量采样后停止。
+
+#### ETA
+
+截至 2026-06-17 09:46 CST：
+
+- SQLite index 预计还需约 `10-25` 分钟完成；
+- 进入 `scaler_fit + train_epoch_1` 后预计还需 `4-7` 小时；
+- train-only checkpoint 保守完成窗口：`2026-06-17 14:00-17:00 CST`。
+
+完成后检查：
+
+```bash
+cat /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/status.json
+ls -lah /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/
+```
+
+预期需要看到 `status=completed` / `phase=train_only_done`，以及 `checkpoints/latest_96_48_S.pt`。
+
+---
+
+## 最新状态（2026-06-16 23:55:07 CST）
+
+### ⚠️ 重要更新：OOM 问题修复与重启计划
+
+**上一轮任务状态**：FAILED (OOM Killed)
+- **被杀时间**：2026-06-16 22:24:57 CST
+- **原因**：Linux OOM Killer 强制终止进程 PID 82124
+- **内存占用**：anon-rss 117 GB（远超系统可用内存）
+- **失败阶段**：manifest lookup 阶段（扫描到第 100M 行，匹配约 4000 万条记录时崩溃）
+- **根本原因**：预加载全量 `prediction_lookup` dict 导致内存爆炸（~4675 万条记录 × Python 对象开销）
+
+**本轮修复**（2026-06-16 23:50 CST）：
+1. ✅ 新增 `build_lightweight_prediction_index()` 函数，只存储文件路径而非完整 record
+2. ✅ 新增 `load_prediction_tensors_from_lightweight_index()` 函数，实现按需即时加载
+3. ✅ 修改 `train_on_stream_batch()` 支持两种模式（轻量级索引优先，向后兼容旧接口）
+4. ✅ 内存占用从 ~117 GB 降至 < 1 GB（预计）
+5. ✅ 代码已通过语法检查和编译验证
+
+**预期影响**：
+- **训练结果**：完全一致（数据源和计算逻辑不变）
+- **训练速度**：略慢 1-5%（I/O 开销），但可接受
+- **稳定性**：大幅提升，不再依赖"有足够内存"的假设
+
+---
+
+## 当前任务：Stage 1 `96_48_S` full-scale streaming visual router 单轮 epoch 训练（重启）
+
+目标：先完成 `--epochs 1 --train-only` 并保存可续训 checkpoint。
+
+### 本轮代码与启动前验证
+
+- 已在 `train_visual_router_online_streaming.py` 增加 `--vit-data-parallel`，CUDA 多卡可用时用 `torch.nn.DataParallel` 并行冻结 ViT 前向。
+- **已重构 prediction manifest 读取机制**：
+  - ❌ 旧方案：预加载全量 `prediction_lookup` dict → OOM (~117 GB)
+  - ✅ 新方案：轻量级路径索引 + 按需即时加载 → < 1 GB
+- 启动前 smoke 已通过：
+  - `py_compile` 通过；
+  - 小样本 `--vit-data-parallel --train-only` 通过；
+  - full-scale oracle parquet `metric=mae` filter 读取通过。
+
+### 准备重启
+
+| 项目 | 值 |
+| --- | --- |
+| 输出目录 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/` |
+| 启动方式 | `setsid bash -c ... > main.log 2>&1`，断开终端不会中断 |
+| 主日志 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/main.log` |
+| 状态文件 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/status.json` |
+| 代码版本 | `train_visual_router_online_streaming.py` (2026-06-16 23:50 修订) |
+
+核心参数（保持不变）：
+
+```
+--epochs 1
+--train-only
+--embedding-batch-size 128
+--batch-size 64
+--device cuda
+--vit-data-parallel
+--local-files-only
+--period-selection fixed_candidates
+--dtype auto
+--chunk-read-rows 1000000
+--status-update-interval 100
+```
+
+输入路径（保持不变）：
+
+```text
+labels:
+/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet
+
+prediction manifest:
+/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv
+```
+
+### 监控命令
+
+```
+# 查看进程状态
+ps aux | grep train_visual_router_online_streaming | grep -v grep
+
+# 查看实时日志
+tail -f /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/main.log
+
+# 查看状态文件
+cat /data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/status.json | python3 -m json.tool
+
+# 查看内存使用
+watch -n 5 'ps aux | grep train_visual_router | grep -v grep | awk "{print $6/1024, $11}"'
+
+# 查看 GPU 使用
+nvidia-smi dmon -s u -d 5
+```
+
+### 停止命令
+
+```
+# 温和停止（保存 checkpoint）
+kill -SIGTERM <PID>
+
+# 强制停止（不推荐，可能丢失进度）
+kill -SIGKILL <PID>
+```
+
+### 接手方式
+
+如果任务中断，可以：
+1. 检查 `status.json` 了解最后完成的 epoch
+2. 使用 `--resume-checkpoint <path_to_checkpoint>` 从 checkpoint 恢复
+3. 重新运行相同的启动命令（会自动检测已有输出）
+
+---
+
+## 历史状态（2026-06-16 16:55:07 CST）- 已失效
+
+当前任务：Stage 1 `96_48_S` full-scale streaming visual router 单轮 epoch 训练，目标是先完成 `--epochs 1 --train-only` 并保存可续训 checkpoint。
+
+### 本轮代码与启动前验证
+
+- 已在 `train_visual_router_online_streaming.py` 增加 `--vit-data-parallel`，CUDA 多卡可用时用 `torch.nn.DataParallel` 并行冻结 ViT 前向。
+- 已把 full-scale prediction manifest 读取改为按本次需要的 sample_key 子集分块扫描，避免一次性把 52GB manifest 的 vali/test 全量记录都建成 Python lookup。
+- 启动前 smoke 已通过：
+  - `py_compile` 通过；
+  - 小样本 `--vit-data-parallel --train-only` 通过；
+  - full-scale oracle parquet `metric=mae` filter 读取通过。
+
+### 正在运行
+
+| 项目 | 值 |
+| --- | --- |
+| 输出目录 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/` |
+| 父进程 PID/PGID | `82121 / 82121` |
+| Python 子进程 PID/PGID | `82124 / 82121` |
+| 启动方式 | `setsid bash -c ... > main.log 2>&1`，断开终端不会中断 |
+| 主日志 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/main.log` |
+| 状态文件 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/status.json` |
+| 启动脚本 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/launcher.sh` |
+| PID 文件 | `/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/pid.txt` |
+
+实际启动命令保存在：
+
+```
+/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch/command.sh
+```
+
+核心参数：
+
+```
+--epochs 1
+--train-only
+--embedding-batch-size 128
+--batch-size 64
+--device cuda
+--vit-data-parallel
+--local-files-only
+--period-selection fixed_candidates
+--dtype auto
+--chunk-read-rows 1000000
+--status-update-interval 100
+```
+
+输入路径：
+
+```text
+labels:
+/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet
+
+prediction manifest:
+/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv
+```
+
+### 当前健康检查
+
+截至 `2026-06-16 16:55 CST`：
+
+- 进程已运行约 `56` 分钟，Python 子进程仍为 running。
+- full-scale manifest lookup 已完成并进入 `scaler_fit` 阶段；`status.json` 仍显示 `phase=init` 是脚本当前只在 scaler 完成后更新状态的表现，不代表卡死。
+- 4 张 GPU 均已参与 ViT DataParallel 前向：
+
+```text
+GPU0: 1287 MiB / 24576 MiB, util 67%
+GPU1:  787 MiB / 24576 MiB, util 67%
+GPU2:  787 MiB / 24576 MiB, util 63%
+GPU3:  787 MiB / 24576 MiB, util 61%
+```
+
+- 内存状态：
+
+```text
+Mem used: 116Gi / 251Gi
+Mem available: 133Gi
+Swap used: 175Mi / 8Gi
+```
+
+- `scaler_fit` 进度：
+
+```text
+online_embedding_latency_summary.csv: 9688 行
+online_embedding_manifest.csv: 1,201,000 行左右
+vali total sample_key: 9,350,520
+当前 scaler_fit 约完成 12.8%
+```
+
+- latency 最新批次口径：
+
+```text
+embedding_batch_size=128
+encoder_forward_per_window_ms≈0.42-0.46
+imageization_per_window_ms≈0.02-0.03
+phase=scaler_fit
+```
+
+### ETA
+
+粗略估计：
+
+- manifest lookup：已完成，耗时约 45 分钟；
+- scaler_fit：按当前约 2k windows/s 估计总计约 1.2-1.5 小时；
+- train_epoch_1：还需要再次遍历 9,350,520 个 vali windows，并读取五专家 y_pred/y_true 做 fusion loss，预计慢于 scaler_fit；
+- 完整 `--epochs 1 --train-only` 从启动到 checkpoint 写出，保守估计总耗时约 `4-7` 小时。
+
+后续应以进入 `train_epoch_1` 后的真实吞吐重新修正 ETA。
+
+### 监控命令
+
+```bash
+cd /home/shiyuhong/Time
+OUT=/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch
+
+ps -o pid,pgid,stat,etime,%cpu,%mem,rss,cmd -p 82124
+nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits
+free -h
+du -sh "$OUT"
+tail -n 120 "$OUT/main.log"
+cat "$OUT/status.json"
+wc -l "$OUT/online_embedding_latency_summary.csv" "$OUT/online_embedding_manifest.csv"
+tail -n 5 "$OUT/online_embedding_latency_summary.csv"
+```
+
+### 成功完成后的检查
+
+训练完成后应看到：
+
+```text
+$OUT/status.json:
+status=completed
+phase=train_only_done
+completed_epochs=1
+latest_checkpoint_path=$OUT/checkpoints/latest_96_48_S.pt
+```
+
+同时检查：
+
+```bash
+ls -lh "$OUT/checkpoints/"
+cat "$OUT/checkpoints/latest_checkpoint_index.json"
+```
+
+### 停止命令
+
+如必须停止：
+
+```bash
+OUT=/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch
+kill -TERM -- -$(cat "$OUT/pgid.txt")
+```
+
+### 后续恢复/追加训练
+
+如果本轮完成 epoch 1 后追加 epoch 2：
+
+```bash
+OUT=/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -u \
+  /home/shiyuhong/Time/visual_router_experiments/stage1_vali_test_router/train_visual_router_online_streaming.py \
+  --labels-path /data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet \
+  --prediction-manifest-path /data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv \
+  --output-dir "$OUT" \
+  --resume-checkpoint "$OUT/checkpoints/latest_96_48_S.pt" \
+  --epochs 1 \
+  --train-only \
+  --embedding-batch-size 128 \
+  --batch-size 64 \
+  --device cuda \
+  --vit-data-parallel \
+  --local-files-only \
+  --period-selection fixed_candidates \
+  --dtype auto \
+  --chunk-read-rows 1000000 \
+  --status-update-interval 100 \
+  --print-rows 5
+```
+
+如只评估 checkpoint：使用同样输入和 `--resume-checkpoint "$OUT/checkpoints/latest_96_48_S.pt" --epochs 0`，并去掉 `--train-only`。
+
 ## 最新状态（2026-06-16 02:33:22 CST）
 
 本节记录当前窗口完成的 prediction cache merge 与完整性校验。下方 `2026-06-16 00:52:36 CST` 的 TimeFuse feature cache 状态是另一条并行任务的 handoff 信息，保留供接手时参考。
@@ -374,7 +1076,7 @@ tmux kill-session -t stage1_es_backfill_0016_0063
 
 最后一次轻量状态检查时间：`2026-06-15 03:21:21 CST`
 
-```text
+```
 status_files=25
 completed=20
 running=5
@@ -425,7 +1127,7 @@ failed=0
 
 ## 下一步命令
 
-```bash
+```
 cd /home/shiyuhong/Time
 ROOT=/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale
 LAUNCHER=$ROOT/prediction_cache_full_scale_launcher
@@ -463,7 +1165,7 @@ PY
 
 当 completed 达到 `320` 后，再执行：
 
-```bash
+```
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python - <<'PY'
 import json, subprocess
 from pathlib import Path

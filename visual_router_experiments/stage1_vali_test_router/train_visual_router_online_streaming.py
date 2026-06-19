@@ -12,12 +12,18 @@
       不把专家误差、oracle label 或未来 y 作为 router 输入；
     - 输出文件名兼容 `evaluate_soft_fusion_calibration.py`，特别是
       `visual_router_predictions.csv` 和标准 `visual_router_metadata.json`。
+
+内存优化（2026-06-16）：
+    - 不再预加载全量 prediction_lookup dict（会导致 OOM）；
+    - 改为 SQLite 磁盘索引 + batch 级查询，只让当前训练 batch 的
+      prediction record 进入 Python 内存。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import time
 from datetime import datetime
@@ -44,6 +50,7 @@ for path in [WORKSPACE, QUITO_DIR]:
 from quito.config.training import TaskType  # noqa: E402
 from quito.datasets import load_datasets  # noqa: E402
 from visual_router_experiments.common.prediction_cache_schema import PredictionCacheKey  # noqa: E402
+from visual_router_experiments.common.prediction_array_io import resolve_cache_array_path  # noqa: E402
 from visual_router_experiments.common.vit_embedding_utils import (  # noqa: E402
     EMBEDDING_VERSION,
     batch_required_pairs,
@@ -64,7 +71,6 @@ from visual_router_experiments.stage1_vali_test_router.train_visual_router impor
     compare_with_baselines,
     frame_to_markdown,
     load_labels,
-    load_prediction_lookup,
     load_prediction_tensors_for_samples,
     make_class_weight,
     summarize_hard_predictions,
@@ -83,6 +89,9 @@ from visual_router_experiments.stage1_vali_test_router.train_visual_router_onlin
     mode_from_split,
     now_token,
     resolve_device,
+)
+from visual_router_experiments.stage1_vali_test_router.fusion_utils import (  # noqa: E402
+    load_prediction_array,
 )
 
 
@@ -124,6 +133,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--period-candidates", default=None, help="逗号分隔候选周期；只在 fixed_candidates 下使用。")
     parser.add_argument("--dtype", choices=["auto", "fp32", "fp16"], default="auto", help="encoder 前向 dtype；CPU 强制 fp32。")
     parser.add_argument("--local-files-only", action="store_true", help="只使用本地 Hugging Face cache，不联网下载。")
+    parser.add_argument("--vit-data-parallel", action="store_true", help="CUDA 多卡可用时用 DataParallel 并行冻结 ViT 前向。")
     parser.add_argument("--stream-shard-index", type=int, default=0, help="按 sample_key 稳定切分后的当前 streaming shard。")
     parser.add_argument("--stream-shard-count", type=int, default=1, help="streaming shard 总数；dry-run 可用来验证多 shard 口径。")
     parser.add_argument("--max-samples-per-split", type=int, default=None, help="dry-run 限制每个 split 最多样本数；None 表示不限制。")
@@ -385,6 +395,306 @@ def cleanup_output_files(output_dir: Path, *, resume: bool, train_only: bool) ->
             stale_path.unlink()
 
 
+def required_prediction_sample_keys(labels_df: pd.DataFrame, args: argparse.Namespace) -> List[str]:
+    """
+    函数功能：
+        根据本次训练/评估模式推导真正需要索引 prediction manifest 的 sample_key。
+
+    说明：
+        full-scale merged manifest 约 52GB，不能直接为 vali/test 全量同时建立 Python
+        lookup。train-only 单轮训练只需要 vali split 的五专家预测数组作为 fusion loss
+        监督；eval-only 才需要 test split 用于 raw soft fusion 复算。
+    """
+    needed: List[pd.Series] = []
+    if args.router_mode == "fusion_huber_kl" and int(args.epochs) > 0:
+        needed.append(labels_df.loc[labels_df["split"].astype(str) == "vali", "sample_key"].astype(str))
+    if not args.train_only and not args.skip_soft_fusion:
+        needed.append(labels_df.loc[labels_df["split"].astype(str) == "test", "sample_key"].astype(str))
+    if not needed:
+        return []
+    # 保留原始出现顺序即可；full-scale 数百万 sample_key 不需要额外排序，避免启动阶段
+    # 产生一份巨大的临时列表和排序开销。
+    return pd.concat(needed, ignore_index=True).astype(str).drop_duplicates().tolist()
+
+
+class SQLitePredictionIndex:
+    """
+    类功能：
+        封装 full-scale prediction manifest 的磁盘索引。
+
+    说明：
+        full-scale vali 需要约 4675 万条 `(sample_key, model_name)` 记录。
+        这些记录不能以 Python dict 常驻内存；SQLite 查询会把内存规模限制在
+        当前 embedding batch 对应的几百条记录。
+    """
+
+    def __init__(self, db_path: Path, manifest_dir: Path) -> None:
+        self.db_path = Path(db_path)
+        self.manifest_dir = Path(manifest_dir)
+        self.connection = sqlite3.connect(str(self.db_path))
+        self.connection.row_factory = sqlite3.Row
+
+    def fetch_records(self, sample_keys: Sequence[str]) -> Dict[Tuple[str, str], Dict[str, object]]:
+        """
+        函数功能：
+            批量查询当前 batch 的五专家 prediction record。
+
+        输入：
+            sample_keys 为当前 embedding batch 的 sample_key 列表。
+
+        输出：
+            与旧 `prediction_lookup` 兼容的 `(sample_key, model_name) -> record`
+            字典，但只包含当前 batch 的记录。
+        """
+        keys = [str(key) for key in sample_keys]
+        if not keys:
+            return {}
+        placeholders = ",".join(["?"] * len(keys))
+        rows = self.connection.execute(
+            f"""
+            SELECT sample_key, model_name, y_true_path, y_pred_path, mae, mse,
+                   array_storage, y_true_row_index, y_pred_row_index
+            FROM prediction_index
+            WHERE sample_key IN ({placeholders})
+            """,
+            keys,
+        ).fetchall()
+        records: Dict[Tuple[str, str], Dict[str, object]] = {}
+        for row in rows:
+            record = dict(row)
+            sample_key = str(record["sample_key"])
+            model_name = str(record["model_name"])
+            # manifest 中多数路径为相对路径；查询时再解析，避免磁盘索引重复写入长绝对路径。
+            record["y_true_path"] = resolve_cache_array_path(str(record["y_true_path"]), self.manifest_dir)
+            record["y_pred_path"] = resolve_cache_array_path(str(record["y_pred_path"]), self.manifest_dir)
+            records[(sample_key, model_name)] = record
+        return records
+
+    def close(self) -> None:
+        """函数功能：显式关闭 SQLite 连接，便于长任务结束时释放文件句柄。"""
+        self.connection.close()
+
+
+def build_lightweight_prediction_index(
+    prediction_manifest_path: Path,
+    *,
+    sample_keys: Sequence[str],
+    chunk_read_rows: int,
+    index_db_path: Path,
+) -> SQLitePredictionIndex:
+    """
+    函数功能：
+        分块扫描 prediction manifest，只为指定 sample_key 建立 SQLite 磁盘索引。
+
+    关键优化（2026-06-16）：
+        - 不在 Python 内存中保存千万级 `(sample_key, model_name)` dict；
+        - 只把当前 chunk 的匹配行批量写入 SQLite；
+        - 训练时按 embedding batch 查询几百条 record，再即时读取 packed npy 单行。
+
+    返回：
+        SQLitePredictionIndex，可用 `fetch_records()` 查询当前 batch 的 record。
+    """
+    if not prediction_manifest_path.exists():
+        raise FileNotFoundError(f"找不到 prediction manifest：{prediction_manifest_path}")
+    key_set = {str(key) for key in sample_keys}
+    if not key_set:
+        raise ValueError("SQLite prediction index 需要至少一个 sample_key")
+    usecols = [
+        "sample_key",
+        "model_name",
+        "y_true_path",
+        "y_pred_path",
+        "mae",
+        "mse",
+        "array_storage",
+        "y_true_row_index",
+        "y_pred_row_index",
+    ]
+    manifest_dir = prediction_manifest_path.parent
+    index_db_path = Path(index_db_path)
+    index_db_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_db_path = index_db_path.with_suffix(index_db_path.suffix + ".tmp")
+    if tmp_db_path.exists():
+        tmp_db_path.unlink()
+    if index_db_path.exists():
+        index_db_path.unlink()
+
+    connection = sqlite3.connect(str(tmp_db_path))
+    connection.execute("PRAGMA journal_mode=OFF")
+    connection.execute("PRAGMA synchronous=OFF")
+    connection.execute("PRAGMA temp_store=MEMORY")
+    connection.execute(
+        """
+        CREATE TABLE prediction_index (
+            sample_key TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            y_true_path TEXT NOT NULL,
+            y_pred_path TEXT NOT NULL,
+            mae REAL NOT NULL,
+            mse REAL NOT NULL,
+            array_storage TEXT,
+            y_true_row_index INTEGER,
+            y_pred_row_index INTEGER,
+            PRIMARY KEY (sample_key, model_name)
+        )
+        """
+    )
+    rows_seen = 0
+    matched_rows = 0
+    for chunk_idx, chunk_df in enumerate(
+        pd.read_csv(prediction_manifest_path, usecols=usecols, chunksize=int(chunk_read_rows)),
+        start=1,
+    ):
+        rows_seen += int(len(chunk_df))
+        matched_df = chunk_df[chunk_df["sample_key"].astype(str).isin(key_set)]
+        if matched_df.empty:
+            continue
+        matched_rows += int(len(matched_df))
+        insert_rows = [
+            (
+                str(row.sample_key),
+                str(row.model_name),
+                str(row.y_true_path),
+                str(row.y_pred_path),
+                float(row.mae),
+                float(row.mse),
+                str(row.array_storage) if pd.notna(row.array_storage) else None,
+                None if pd.isna(row.y_true_row_index) else int(row.y_true_row_index),
+                None if pd.isna(row.y_pred_row_index) else int(row.y_pred_row_index),
+            )
+            for row in matched_df.itertuples(index=False)
+        ]
+        try:
+            connection.executemany(
+                """
+                INSERT INTO prediction_index (
+                    sample_key, model_name, y_true_path, y_pred_path, mae, mse,
+                    array_storage, y_true_row_index, y_pred_row_index
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                insert_rows,
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("prediction manifest 中 sample_key + model_name 存在重复") from exc
+        connection.commit()
+        if chunk_idx == 1 or chunk_idx % 25 == 0:
+            print(
+                f"[manifest_index] chunks={chunk_idx} rows_seen={rows_seen} "
+                f"matched_rows={matched_rows} target_sample_keys={len(key_set)}",
+                flush=True,
+            )
+    expected_records = len(key_set) * len(MODEL_COLUMNS)
+    actual_records = int(connection.execute("SELECT COUNT(*) FROM prediction_index").fetchone()[0])
+    if actual_records != expected_records:
+        connection.close()
+        raise ValueError(
+            f"prediction manifest 子集不完整：expected_records={expected_records} actual={actual_records} "
+            f"sample_keys={len(key_set)}"
+        )
+    connection.execute("CREATE INDEX idx_prediction_index_sample_key ON prediction_index(sample_key)")
+    metadata = {
+        "created_at": display_time(),
+        "prediction_manifest_path": str(prediction_manifest_path),
+        "target_sample_keys": int(len(key_set)),
+        "expected_records": int(expected_records),
+        "actual_records": int(actual_records),
+        "chunk_read_rows": int(chunk_read_rows),
+        "manifest_dir": str(manifest_dir),
+    }
+    connection.execute("CREATE TABLE index_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    connection.executemany(
+        "INSERT INTO index_metadata (key, value) VALUES (?, ?)",
+        [(str(key), json.dumps(value, ensure_ascii=False)) for key, value in metadata.items()],
+    )
+    connection.commit()
+    connection.close()
+    tmp_db_path.replace(index_db_path)
+    print(
+        f"[manifest_index] sqlite_index_ready path={index_db_path} records={actual_records} "
+        f"target_sample_keys={len(key_set)}",
+        flush=True,
+    )
+    return SQLitePredictionIndex(index_db_path, manifest_dir)
+
+
+def load_prediction_lookup_for_sample_keys(
+    prediction_manifest_path: Path,
+    *,
+    sample_keys: Sequence[str],
+    chunk_read_rows: int,
+) -> Mapping[Tuple[str, str], Dict[str, object]]:
+    """
+    函数功能：
+        【已弃用】分块扫描 prediction manifest，只为指定 sample_key 建立 lookup。
+    
+    注意：此函数在 full-scale 场景下会导致 OOM（~117 GB），已被 
+    build_lightweight_prediction_index 替代。保留此函数仅为向后兼容。
+    """
+    import warnings
+    warnings.warn(
+        "load_prediction_lookup_for_sample_keys is deprecated for full-scale scenarios. "
+        "Use build_lightweight_prediction_index instead to avoid OOM.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # 原有实现保持不变，但不再使用
+    if not prediction_manifest_path.exists():
+        raise FileNotFoundError(f"找不到 prediction manifest：{prediction_manifest_path}")
+    key_set = {str(key) for key in sample_keys}
+    if not key_set:
+        return {}
+    usecols = [
+        "sample_key",
+        "model_name",
+        "y_true_path",
+        "y_pred_path",
+        "mae",
+        "mse",
+        "array_storage",
+        "y_true_row_index",
+        "y_pred_row_index",
+    ]
+    manifest_dir = prediction_manifest_path.parent
+    lookup: Dict[Tuple[str, str], Dict[str, object]] = {}
+    rows_seen = 0
+    matched_rows = 0
+    for chunk_idx, chunk_df in enumerate(
+        pd.read_csv(prediction_manifest_path, usecols=usecols, chunksize=int(chunk_read_rows)),
+        start=1,
+    ):
+        rows_seen += int(len(chunk_df))
+        matched_df = chunk_df[chunk_df["sample_key"].astype(str).isin(key_set)]
+        if matched_df.empty:
+            continue
+        matched_rows += int(len(matched_df))
+        for row in matched_df.itertuples(index=False):
+            record = row._asdict()
+            sample_key = str(record["sample_key"])
+            model_name = str(record["model_name"])
+            lookup_key = (sample_key, model_name)
+            if lookup_key in lookup:
+                raise ValueError(f"prediction manifest 中 sample_key + model_name 重复：{lookup_key}")
+            record["sample_key"] = sample_key
+            record["model_name"] = model_name
+            record["y_true_path"] = resolve_cache_array_path(str(record["y_true_path"]), manifest_dir)
+            record["y_pred_path"] = resolve_cache_array_path(str(record["y_pred_path"]), manifest_dir)
+            lookup[lookup_key] = record
+        if chunk_idx == 1 or chunk_idx % 25 == 0:
+            print(
+                f"[manifest_lookup] chunks={chunk_idx} rows_seen={rows_seen} "
+                f"matched_rows={matched_rows} target_sample_keys={len(key_set)}",
+                flush=True,
+            )
+    expected_records = len(key_set) * len(MODEL_COLUMNS)
+    if len(lookup) != expected_records:
+        raise ValueError(
+            f"prediction manifest 子集不完整：expected_records={expected_records} actual={len(lookup)} "
+            f"sample_keys={len(key_set)}"
+        )
+    return lookup
+
+
 def filter_stream_shard(labels_df: pd.DataFrame, shard_index: int, shard_count: int) -> pd.DataFrame:
     """函数功能：按 sample_key 稳定切分 streaming shard。"""
     if shard_count <= 0:
@@ -432,6 +742,10 @@ def build_vit_model(args: argparse.Namespace, device: torch.device, dtype: torch
         model = model.half()
     for parameter in model.parameters():
         parameter.requires_grad_(False)
+    if bool(getattr(args, "vit_data_parallel", False)) and device.type == "cuda" and torch.cuda.device_count() > 1:
+        # 只并行冻结 ViT encoder 的前向，router/scaler/checkpoint 仍保持单进程语义；
+        # 这样可以利用多卡加速 embedding 生成，同时避免多进程训练状态同步复杂化。
+        model = torch.nn.DataParallel(model)
     return model
 
 
@@ -625,6 +939,76 @@ def iter_online_embedding_batches(
                     yield pd.DataFrame(rows), embeddings_cpu.astype(np.float32), latency_rows
 
 
+def load_prediction_tensors_from_lightweight_index(
+    sample_keys: Sequence[str],
+    prediction_index: SQLitePredictionIndex,
+    *,
+    error_metric: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    函数功能：
+        从轻量级路径索引即时读取五专家预测数组和共享 y_true，用于 fusion loss。
+    
+    关键优化（2026-06-16）：
+        - 不再依赖全量 prediction_lookup dict；
+        - 只从 SQLite 查询当前 batch 的 record；
+        - 按 packed row index 即时读取 `.npy` 单行，避免整块数组进入内存。
+    
+    输入：
+        sample_keys: 与 feature/label DataFrame 行顺序一致的 sample_key。
+        prediction_index: SQLitePredictionIndex 磁盘索引。
+    
+    输出：
+        - y_preds: `[N, M, ...]`，M 为五个专家；
+        - y_true: `[N, ...]`；
+        - expert_errors: `[N, M]`，按 `error_metric` 复算出的专家窗口误差。
+    """
+    batch_lookup = prediction_index.fetch_records(sample_keys)
+    all_preds: List[np.ndarray] = []
+    all_trues: List[np.ndarray] = []
+    all_errors: List[np.ndarray] = []
+    for sample_key in sample_keys:
+        missing_models = [model for model in MODEL_COLUMNS if (str(sample_key), model) not in batch_lookup]
+        if missing_models:
+            raise ValueError(f"prediction index 缺少 sample_key={sample_key} 的专家：{missing_models}")
+
+        sample_preds: List[np.ndarray] = []
+        sample_true: Optional[np.ndarray] = None
+        sample_errors: List[float] = []
+        for model_name in MODEL_COLUMNS:
+            record = batch_lookup[(str(sample_key), model_name)]
+            y_pred = load_prediction_array(record, "y_pred")
+            current_y_true = load_prediction_array(record, "y_true")
+            if sample_true is None:
+                sample_true = current_y_true
+            elif not np.array_equal(sample_true, current_y_true):
+                raise ValueError(f"同一 sample_key 的 y_true 内容不一致：{sample_key}")
+            if y_pred.shape != current_y_true.shape:
+                raise ValueError(f"y_pred/y_true shape 不一致：sample_key={sample_key} model={model_name}")
+            sample_preds.append(y_pred)
+            diff = y_pred - current_y_true
+            if error_metric == "mae":
+                sample_errors.append(float(np.mean(np.abs(diff))))
+            elif error_metric == "mse":
+                sample_errors.append(float(np.mean(diff ** 2)))
+            else:
+                raise ValueError(f"未知 error_metric={error_metric}")
+
+        assert sample_true is not None
+        all_preds.append(np.stack(sample_preds, axis=0))
+        all_trues.append(sample_true)
+        all_errors.append(np.asarray(sample_errors, dtype=np.float32))
+
+    y_preds = np.stack(all_preds, axis=0).astype(np.float32)
+    y_true = np.stack(all_trues, axis=0).astype(np.float32)
+    expert_errors = np.stack(all_errors, axis=0).astype(np.float32)
+    if y_preds.ndim < 3:
+        raise ValueError(f"专家预测张量维度异常：{y_preds.shape}")
+    if not (np.isfinite(y_preds).all() and np.isfinite(y_true).all() and np.isfinite(expert_errors).all()):
+        raise ValueError("prediction tensor 中存在非有限值")
+    return y_preds, y_true, expert_errors
+
+
 def train_on_stream_batch(
     *,
     router: VisualMLPRouter,
@@ -634,6 +1018,7 @@ def train_on_stream_batch(
     embeddings: np.ndarray,
     labels_by_key: Mapping[str, Mapping[str, object]],
     prediction_lookup: Optional[Mapping[Tuple[str, str], Dict[str, object]]],
+    prediction_index: Optional[SQLitePredictionIndex],
     args: SimpleNamespace,
     device: torch.device,
     class_weight: torch.Tensor,
@@ -660,9 +1045,18 @@ def train_on_stream_batch(
             optimizer.step()
             losses.append(float(loss.detach().cpu().item()))
     else:
-        if prediction_lookup is None:
-            raise ValueError("fusion_huber_kl 需要 prediction_lookup")
-        y_pred, y_true, expert_errors = load_prediction_tensors_for_samples(sample_keys, prediction_lookup, error_metric=str(args.metric))
+        # 优先使用 SQLite 轻量级索引（batch 查询），回退到旧的全量 lookup。
+        if prediction_index is not None:
+            y_pred, y_true, expert_errors = load_prediction_tensors_from_lightweight_index(
+                sample_keys, prediction_index, error_metric=str(args.metric)
+            )
+        elif prediction_lookup is not None:
+            y_pred, y_true, expert_errors = load_prediction_tensors_for_samples(
+                sample_keys, prediction_lookup, error_metric=str(args.metric)
+            )
+        else:
+            raise ValueError("fusion_huber_kl 需要 prediction_index 或 prediction_lookup")
+        
         soft_oracle = torch.softmax(-torch.from_numpy(expert_errors) / float(args.kl_tau), dim=1).to(dtype=torch.float32)
         for start in range(0, len(sample_keys), int(args.batch_size)):
             stop = start + int(args.batch_size)
@@ -854,7 +1248,22 @@ def main() -> None:
     data_config = load_data_config(args.config_path)
     period_candidate_values = resolve_period_candidates(args, int(data_config.seq_len))
     vit_model = load_vit_model_with_retry(args, device, dtype)
-    prediction_lookup = load_prediction_lookup(args.prediction_manifest_path) if (args.router_mode == "fusion_huber_kl" or not args.skip_soft_fusion) else None
+    required_prediction_keys = required_prediction_sample_keys(labels_df, args)
+    
+    # 内存优化（2026-06-16）：使用 SQLite 磁盘索引替代全量 prediction_lookup。
+    # 关键点是避免千万级 Python dict 常驻内存；训练时只查询当前 batch 的 record。
+    prediction_index = (
+        build_lightweight_prediction_index(
+            args.prediction_manifest_path,
+            sample_keys=required_prediction_keys,
+            chunk_read_rows=int(args.chunk_read_rows),
+            index_db_path=output_dir / "prediction_manifest_index.sqlite",
+        )
+        if required_prediction_keys
+        else None
+    )
+    prediction_lookup = None  # 不再使用全量 lookup
+    
     expected_signature = build_resume_signature(args, period_candidate_values)
     if resume_checkpoint is not None:
         config_names = sorted(labels_df["config_name"].astype(str).unique().tolist())
@@ -957,6 +1366,7 @@ def main() -> None:
                     embeddings=embeddings,
                     labels_by_key=vali_labels_by_key,
                     prediction_lookup=prediction_lookup,
+                    prediction_index=prediction_index,
                     args=train_args,
                     device=device,
                     class_weight=class_weight,
@@ -1037,8 +1447,10 @@ def main() -> None:
                 )
                 append_csv(output_dir / "visual_router_predictions.csv", pred_df)
                 if not args.skip_soft_fusion:
-                    assert prediction_lookup is not None
-                    soft_df = add_soft_fusion_metrics(pred_df, prediction_lookup)
+                    if prediction_index is None:
+                        raise ValueError("soft fusion 需要 prediction_index")
+                    soft_lookup = prediction_index.fetch_records(pred_df["sample_key"].astype(str).tolist())
+                    soft_df = add_soft_fusion_metrics(pred_df, soft_lookup)
                     append_csv(output_dir / "visual_router_soft_fusion_predictions.csv", soft_df)
                 hard_rows_seen += int(len(pred_df))
                 total_embedding_batches += 1
