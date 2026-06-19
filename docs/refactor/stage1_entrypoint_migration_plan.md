@@ -326,3 +326,17 @@ exp_scripts/*.sh
 ```
 
 其中 `PredictionCacheExpertProvider` 迁移前后必须重点比较 golden fixture 的 sample_key 顺序、专家顺序、shape、row index、hard top-1、raw soft fusion 和 summary/rows 数值。
+
+## 11. P8a TimeFuse Evaluation Adapter 插入审计
+
+P7c protocol chain smoke 之后，已单独完成 TimeFuse 正式入口最小 adapter 接入点审计，详见 `docs/refactor/timefuse_entrypoint_adapter_insertion_audit.md`。
+
+审计结论：
+
+- 第一处最小接入点不是 reader、scaler、feature provider 或 torch head，而是 `train_timefuse_fusor_streaming.py` 的 `evaluate_streaming(...)`。
+- 具体位置是每个 test batch 完成 `weights_np = fusor(scaler.transform(batch.features))` 后；此时已经具备 `sample_keys`、`MODEL_COLUMNS`、`batch.y_pred`、`batch.y_true` 和 `weights_np`。
+- P8b 应优先只旁路调用 `EvaluationInputAdapter.evaluate_input(...)` 复算 batch hard/raw-soft metrics、summary/rows 和 weight diagnostics，用于一致性校验。
+- 正式 CSV 写出、`summary.md`、checkpoint/status/metadata、scaler fit、optimizer/loss/epoch loop、reader/index 准备仍留在当前入口或后续 runtime/report 层。
+- P7a `TimeFuseFeatureCacheProvider` 是 smoke-only 小规模 CSV adapter，不能直接替换 full-scale streaming reader；P7b `TimeFuseLinearSoftmaxHead` 是 numpy smoke head，不能直接替换 torch 训练 head。
+
+P8b 若改代码，必须保持正式输出 schema 不变，并在小规模 pressure 输出上比较迁移前后的 CSV 字段、行数、sample_key 顺序、hard/raw-soft MAE/MSE 和 selected counts。

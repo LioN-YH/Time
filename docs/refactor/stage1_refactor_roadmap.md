@@ -882,6 +882,31 @@ EvaluationInputAdapter -> summary / per-sample rows
 - 不写 status/metadata/CSV/JSON/Parquet。
 - 不迁移正式 TimeFuse fusor / Visual Router 入口。
 
+### P8a：TimeFuse entrypoint adapter insertion audit only
+
+目标：在 P7c TimeFuse protocol chain smoke 之后，审计正式入口 `train_timefuse_fusor_streaming.py` 的最小 `EvaluationInputAdapter` 接入点；本阶段只做文档化接入计划，不改正式训练入口行为。
+
+当前状态（2026-06-20）：已完成 P8a 文档化审计；新增 `docs/refactor/timefuse_entrypoint_adapter_insertion_audit.md`，明确最小接入点是 `evaluate_streaming(...)` 中 torch fusor 输出 `weights_np` 后的 batch evaluation 阶段。
+
+本次完成范围：
+
+- 明确 `evaluate_streaming(...)` 已同时持有 `sample_keys`、`MODEL_COLUMNS`、`batch.y_pred`、`batch.y_true` 和 `weights_np`，最适合先构造 `EvaluationInput` 或等价 adapter 输入。
+- 明确可复用 `time_router.evaluation` public API：`EvaluationInputAdapter.evaluate_input(...)`、hard top-1、raw soft fusion、summary、per-sample rows 和 weight diagnostics helper。
+- 明确 CSV 写出、`summary.md`、checkpoint/status/metadata、scaler fit、optimizer/loss/epoch loop、reader/index 准备和正式 oracle regret 字段必须暂留正式入口或 runtime/report 层。
+- 明确 P7a `TimeFuseFeatureCacheProvider` 只是 smoke-only 小规模 CSV adapter，不能直接替换 full-scale streaming reader。
+- 明确 P7b `TimeFuseLinearSoftmaxHead` 只是 numpy smoke head，不能直接替换 torch 训练 head。
+- 给出 P8b 最小代码迁移建议：优先只在 evaluation 阶段旁路使用 `EvaluationInputAdapter` 复算 batch metrics，不改变正式输出 schema。
+
+明确不做：
+
+- 不修改 `train_timefuse_fusor_streaming.py` 行为。
+- 不迁移正式入口。
+- 不改 CSV / summary / checkpoint / status / metadata schema。
+- 不改 reader、scaler、optimizer、loss、epoch loop。
+- 不访问 `/data2`。
+- 不新增 Bash 或 `scripts/`。
+- 不改 Visual Router 入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-20 00:44:32 CST
+更新日期：2026-06-20 01:18:29 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -44,7 +44,7 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
-| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract、P5b canonical provider interface design、P5c protocol types skeleton、P5d provider adapter boundary review、P5e canonical entrypoint migration plan、P5f launcher architecture、P6a PredictionCacheExpertProvider、P6a.5 expert system boundary review、P6b EvaluationInput adapter、兼容 FusionEvaluator adapter 和 P7a TimeFuseFeatureCacheProvider | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract、P5b canonical provider interface design、P5c protocol types skeleton、P5d provider adapter boundary review、P5e canonical entrypoint migration plan、P5f launcher architecture、P6a PredictionCacheExpertProvider、P6a.5 expert system boundary review、P6b EvaluationInput adapter、兼容 FusionEvaluator adapter、P7a/P7b/P7c TimeFuse adapter smoke 文档和 P8a TimeFuse 正式入口 adapter 插入审计 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支；P6a.5 起补充 ExpertProvider / ExpertBatch 长期专家系统边界与 PredictionCacheExpertProvider adapter 实现边界 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
 | `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a-P3e/P6a.5 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、router weight diagnostics、summary、per-sample rows、evaluation package 边界复核、logging/path/config、FeatureProvider、专家系统边界审计和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
@@ -72,6 +72,7 @@
 | `docs/refactor/timefuse_feature_cache_provider.md` | Stage 1 P7a TimeFuseFeatureCacheProvider | 记录 `time_router.features.TimeFuseFeatureCacheProvider` 的 smoke-only adapter API、`feature CSV -> FeatureBatch` 适配流程、`feature_schema` / `extra` 轻量 metadata、明确不做 prediction/oracle/scaler/run_dir/正式入口迁移的范围和 smoke 验收 |
 | `docs/refactor/timefuse_linear_head.md` | Stage 1 P7b TimeFuseLinearSoftmaxHead | 记录 `time_router.models.TimeFuseLinearSoftmaxHead` 的 smoke-only adapter API、`FeatureBatch.features -> RouterOutput(logits, weights)` 适配流程、固定线性权重和 stable softmax 约束、明确不训练/不读 cache/不写运行产物/不迁移正式入口的范围和 smoke 验收 |
 | `docs/refactor/timefuse_protocol_chain_smoke.md` | Stage 1 P7c TimeFuse protocol chain smoke | 记录 smoke-only 链路 `PredictionCacheExpertProvider -> ExpertBatch -> TimeFuseFeatureCacheProvider -> FeatureBatch -> TimeFuseLinearSoftmaxHead -> RouterOutput -> EvaluationInputAdapter -> summary/rows` 的目标、IO 边界、deterministic 口径和验收命令；本身不迁移正式 TimeFuse fusor / Visual Router 入口 |
+| `docs/refactor/timefuse_entrypoint_adapter_insertion_audit.md` | Stage 1 P8a TimeFuse entrypoint adapter insertion audit | 审计 `train_timefuse_fusor_streaming.py` 的最小 `EvaluationInputAdapter` 接入点，结论为先在 `evaluate_streaming(...)` 中 torch fusor 产出 `weights_np` 后旁路复算 batch metrics；明确 CSV/summary/checkpoint/status/metadata、scaler fit、optimizer/loss/epoch loop、reader/index 仍暂留正式入口，并说明 P7a/P7b smoke adapter 不能直接替换 full-scale streaming reader 或 torch training head |
 
 ### 1.2 根目录隐藏目录
 
