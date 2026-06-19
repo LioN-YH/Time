@@ -24,7 +24,7 @@ ExperimentProtocol
   -> canonical runtime contract
 ```
 
-当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。P5e 入口迁移计划见 `docs/refactor/stage1_entrypoint_migration_plan.md`：新 adapter 先由 smoke 使用，正式 streaming 入口后续按 ExpertProvider、Evaluator、TimeFuse FeatureProvider、RouterHead、Visual FeatureProvider 的顺序小步接入。P5f launcher architecture 见 `docs/refactor/launcher_architecture.md`：未来实验启动层采用 `exp_scripts/*.sh -> scripts/*.py -> time_router runtime/protocol/provider/head/evaluator`，Bash 只做资源、config、run_dir 和后台策略编排，不承载训练逻辑。
+当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。P5e 入口迁移计划见 `docs/refactor/stage1_entrypoint_migration_plan.md`：新 adapter 先由 smoke 使用，正式 streaming 入口后续按 ExpertProvider、Evaluator、TimeFuse FeatureProvider、RouterHead、Visual FeatureProvider 的顺序小步接入。P5f launcher architecture 见 `docs/refactor/launcher_architecture.md`：未来实验启动层采用 `exp_scripts/*.sh -> scripts/*.py -> time_router runtime/protocol/provider/head/evaluator`，Bash 只做资源、config、run_dir 和后台策略编排，不承载训练逻辑。P6a 已新增 `time_router.experts.PredictionCacheExpertProvider` 的 smoke-only adapter，详细见 `docs/refactor/prediction_cache_expert_provider.md`；它只包装 `PredictionBatchReader` 为 `ExpertBatch`，尚未接入正式训练入口。
 
 ## 2. 未来 Python Package 边界
 
@@ -104,6 +104,7 @@ P5f 后进一步细化的启动层职责：
 | ExpertProvider | 提供专家 `y_pred`、共享 `y_true`、`model_columns` 和 row index lineage | cache 是实现选项；未来允许 online expert prediction 和 joint training |
 | manifest reader | 统一 sample manifest、split、shard 和 sample_key 顺序 | 不改变 stable key，不隐式重排 |
 | prediction cache reader | batch 读取五专家 `y_pred` 与共享 `y_true` | 固定专家顺序；保留 `packed_npy_v1` row index；不得退回全量 Python lookup |
+| PredictionCacheExpertProvider | 将 prediction cache reader 输出包装为 `ExpertBatch` | P6a 已完成 smoke-only adapter；必须显式传入 sample_keys；不读取 oracle/TSF、不生成 feature、不创建 run_dir |
 | provider adapter boundary | 审查现有 reader/feature/head/evaluator 可适配点 | adapter 不决定 run_dir、不写 status/metadata、不硬编码 `/data2`；旧 OOM lookup、legacy CSV 反推和 offline ViT full-scale cache 不作为 canonical adapter |
 | oracle/TSF reader | 批量读取 oracle label 与 TSF enrichment | oracle/TSF 只能作为监督、上限或诊断，不进入 test-time 可部署特征 |
 | SQLite index | shard-local 建库、复用、损坏重建、split 下推和 batch query | 不把数千万记录留在 Python 内存；必须兼容恢复运行 |

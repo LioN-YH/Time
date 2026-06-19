@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 22:58:16 CST
+更新日期：2026-06-19 23:24:51 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -44,7 +44,7 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
-| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract、P5b canonical provider interface design、P5c protocol types skeleton、P5d provider adapter boundary review、P5e canonical entrypoint migration plan 和 P5f launcher architecture | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract、P5b canonical provider interface design、P5c protocol types skeleton、P5d provider adapter boundary review、P5e canonical entrypoint migration plan、P5f launcher architecture 和 P6a PredictionCacheExpertProvider | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
 | `docs/refactor/stage1_refactor_roadmap.md` | Stage 1 后续小步重构路线图，按 P0-P6 及 P2.5/P3a-P3e 等中间小步拆分 architecture docs、prediction reader、oracle/TSF reader、metrics/fusion、router weight diagnostics、summary、per-sample rows、evaluation package 边界复核、logging/path/config、FeatureProvider 和入口迁移 | 每个迁移步骤前后都应运行 `tests/smoke/stage1_golden_smoke.py` 并写实验日志 |
@@ -65,6 +65,7 @@
 | `docs/refactor/provider_adapter_boundary.md` | Stage 1 P5d provider adapter boundary review | 审查 `PredictionBatchReader`、`prediction_array_io`、Visual pseudo image / ViT feature 路径、TimeFuse 17 维 feature cache reader、Visual Router head、TimeFuse linear-softmax head 和 `time_router.evaluation` public API 的未来 adapter 适配边界；明确第一批应先做 entrypoint migration plan，再优先实现 `PredictionCacheExpertProvider`，TimeFuse feature cache provider 作为后续 feature-only adapter，Visual online ViT provider 不作为第一批最小实现；本身不实现 provider adapter、不改训练入口、不接入 `/data2` |
 | `docs/refactor/stage1_entrypoint_migration_plan.md` | Stage 1 P5e canonical entrypoint migration plan | 基于 P5a-P5d 设计拆分 `train_visual_router_online_streaming.py`、`train_timefuse_fusor_streaming.py` 和 `launch_timefuse_fusor_full_scale.py` 的 runtime orchestration、ExpertProvider、FeatureProvider、RouterHead、Evaluator 与 launcher 边界；建议第一批迁移先做 `PredictionCacheExpertProvider`，再做 evaluator adapter、TimeFuse feature provider、TimeFuse head 和 Visual online ViT provider；明确新 adapter 先由 smoke 使用、正式入口后续小步接入、不创建 run_dir、不硬编码 `/data2`；本身不改训练代码、不实现 adapter |
 | `docs/refactor/launcher_architecture.md` | Stage 1 P5f launcher architecture | 设计未来 `exp_scripts/*.sh -> scripts/*.py -> time_router runtime/protocol/provider/head/evaluator` 启动分层；明确 `exp_scripts/` 负责 Bash launcher、config 选择、GPU/conda/env、logging、后台策略、显式 `/data2` run_dir/output_root 和可复现实验命令，`scripts/` 只做极薄 Python entrypoint，`configs/` 保存 Stage/config/branch 参数与扩展点，`time_router/` 不知道 Bash 存在且不决定 run_dir；给出 P5f 后先做 `PredictionCacheExpertProvider` smoke-only、再做 evaluator adapter、config skeleton、scripts skeleton、Bash launcher 的低风险顺序；本身不新增 Bash/Python 入口、不实现 config/runtime/provider、不改训练脚本 |
+| `docs/refactor/prediction_cache_expert_provider.md` | Stage 1 P6a PredictionCacheExpertProvider | 记录 `time_router.experts.PredictionCacheExpertProvider` 的 smoke-only adapter API、与 `PredictionBatchReader` 的关系、`ExpertBatch.extra` 轻量 metadata、`row_index_metadata` lineage、明确不做范围和后续接入顺序；本身不迁移正式 Visual Router / TimeFuse fusor 入口 |
 
 ### 1.2 根目录隐藏目录
 
@@ -196,13 +197,15 @@ visual_router_experiments/
 
 | 路径 | 层级角色 | 功能 |
 | --- | --- | --- |
-| `time_router/__init__.py` | 共享 package 入口 | Stage 1 后续重构使用的最小共享 package 骨架；当前只承载低风险公共 reader 和最小 evaluation helper，不代表正式训练入口已迁移 |
+| `time_router/__init__.py` | 共享 package 入口 | Stage 1 后续重构使用的最小共享 package 骨架；当前承载低风险公共 reader、最小 evaluation helper、protocol types 和 P6a expert adapter，不代表正式训练入口已迁移 |
 | `time_router/data/__init__.py` | 共享数据子包入口 | 导出 `OracleTsfBatch` 和 `OracleTsfReader` |
 | `time_router/data/oracle_tsf_reader.py` | Stage 1 共享 oracle/TSF reader | 按 sample_key 批量读取 window-level oracle labels 与 TSF enrichment / TSF-cell metadata；支持显式 sample_key 保序、CSV chunk 过滤、Parquet dataset 过滤、`missing_policy=error/report`、冲突重复/缺失检查和 oracle/TSF 一对一 join；只做读取、校验和 join，不提供训练策略，不把 oracle/TSF 作为可部署 test-time 动态特征 |
 | `time_router/evaluation/__init__.py` | 共享评估子包入口 | 导出 P3a/P3b/P3c/P3d 最小 fusion/metrics/router weight diagnostics/summary/rows helper；当前不包含 calibration、正式报告 schema 或训练入口迁移 |
 | `time_router/evaluation/metrics.py` | Stage 1 P3a/P3b 最小 fusion/metrics/diagnostics helper | 纯 numpy 实现 `compute_mae`、`compute_mse`、`validate_fusion_inputs`、`hard_top1_fusion`、`raw_soft_fusion`、`compute_selected_counts`、`compute_weight_entropy` 和 `compute_max_weight`；函数输入显式使用 `y_pred`、`y_true`、`weights`、`selected_indices`、`model_columns`，用于 golden smoke 复算 hard top-1/raw soft 指标和 router weight 诊断，不读取 manifest/oracle/TSF/正式输出目录，不引入 torch/sklearn 训练依赖 |
 | `time_router/evaluation/prediction_rows.py` | Stage 1 P3d 最小 per-sample evaluation rows helper | 纯 numpy / Python 标准库实现 `build_per_sample_fusion_rows`，只消费显式传入的 `sample_keys`、`FusionMetricsResult`、`y_true`、`weights` 和 `model_columns`，输出当前 batch 的 sample_key、hard top-1 选择、逐样本 hard/raw-soft MAE/MSE、max weight 和 weight entropy；不读取 manifest、prediction cache、oracle/TSF 或正式输出目录，不写 CSV/JSON/Parquet，不实现 calibration、oracle regret 或正式 output schema 迁移 |
 | `time_router/evaluation/summary.py` | Stage 1 P3c 最小 evaluation summary helper | 纯 numpy / Python 标准库实现 `build_fusion_summary`，只消费显式传入的 `FusionMetricsResult`、`weights` 和 `model_columns`，汇总 hard/raw-soft MAE/MSE、selected counts、mean entropy、mean max weight、样本数、专家数和专家顺序；不读取 manifest、prediction cache、oracle/TSF 或正式输出目录，不实现 calibration、oracle regret、comparison 或正式 output schema 迁移 |
+| `time_router/experts/__init__.py` | 共享专家预测适配器子包入口 | 导出 P6a 最小 `PredictionCacheExpertProvider`；当前只用于 smoke，不接正式 Visual Router / TimeFuse fusor 入口 |
+| `time_router/experts/prediction_cache.py` | Stage 1 P6a PredictionCacheExpertProvider | 复用 `time_router.io.PredictionBatchReader`，通过显式 `load_batch(sample_keys, verify_metrics=True)` 输出 `time_router.protocols.ExpertBatch`；保持 sample_key 顺序、固定五专家顺序、共享 y_true 校验、packed row index lineage 和 verify_metrics 校验能力；`extra` 只记录 provider name、array_storage 和轻量 reader metadata；不读取 oracle/TSF、不生成 feature、不计算 loss、不做 evaluation、不访问 `/data2`、不创建 run_dir、不写 status/metadata、不改训练入口 |
 | `time_router/io/__init__.py` | 共享 IO 子包入口 | 导出 `DEFAULT_MODEL_COLUMNS`、`PredictionBatch`、`PredictionBatchReader`、`atomic_write_json`、`build_status_payload`、`write_status_json`、`find_repo_root`、`resolve_under_root`、`resolve_status_path`、`resolve_metadata_path`、`build_run_metadata` 和 `write_run_metadata`；P4d 起明确该入口只聚合稳定 public API，不在导入时读取配置、创建输出目录或执行训练相关副作用 |
 | `time_router/io/prediction_cache_reader.py` | Stage 1 共享 prediction batch reader | 从 `merged_cache/manifest.csv` 或 fixture root 读取五专家 `y_pred` 和共享 `y_true`；支持 `packed_npy_v1`、`per_sample_npy`、固定专家顺序、共享 y_true 校验、row index 元数据和 manifest MAE/MSE 复算；P1 只接入 golden smoke，尚未迁移正式 Visual Router / TimeFuse fusor 入口 |
 | `time_router/io/json_utils.py` | Stage 1 P4a 最小 JSON/status writer | 纯标准库实现 `atomic_write_json`、`build_status_payload` 和 `write_status_json`；只写调用方显式传入的 path，使用同目录临时文件、`flush + fsync` 和 `os.replace` 原子替换，默认 UTF-8 / `ensure_ascii=False`；不读取训练状态，不实现 path resolver、config system 或 logging framework |
@@ -221,6 +224,7 @@ visual_router_experiments/
 | `tests/smoke/stage1_path_resolver_smoke.py` | Stage 1 P4b path resolver 临时目录 smoke | 验证从 `tests/smoke` 定位仓库根、root 下定位 `WORKSPACE_STRUCTURE.md`、tempfile root 下正常路径解析、`..` 逃逸 root 报错、`must_exist=True` 不存在报错，以及 status/metadata helper 只返回路径不创建目录或文件；不访问 `/data2` 或 full-scale 输出目录 |
 | `tests/smoke/stage1_run_metadata_smoke.py` | Stage 1 P4c run metadata 临时目录 smoke | 验证 `build_run_metadata` 的基础字段、timezone-aware UTC 时间、Path 转字符串、`stage` 非空校验、`inputs/outputs/extra` 类型校验，以及 `write_run_metadata` 只在 tempfile 下写入 JSON 且可读；不访问 `/data2` 或 full-scale 输出目录 |
 | `tests/smoke/stage1_protocol_types_smoke.py` | Stage 1 P5c protocol dataclass 纯内存 smoke | 从 `time_router.protocols` public API 构造全部 6 个 dataclass，验证 sample_keys/model_columns/train_splits/eval_splits tuple 保序、`extra`/`branch_specific`/`feature_schema` default_factory 独立、RouterOutput/EvaluationInput 的 logits/weights 可选组合，以及 object/list 字段原样保存且不访问 `.shape`；不创建文件、不访问 `/data2` 或正式输出目录 |
+| `tests/smoke/stage1_prediction_cache_expert_provider_smoke.py` | Stage 1 P6a PredictionCacheExpertProvider 只读 smoke | 默认读取同一 4 sample packed golden fixture，构造 `PredictionCacheExpertProvider` 并显式传入 golden sample_keys；验证 `ExpertBatch` 类型、sample_keys/model_columns tuple 保序、`y_pred/y_true` shape、packed row index metadata、provider extra 轻量 metadata，并通过 `time_router.evaluation` public API 复算 hard top-1 与 raw soft fusion golden 指标；不创建正式输出目录、不访问 `/data2`、不读取 oracle/TSF |
 
 ## 3. QuitoBench / Quito 代码与实验层
 

@@ -684,6 +684,40 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
+### P6a：minimal PredictionCacheExpertProvider smoke-only
+
+目标：基于 P1 `PredictionBatchReader`、P5c protocol types、P5d adapter boundary 和 P5e/P5f migration/launcher 设计，新增最小 `PredictionCacheExpertProvider`，只把 reader 输出包装为 `ExpertBatch`，先供 smoke 使用，不接正式训练入口。
+
+当前状态（2026-06-19）：已完成 P6a 最小 adapter 与 smoke；本阶段新增 `time_router/experts/`，但不修改 Visual Router / TimeFuse fusor 正式入口，不实现 runtime、config、launcher 或 run_dir helper。
+
+本次完成范围：
+
+- 新增 `time_router/experts/__init__.py`，导出 `PredictionCacheExpertProvider`。
+- 新增 `time_router/experts/prediction_cache.py`，内部复用 `time_router.io.PredictionBatchReader`。
+- `PredictionCacheExpertProvider.load_batch(sample_keys, verify_metrics=True)` 要求调用方显式传入非空、不重复 sample_keys，不默认扫描全量 manifest。
+- `load_batch(...)` 输出 `time_router.protocols.ExpertBatch`，包含 tuple 化 `sample_keys`、tuple 化 `model_columns`、`y_pred`、`y_true`、`row_index_metadata` 和轻量 `extra`。
+- 保持 sample_key 顺序、固定五专家顺序、共享 `y_true` 校验、packed row index lineage 和 reader 的 `verify_metrics` 校验能力。
+- `extra` 记录 `provider_name`、`array_storage`、`manifest_path`、当前 batch manifest 行数、原始 manifest 专家顺序、`verify_metrics` 和 `chunk_rows` 等轻量 reader metadata，不塞入 manifest DataFrame。
+- 新增 `tests/smoke/stage1_prediction_cache_expert_provider_smoke.py`，使用 golden fixture 显式传入 4 个 sample_key，验证 `ExpertBatch` contract、row index metadata、extra metadata，并用 `time_router.evaluation` public API 复算 hard top-1 / raw soft fusion golden 指标。
+- 新增 `docs/refactor/prediction_cache_expert_provider.md`，记录 API、reader 关系、metadata、边界和后续接入顺序。
+
+明确不做：
+
+- 不修改 `PredictionBatchReader` 行为。
+- 不移动 `prediction_array_io`。
+- 不读取 oracle/TSF。
+- 不生成 router feature。
+- 不计算 loss。
+- 不做正式 evaluation；smoke 里的 evaluation 只用于验收 provider 输出未漂移。
+- 不访问 `/data2`。
+- 不创建 `run_dir`。
+- 不写 `status.json` / `metadata.json`。
+- 不实现 config system。
+- 不实现 runtime / launcher。
+- 不新增 Bash 或 `scripts/` entrypoint。
+- 不修改 Visual Router / TimeFuse fusor 正式入口。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
