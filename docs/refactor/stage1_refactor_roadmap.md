@@ -480,6 +480,36 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - Visual 小规模 smoke 需确认 online embedding 行为与既有入口一致。
 - TimeFuse 小规模/pressure smoke 需确认 feature shape 为 17 维、split 下推和 scaler 不加载 prediction arrays。
 
+### P5a：canonical runtime contract only
+
+目标：在 P4 后 architecture pivot 之后，先定义 Stage 1 新 canonical runtime contract，明确新 `run_dir` 结构、`status.json` / `metadata.json` 最小字段、Visual Router 与 TimeFuse-style fusor 的共享字段和 branch-specific extra、P4 helper 接入边界、checkpoint index 最小概念和旧 schema 舍弃边界。
+
+当前状态（2026-06-19）：已完成 P5a 文档化 contract；本阶段只新增设计文档，不改训练代码、不迁移入口、不实现 config system、不实现 checkpoint index、不实现 logging framework、不接入 `/data2`、不移动或删除历史代码。
+
+本次完成范围：
+
+- 新增 `docs/refactor/stage1_canonical_runtime_contract.md`。
+- 定义新 canonical run_dir 最小结构：`status.json`、`metadata.json`、`checkpoints/`、`logs/`、`evaluation/`、`predictions/` 或 `prediction_outputs/`。
+- 定义新 `status.json` 最小字段：`status`、`phase`、`updated_at`、`run_dir`、`entrypoint`、`config_name`、`progress`、`latest_checkpoint_path`、`error`。
+- 定义新 `metadata.json` 最小字段：`stage`、`entrypoint`、`config_name`、`args`、`inputs`、`outputs`、`model_columns`、`array_storage`、`feature_schema`、`split_strategy`、`created_at_utc`。
+- 明确 Visual Router 与 TimeFuse-style fusor 的共享字段语义一致，视觉伪图像/ViT/router loss 参数和 TimeFuse feature cache/fusor reader 参数分别进入 branch-specific extra。
+- 明确 P4a/P4b/P4c helper 只作为原子 JSON、路径解析和 metadata-like payload 的底层能力，不反向兼容所有历史 schema。
+- 明确新 runtime 中 checkpoint index 的最小概念，但不实现 helper。
+- 明确舍弃旧非 streaming metadata、LogisticRegression、offline embedding cache、旧 OOM、pilot launcher、prediction cache builder resume 等历史 schema 的强兼容目标。
+
+明确不做：
+
+- 不修改任何训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不实现 config system。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不接入 `/data2`。
+- 不移动或删除历史代码。
+- 不为了兼容历史输出新增 helper。
+- 不改变 `PredictionBatchReader` / `OracleTsfReader` / evaluation / IO helper 行为。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 reader、FeatureProvider、metrics/report 和 logging/path/config，但保留各自 head、loss 与实验变量。

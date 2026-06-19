@@ -128,16 +128,17 @@ sample batch
 
 ## 4.3 Canonical Runtime 最小契约
 
-未来两条正式分支都应收束到同一类 runtime 目录契约：
+未来两条正式分支都应收束到同一类 runtime 目录契约；详细字段定义以 `docs/refactor/stage1_canonical_runtime_contract.md` 为准。
 
 - `run_dir/`：单次运行独立目录，不覆盖已完成正式结果。
-- `status.json`：记录 `status`、`phase`、`updated_at`、关键进度、错误和可恢复状态。
-- `metadata.json`：记录 entrypoint、config、args、inputs、outputs、model columns、array storage、feature schema、checkpoint 和资源策略。
+- `status.json`：记录 `status`、`phase`、`updated_at`、`run_dir`、`entrypoint`、`config_name`、`progress`、`latest_checkpoint_path`、`error`。
+- `metadata.json`：记录 `stage`、`entrypoint`、`config_name`、`args`、`inputs`、`outputs`、`model_columns`、`array_storage`、`feature_schema`、`split_strategy`、`created_at_utc`。
 - `checkpoints/`：训练型入口保存 epoch checkpoint、latest checkpoint 和 latest index；纯 eval-only 入口在 metadata 中说明 checkpoint 来源。
-- `predictions/` 或 evaluation outputs：保存 per-sample predictions、summary、comparison 或 calibration 输出。
-- `logs/` 或 `main.log`：保存主日志、launcher 日志和后台接手所需命令。
+- `logs/`：保存主日志、launcher 日志和后台接手所需命令；兼容期可保留根级 `main.log`。
+- `evaluation/`：保存 summary、comparison、calibration、selected counts 和诊断报告。
+- `predictions/` 或 `prediction_outputs/`：保存 per-sample prediction rows、router weights 和 soft fusion rows。
 
-P4 helper 只提供原子 JSON、路径解析和 metadata-like payload 基础能力；run_dir 命名、launcher、checkpoint payload、resume policy、best/latest 选择和 logging framework 仍属于 runtime/training 层。
+P4 helper 只提供原子 JSON、路径解析和 metadata-like payload 基础能力；run_dir 命名、launcher、checkpoint payload、resume policy、best/latest 选择和 logging framework 仍属于 runtime/training 层。新 contract 不反向要求历史 status/metadata/checkpoint schema 兼容。
 
 ## 5. 未来进入 `archive/` 的旧代码类别
 
