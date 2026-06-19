@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 11:42:04 CST
+更新日期：2026-06-19 15:52:26 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -23,6 +23,7 @@
 ├── EXTERNAL_OUTPUTS.md
 ├── HANDOFF.md
 ├── WORKSPACE_STRUCTURE.md
+├── docs/
 ├── experiment_scripts/
 ├── experiment_logs/
 ├── visual_router_experiments/
@@ -42,6 +43,9 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
+| `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计和公共模块迁移候选，不表示重构已执行 | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
+| `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
+| `docs/refactor/stage1_migration_candidates.md` | manifest、prediction cache、oracle/TSF、SQLite/batch reader、metrics、logging、路径和训练骨架的后续收束候选 | 只记录建议；实际重构完成后更新状态与兼容性结论 |
 
 ### 1.2 根目录隐藏目录
 
