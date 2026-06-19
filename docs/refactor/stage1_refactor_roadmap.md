@@ -650,6 +650,40 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
+### P5f：launcher architecture design only
+
+目标：基于 P5a-P5e 已定义的 runtime contract、provider interface、protocol types、adapter boundary 和 entrypoint migration plan，只设计 Stage 1 及未来 Stage 的 launcher architecture，明确未来 `exp_scripts/*.sh -> scripts/*.py -> time_router runtime/protocol/provider/head/evaluator` 的分层职责。
+
+当前状态（2026-06-19）：已完成 P5f 文档化 launcher architecture；本阶段只新增 launcher 架构设计并更新路线图/目标架构/入口迁移计划/结构索引/实验日志，不新增 Bash、不新增 Python entrypoint、不实现 config system、不修改任何训练脚本。
+
+本次完成范围：
+
+- 新增 `docs/refactor/launcher_architecture.md`。
+- 明确 `exp_scripts/` 是 Bash launcher 层，负责选择 config、绑定 GPU/conda/env、设置日志与 `nohup`/后台策略、显式传入 `/data2/.../run_dir` 或 `output_root`、保存可复现实验命令，但不包含核心训练逻辑。
+- 明确 `scripts/` 是极薄 Python entrypoint 层，只解析 config/CLI、构造 `ExperimentProtocolSpec` 或等价 runtime spec、调用 future runtime，不实现 provider 读取细节或模型训练主体逻辑。
+- 明确 `time_router/` 是 runtime/protocol/provider/features/models/evaluation/io helper 实现层，不知道 Bash 存在，不硬编码 `exp_scripts` 路径，也不决定 full-scale `run_dir` 是否在 `/data2`。
+- 明确 `configs/` 保存 Stage/config/branch 参数、Visual Router 与 TimeFuse-style fusor branch-specific config、future finetune ViT / joint training / online expert / online TimeFuse feature 扩展点；full-scale 路径由 launcher 显式传入，不默认写死到 repo 内。
+- 明确 `run_dir` 与 `/data2` 边界：full-scale 通常在 `/data2/syh/Time/...`，repo 只保存代码、配置、文档、小 fixture 和 smoke；provider 不决定 `run_dir`。
+- 明确 `train_visual_router_online_streaming.py` 与 `train_timefuse_fusor_streaming.py` 短期仍是 canonical-current，`launch_timefuse_fusor_full_scale.py` 短期仍是 full-scale launcher/preflight/后台进程管理层；未来逐步过渡到 `scripts/ + exp_scripts/`。
+- 推荐未来目录形态：`configs/stage1/{visual_router,timefuse_fusor}/`、`exp_scripts/stage1/{visual_router,timefuse_fusor}/`、`scripts/stage1/`、`time_router/{runtime,providers,features,models,evaluation,protocols,io}/` 和 `archive/`。
+- 给出 P5f 后小步建议：先做 `PredictionCacheExpertProvider` smoke-only，再做 evaluator adapter，再补最小 config skeleton，再做 `scripts/` thin entrypoint skeleton，最后新增 `exp_scripts/` Bash launcher。
+
+明确不做：
+
+- 不新增 Bash 脚本。
+- 不新增 Python entrypoint。
+- 不实现 config system。
+- 不实现 runtime / run_dir helper。
+- 不实现 provider adapter。
+- 不修改 `PredictionBatchReader` / `OracleTsfReader` / evaluation / io / protocols。
+- 不修改任何训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不接入 `/data2`。
+- 不移动或删除历史代码。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

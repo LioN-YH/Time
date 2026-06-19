@@ -267,12 +267,40 @@ TimeFuse full-scale 后台编排入口：
 - P4 path/json/metadata helper 只能作为底层能力使用，不反向决定 full-scale 输出目录。
 - 文档、adapter 和 provider spec 中只记录“实际路径由 runtime/launcher 传入”，具体 `/data2/syh/Time/...` 只出现在实际运行 metadata、日志或 launcher 参数中。
 
-## 8. P5e 明确不做
+## 8. P5f Launcher Architecture 衔接
+
+P5e 只拆分 canonical entrypoint 内部职责；P5f 进一步说明未来这些 entrypoint 如何被用户启动。详细设计见 `docs/refactor/launcher_architecture.md`。
+
+目标启动链路：
+
+```text
+exp_scripts/*.sh
+  -> scripts/*.py
+  -> time_router runtime/protocol/provider/head/evaluator
+```
+
+衔接原则：
+
+- `exp_scripts/` 负责选择 config、绑定 GPU/conda/env、设置 logging 和 `nohup`/后台运行策略、显式传入 full-scale `run_dir` 或 `output_root`，并保存可复现实验命令。
+- `scripts/` 负责解析 config/CLI、构造 `ExperimentProtocolSpec` 或等价 runtime spec、调用 future runtime；不实现 provider 读取细节，不写训练 loop。
+- `time_router/` 负责 runtime/protocol/provider/features/models/evaluation/io helper；不硬编码 `exp_scripts` 路径，不知道 Bash 是否存在。
+- `configs/` 负责 Stage/config/branch 参数、Visual Router 和 TimeFuse-style fusor branch-specific config，以及 future finetune ViT / joint training / online expert / online TimeFuse feature 扩展点。
+- full-scale `run_dir` 通常在 `/data2/syh/Time/...`，但由 launcher 或用户显式传入；provider 不决定 `run_dir`。
+
+对当前入口的影响：
+
+- `train_visual_router_online_streaming.py` 和 `train_timefuse_fusor_streaming.py` 继续作为 canonical-current，不在 P5f 迁移。
+- `launch_timefuse_fusor_full_scale.py` 继续作为当前 Python launcher / preflight / 后台进程管理层，不在 P5f 替换为 Bash。
+- 后续建议先实现 `PredictionCacheExpertProvider` smoke-only，再做 evaluator adapter，再补最小 config skeleton，然后才新增 `scripts/` thin entrypoint 和 `exp_scripts/` Bash launcher。
+
+## 9. P5e/P5f 明确不做
 
 - 不实现 provider adapter。
 - 不新增 ExpertProvider / FeatureProvider 读取代码。
 - 不修改 `PredictionBatchReader` / `OracleTsfReader` / evaluation / IO helper。
 - 不修改 protocol types。
+- 不新增 Bash 脚本。
+- 不新增 Python entrypoint。
 - 不修改任何训练脚本。
 - 不迁移 Visual Router / TimeFuse fusor 入口。
 - 不实现 runtime / run_dir helper。
@@ -283,7 +311,7 @@ TimeFuse full-scale 后台编排入口：
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
-## 9. 后续门禁
+## 10. 后续门禁
 
 本计划完成后的验证只证明文档和现有 smoke 仍可运行。后续任何代码迁移至少需要：
 

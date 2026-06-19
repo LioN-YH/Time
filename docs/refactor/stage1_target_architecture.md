@@ -24,7 +24,7 @@ ExperimentProtocol
   -> canonical runtime contract
 ```
 
-当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。P5e 入口迁移计划见 `docs/refactor/stage1_entrypoint_migration_plan.md`：新 adapter 先由 smoke 使用，正式 streaming 入口后续按 ExpertProvider、Evaluator、TimeFuse FeatureProvider、RouterHead、Visual FeatureProvider 的顺序小步接入。
+当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。P5e 入口迁移计划见 `docs/refactor/stage1_entrypoint_migration_plan.md`：新 adapter 先由 smoke 使用，正式 streaming 入口后续按 ExpertProvider、Evaluator、TimeFuse FeatureProvider、RouterHead、Visual FeatureProvider 的顺序小步接入。P5f launcher architecture 见 `docs/refactor/launcher_architecture.md`：未来实验启动层采用 `exp_scripts/*.sh -> scripts/*.py -> time_router runtime/protocol/provider/head/evaluator`，Bash 只做资源、config、run_dir 和后台策略编排，不承载训练逻辑。
 
 ## 2. 未来 Python Package 边界
 
@@ -85,6 +85,13 @@ ExperimentProtocol
 - `configs/`：未来集中保存默认路径、full-scale 输出、模型和评估配置；CLI 显式参数优先于默认值。
 - `exp_scripts/`：未来保留实验编排、后台 launcher、资源绑定和一次性运行计划。
 - `archive/`：未来存放历史路线、废弃入口和 pilot-only 脚本；进入 archive 的文件必须先有等价替代、实验日志和 golden smoke 证据。
+
+P5f 后进一步细化的启动层职责：
+
+- `exp_scripts/` 只负责 Bash launcher、config 选择、GPU/conda/env、logging、`nohup`/后台策略、显式 `run_dir` 或 `output_root` 和可复现实验命令。
+- `scripts/` 只负责解析 config/CLI、构造 `ExperimentProtocolSpec` 或等价 runtime spec，并调用 future runtime。
+- `configs/` 只保存 Stage/config/branch 参数与扩展点，不把 full-scale 输出路径默认写死到 repo 内。
+- `time_router/` 不知道 Bash 存在，不硬编码 `exp_scripts` 路径，不决定 full-scale `run_dir` 是否在 `/data2`。
 
 ## 3. 共享主干
 
