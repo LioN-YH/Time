@@ -618,6 +618,38 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不移动或删除历史代码。
 - 不改模型结构、loss 或正式输出目录。
 
+### P5e：canonical entrypoint migration plan only
+
+目标：基于 P5a runtime contract、P5b provider interface、P5c protocol types 和 P5d adapter boundary review，设计 Visual Router 与 TimeFuse-style fusor 两条 canonical entrypoint 的迁移路线；本阶段只写文档，不改训练代码、不实现 adapter、不迁移入口。
+
+当前状态（2026-06-19）：已完成 P5e 文档化迁移计划；本阶段只新增 entrypoint migration plan 并更新路线图/目标架构/结构索引/实验日志，不创建 run_dir、不接入 `/data2`、不修改任何训练入口。
+
+本次完成范围：
+
+- 新增 `docs/refactor/stage1_entrypoint_migration_plan.md`。
+- 明确 `train_visual_router_online_streaming.py` 当前把 runtime orchestration、ExpertProvider、Visual FeatureProvider、Visual RouterHead、Evaluator 和 run artifacts 写出混在同一脚本；未来旧入口保留 CLI/runtime/checkpoint/status/metadata 调度，prediction cache 读取、online ViT feature、MLP head 和 evaluator 复算逐步下沉。
+- 明确 `train_timefuse_fusor_streaming.py` 当前把 shard 准备、TimeFuse feature streaming、prediction/oracle SQLite index、linear-softmax head、scaler、训练/eval、checkpoint 和报告写出混在同一脚本；未来按 ExpertProvider、FeatureProvider、RouterHead、Evaluator 和 runtime/report 分层迁移。
+- 明确 `launch_timefuse_fusor_full_scale.py` 是 launcher/preflight/后台进程管理层，不是 provider 或训练 runtime 本体；full-scale `run_dir` 未来由 launcher/runtime 显式传入。
+- 第一批代码迁移顺序建议为：先 `PredictionCacheExpertProvider`，再 evaluator adapter，再 `TimeFuseFeatureCacheProvider`，再 TimeFuse linear-softmax head，最后 Visual online ViT feature provider 和 Visual head。
+- 明确新 adapter 先由 smoke 使用，不直接替换 full-scale streaming 入口；正式入口后续小步接入，允许重跑实验，不强兼容旧输出 schema。
+- 明确 migration plan 不创建 `run_dir`，provider/entrypoint plan 不硬编码 `/data2`。
+
+明确不做：
+
+- 不实现 provider adapter。
+- 不新增 ExpertProvider / FeatureProvider 读取代码。
+- 不修改 `PredictionBatchReader` / `OracleTsfReader` / evaluation / io helper。
+- 不修改 protocol types。
+- 不修改任何训练脚本。
+- 不迁移 Visual Router / TimeFuse fusor 入口。
+- 不实现 runtime / run_dir helper。
+- 不实现 config system。
+- 不实现 checkpoint index。
+- 不实现 logging framework。
+- 不接入 `/data2`。
+- 不移动或删除历史代码。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

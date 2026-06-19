@@ -24,7 +24,7 @@ ExperimentProtocol
   -> canonical runtime contract
 ```
 
-当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。
+当前默认仍可由 scripts / exp_scripts / configs 触发既有 streaming entrypoint，但长期 contract 以 `docs/refactor/stage1_provider_interface.md` 定义的 provider chain 为准。`frozen ViT` 和 `17维 TimeFuse feature cache` 是当前实现选项，不是 interface 的唯一合法形态。P5d adapter 边界审查见 `docs/refactor/provider_adapter_boundary.md`：第一批实现应优先规划入口迁移，再包装 `PredictionBatchReader` 为最小 `PredictionCacheExpertProvider`；TimeFuse feature cache provider 可作为第二批 feature-only adapter，Visual online ViT provider 因运行时复杂度更高不作为第一批最小实现。P5e 入口迁移计划见 `docs/refactor/stage1_entrypoint_migration_plan.md`：新 adapter 先由 smoke 使用，正式 streaming 入口后续按 ExpertProvider、Evaluator、TimeFuse FeatureProvider、RouterHead、Visual FeatureProvider 的顺序小步接入。
 
 ## 2. 未来 Python Package 边界
 
@@ -119,6 +119,8 @@ sample batch
 
 当前 canonical entrypoint 是 `visual_router_experiments/stage1_vali_test_router/train_visual_router_online_streaming.py`。`train_visual_router.py` 和 `train_visual_router_online.py` 继续保留小规模复现和历史对照价值，但不作为 full-scale 主干。
 
+P5e 迁移结论：`train_visual_router_online_streaming.py` 暂时保留 runtime orchestration、CLI、checkpoint/resume、status/metadata 和文件写出职责；prediction cache 读取未来下沉到 `PredictionCacheExpertProvider`，在线 pseudo image / ViT 前向未来下沉到 `VisualOnlineVitFeatureProvider`，MLP logits/weights 下沉到 Visual RouterHead，hard/raw-soft 指标和 rows/summary 复算下沉到 Evaluator。Visual online ViT provider 不作为第一批最小 adapter。
+
 ### 4.2 TimeFuseFeatureProvider 分支
 
 ```text
@@ -132,6 +134,8 @@ sample batch
 该分支的研究变量是 TimeFuse-derived 历史窗口元特征和单层 softmax fusor。当前默认实现读取 17 维 feature cache；但 P5b interface 不把离线 cache 或 17 维 schema 写死为唯一实现，未来可以扩展到 online TimeFuse feature computation。feature 只来自历史窗口 `x`，不读取未来 `y`、专家预测或 oracle label。scaler 和训练阶段应优先复用 shard-aware reader、split 下推和 batch-level grouped packed npy 读取。
 
 当前 canonical entrypoint 是 `visual_router_experiments/stage1_vali_test_router/train_timefuse_fusor_streaming.py`，正式 full-scale 后台编排入口是 `launch_timefuse_fusor_full_scale.py`。早期 LogisticRegression hard-label router 只作为 legacy/deprecated 历史口径。
+
+P5e 迁移结论：`train_timefuse_fusor_streaming.py` 暂时保留 shard 准备、scaler fit、epoch/eval 编排、checkpoint、status/metadata 和报告写出职责；prediction tensor 读取未来下沉到 `PredictionCacheExpertProvider`，17 维 feature cache streaming 下沉到 `TimeFuseFeatureCacheProvider`，`nn.Linear -> softmax` 下沉到 `TimeFuseLinearSoftmaxHead`，评估复算下沉到 Evaluator。`launch_timefuse_fusor_full_scale.py` 继续作为 preflight、脚本生成、后台 PID/PGID、stop/resume 和接手信息层，不实现 provider adapter。
 
 ## 4.3 Canonical Runtime 最小契约
 
