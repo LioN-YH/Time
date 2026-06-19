@@ -124,3 +124,14 @@ P8b 不应：
 - 不访问 `/data2`。
 - 不新增 Bash 或 scripts。
 - 不改 Visual Router 入口。
+
+## 10. P8d baseline parity 补充结论
+
+P8d 进一步审计当前 `train_timefuse_fusor_streaming.py` 对 TimeFuse-style fusor baseline 的命名和 parity 边界，详细见 `docs/refactor/timefuse_baseline_parity_review.md`。
+
+结论如下：
+
+- 当前入口保留了 TimeFuse-style 核心：meta feature 经 `torch.nn.Linear` 生成 logits、softmax 得到 sample-level expert weights、按权重融合五专家 prediction，并用 fused prediction 对共享 `y_true` 计算 `SmoothL1Loss`。
+- 当前入口已经有意改造为单变量 sample-level baseline：使用 17 维 TimeFuse-derived feature、QuitoBench 五专家、Stage 1 packed prediction cache / streaming reader，以及 Time 工作区 `ExpertBatch` / `EvaluationInputAdapter` 可复算的 evaluation 口径。
+- 后续文档可以称为 `TimeFuse-style fusor baseline`、`TimeFuse-inspired sample-level adaptive expert fusion baseline` 或 `adapted TimeFuse-style baseline for single-variable QuitoBench expert routing`。
+- 后续文档不能声称完全复现原版 TimeFuse，不能直接和原版论文数值一一复现比较，也不能把当前 baseline 写成未改造的 TimeFuse。

@@ -907,6 +907,31 @@ EvaluationInputAdapter -> summary / per-sample rows
 - 不新增 Bash 或 `scripts/`。
 - 不改 Visual Router 入口。
 
+### P8d：TimeFuse baseline parity review docs only
+
+目标：在 P8c evaluation adapter pressure verification 之后，补充 TimeFuse-style fusor baseline parity review，明确当前 baseline 保留了哪些 TimeFuse-style 核心、主动改造了哪些部分，以及后续论文和实验汇总中可声称/不可声称的边界。
+
+当前状态（2026-06-20）：已完成文档化审计；新增 `docs/refactor/timefuse_baseline_parity_review.md`，本阶段只更新文档、结构索引和中文实验日志，不修改训练代码，不访问 `/data2`，不启动新实验。
+
+本次完成范围：
+
+- 明确当前 baseline 保留 `meta feature -> linear logits`、softmax expert weights、sample-level adaptive fusion、weighted prediction fusion 和 `SmoothL1Loss` 训练口径。
+- 明确当前 baseline 有意从原版 TimeFuse 多变量设置改为单变量 sample-level 融合，特征集合改为当前 17 维 TimeFuse-derived feature，专家集合改为 QuitoBench 五专家，prediction 来源改为 Stage 1 packed prediction cache / streaming reader，evaluation 接入 `ExpertBatch` / `EvaluationInputAdapter` 口径。
+- 明确不能声称完全复现原版 TimeFuse、不能直接和原论文数值一一复现比较、不能把当前 baseline 写成未改造的 TimeFuse。
+- 明确可声称 `TimeFuse-style fusor baseline`、`TimeFuse-inspired sample-level adaptive expert fusion baseline` 和 `adapted TimeFuse-style baseline for single-variable QuitoBench expert routing`。
+- 对照 `train_timefuse_fusor_streaming.py` 记录已保持的 torch `Linear -> softmax`、`StandardScaler`、`SmoothL1Loss beta`、weighted fusion loss 和 streaming train/eval 细节。
+- 记录后续如需更强 parity，应再审原版特征定义、训练 split/loss/normalization、多变量处理方式和当前 17 维 feature 与原版 feature 的对应关系。
+
+明确不做：
+
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `TimeFuseFusor`、reader、scaler、loss 或 evaluation adapter。
+- 不新增 smoke。
+- 不新增 Bash 或 `scripts/`。
+- 不访问 `/data2`。
+- 不启动 pressure 或 full-scale。
+- 不改 Visual Router 入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
