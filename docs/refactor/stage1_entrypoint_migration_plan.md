@@ -340,3 +340,16 @@ P7c protocol chain smoke 之后，已单独完成 TimeFuse 正式入口最小 ad
 - P7a `TimeFuseFeatureCacheProvider` 是 smoke-only 小规模 CSV adapter，不能直接替换 full-scale streaming reader；P7b `TimeFuseLinearSoftmaxHead` 是 numpy smoke head，不能直接替换 torch 训练 head。
 
 P8b 若改代码，必须保持正式输出 schema 不变，并在小规模 pressure 输出上比较迁移前后的 CSV 字段、行数、sample_key 顺序、hard/raw-soft MAE/MSE 和 selected counts。
+
+## 12. P9a Visual Router Adapter 插入审计
+
+P8d TimeFuse baseline parity review 之后，已回到 Visual Router 主线并完成正式入口最小 adapter 接入点审计，详见 `docs/refactor/visual_router_entrypoint_adapter_insertion_audit.md`。
+
+审计结论：
+
+- `train_visual_router_online_streaming.py` 当前同时承担 sample/manifest/prediction 读取、Quito history window、online pseudo image、ViT forward、Visual MLP router、loss/optimizer、evaluation rows/summary、checkpoint/status/metadata/run_dir。
+- `PredictionCacheExpertProvider / ExpertBatch` 应作为专家输出 contract 优先规划，但 P9b 不应直接替换正式入口的 SQLite prediction index、batch query、packed row index 单行读取和 `fusion_huber_kl` expert error 计算。
+- 最小接入点应优先放在 test evaluation batch：用当前 sample_key、`MODEL_COLUMNS`、router softmax weights、当前 batch `y_pred/y_true` 构造 `EvaluationInput` 或临时 `ExpertBatch + RouterOutput`，旁路调用 `EvaluationInputAdapter.evaluate_input(...)` 做一致性校验。
+- P9b 不改变 `visual_router_predictions.csv`、soft fusion predictions、summary、comparison、selected counts、metadata、status 或 checkpoint schema；adapter rows 只作为内存校验。
+- Visual FeatureProvider / ViT provider 暂不接入第一批 adapter。该路径绑定 Quito 数据读取、pseudo image、ViT/Hugging Face cache、GPU dtype、DataParallel、latency、scaler 和 metadata，比 TimeFuse 17 维 CSV feature 更重。
+- P9b 不迁移 feature extraction / ViT / training loop / router head；如后续迁移 Visual provider，必须另设 online embedding 小规模 smoke、GPU/CPU dtype 对照和 pseudo image/embedding 行为门禁。

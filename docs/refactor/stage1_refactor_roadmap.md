@@ -932,6 +932,33 @@ EvaluationInputAdapter -> summary / per-sample rows
 - 不启动 pressure 或 full-scale。
 - 不改 Visual Router 入口。
 
+### P9a：Visual Router entrypoint adapter insertion audit only
+
+目标：在 P8d TimeFuse baseline parity review 之后，回到 Visual Router 主线，审计正式入口 `train_visual_router_online_streaming.py` 的最小 adapter 接入点；本阶段只做文档化接入计划，不改正式 Visual Router 训练入口行为。
+
+当前状态（2026-06-20）：已完成 P9a 文档化审计；新增 `docs/refactor/visual_router_entrypoint_adapter_insertion_audit.md`，明确 Visual Router 第一批接入点应比 TimeFuse 更保守。
+
+本次完成范围：
+
+- 梳理 `train_visual_router_online_streaming.py` 当前承担的 sample/manifest/prediction 读取、Quito history window、online pseudo image、ViT forward、router head/loss/optimizer、evaluation rows/summary、checkpoint/status/metadata/run_dir 职责。
+- 判断 `PredictionCacheExpertProvider / ExpertBatch` 应优先规划为专家输出 contract，但 P9b 不应直接替换正式入口的 SQLite prediction index 与 batch query。
+- 判断 `EvaluationInputAdapter` 可作为第一批旁路 evaluation 校验点，在 test batch 内用当前 sample_key、五专家预测、共享 `y_true` 和 router weights 复算 hard/raw-soft/diagnostics。
+- 明确 Visual FeatureProvider / ViT provider 不作为第一批最小 adapter，因为它绑定 Quito 数据读取、pseudo image、Hugging Face ViT、GPU dtype、DataParallel、latency、scaler 和 metadata。
+- 明确 P9b 最小代码迁移建议：只在 evaluation 阶段旁路使用 `EvaluationInputAdapter` 或临时 `ExpertBatch` 做对齐校验，不改变正式输出 schema。
+- 对比 TimeFuse P8a-P8c，说明 Visual Router feature/provider/head 更重，入口迁移门禁必须更保守。
+
+明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不迁移正式入口。
+- 不改 Visual Router feature、ViT、router head、loss 或 evaluation output schema。
+- 不新增 provider/head 代码。
+- 不新增 smoke。
+- 不新增 Bash 或 `scripts/`。
+- 不访问 `/data2`。
+- 不启动 pressure 或 full-scale。
+- 不改 TimeFuse 正式入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
