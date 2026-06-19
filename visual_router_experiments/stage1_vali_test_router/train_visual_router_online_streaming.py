@@ -149,6 +149,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="默认关闭；仅在 test evaluation batch 内用 EvaluationInputAdapter 旁路复算并校验 hard/raw soft 指标。",
     )
+    parser.add_argument(
+        "--verify-training-expert-batch",
+        action="store_true",
+        help="默认关闭；仅在 fusion_huber_kl training batch 内用 ExpertBatch 旁路复算 expert_errors。",
+    )
     return parser.parse_args()
 
 
@@ -1016,6 +1021,110 @@ def load_prediction_tensors_from_lightweight_index(
     return y_preds, y_true, expert_errors
 
 
+def verify_training_expert_errors_from_expert_batch(
+    *,
+    sample_keys: Sequence[str],
+    y_pred: np.ndarray,
+    y_true: np.ndarray,
+    legacy_expert_errors: np.ndarray,
+    model_columns: Sequence[str],
+    error_metric: str,
+    training_batch_index: int | None = None,
+    epoch: int | None = None,
+    output_dir: Path | None = None,
+    atol: float = 1e-6,
+    rtol: float = 1e-5,
+) -> None:
+    """
+    函数功能：
+        P9f training loss ExpertBatch 旁路校验：把当前 legacy SQLite path
+        已读取出的 y_pred/y_true 包装为 ExpertBatch，并显式复算 expert_errors。
+
+    输入：
+        sample_keys/model_columns: 当前 training batch 的样本和专家顺序。
+        y_pred/y_true: 正式 fusion_huber_kl loss 已经读取出的预测和真实值数组。
+        legacy_expert_errors: 正式训练仍然使用的旧路径 expert_errors。
+        error_metric: 只支持 mae/mse，与当前训练监督 metric 对齐。
+        training_batch_index/epoch/output_dir: 仅用于失败定位，不写任何文件。
+
+    输出：
+        无返回值；若 ExpertBatch.y_pred/y_true 复算结果与旧路径不一致则抛错。
+
+    关键约束：
+        本 helper 不返回替代 loss，不参与反传，不改变 optimizer/scheduler/scaler/
+        checkpoint，也不把 expert_errors 纳入通用 ExpertBatch contract。
+    """
+    metric = str(error_metric)
+    if metric not in {"mae", "mse"}:
+        raise ValueError(f"verify_training_expert_errors_from_expert_batch 只支持 mae/mse，actual={metric}")
+
+    expert_batch = ExpertBatch(
+        sample_keys=tuple(str(sample_key) for sample_key in sample_keys),
+        model_columns=tuple(str(model_name) for model_name in model_columns),
+        y_pred=np.asarray(y_pred, dtype=np.float32),
+        y_true=np.asarray(y_true, dtype=np.float32),
+        extra={
+            "source": "train_visual_router_online_streaming.verify_training_expert_errors_from_expert_batch",
+            "phase": "training",
+            "router_mode": "fusion_huber_kl",
+            "metric": metric,
+            "training_batch_index": None if training_batch_index is None else int(training_batch_index),
+            "epoch": None if epoch is None else int(epoch),
+            "output_dir": None if output_dir is None else str(output_dir),
+        },
+    )
+    expert_y_pred = np.asarray(expert_batch.y_pred, dtype=np.float32)
+    expert_y_true = np.asarray(expert_batch.y_true, dtype=np.float32)
+    legacy_errors = np.asarray(legacy_expert_errors, dtype=np.float32)
+    if expert_y_pred.shape[0] != len(expert_batch.sample_keys):
+        raise ValueError(f"ExpertBatch y_pred 样本维度异常：shape={expert_y_pred.shape} sample_count={len(expert_batch.sample_keys)}")
+    if expert_y_pred.shape[1] != len(expert_batch.model_columns):
+        raise ValueError(f"ExpertBatch y_pred 专家维度异常：shape={expert_y_pred.shape} model_count={len(expert_batch.model_columns)}")
+    if expert_y_true.shape[0] != len(expert_batch.sample_keys):
+        raise ValueError(f"ExpertBatch y_true 样本维度异常：shape={expert_y_true.shape} sample_count={len(expert_batch.sample_keys)}")
+
+    diff = expert_y_pred - expert_y_true[:, None, ...]
+    reduce_axes = tuple(range(2, diff.ndim))
+    if metric == "mae":
+        recomputed_errors = np.mean(np.abs(diff), axis=reduce_axes, dtype=np.float32)
+    else:
+        recomputed_errors = np.mean(diff ** 2, axis=reduce_axes, dtype=np.float32)
+    recomputed_errors = np.asarray(recomputed_errors, dtype=np.float32)
+    if legacy_errors.shape != recomputed_errors.shape:
+        raise AssertionError(
+            "training ExpertBatch expert_errors shape 不一致："
+            "phase=training router_mode=fusion_huber_kl "
+            f"metric={metric} batch_index={training_batch_index} training_batch_index={training_batch_index} "
+            f"legacy_shape={legacy_errors.shape} expert_batch_shape={recomputed_errors.shape} "
+            f"output_dir={output_dir}"
+        )
+
+    mismatch_mask = ~np.isclose(legacy_errors, recomputed_errors, rtol=float(rtol), atol=float(atol))
+    if np.any(mismatch_mask):
+        sample_idx, expert_idx = np.argwhere(mismatch_mask)[0].tolist()
+        sample_key = expert_batch.sample_keys[int(sample_idx)]
+        model_name = expert_batch.model_columns[int(expert_idx)]
+        legacy_value = float(legacy_errors[int(sample_idx), int(expert_idx)])
+        recomputed_value = float(recomputed_errors[int(sample_idx), int(expert_idx)])
+        raise AssertionError(
+            "training ExpertBatch expert_errors 旁路校验不一致："
+            "phase=training "
+            "router_mode=fusion_huber_kl "
+            f"metric={metric} "
+            f"batch_index={training_batch_index} "
+            f"training_batch_index={training_batch_index} "
+            f"epoch={epoch} "
+            f"sample_key={sample_key} "
+            f"model_name={model_name} "
+            f"expert_index={int(expert_idx)} "
+            f"old_value={legacy_value} "
+            f"legacy_value={legacy_value} "
+            f"expert_batch_value={recomputed_value} "
+            f"recomputed_value={recomputed_value} "
+            f"output_dir={output_dir}"
+        )
+
+
 def train_on_stream_batch(
     *,
     router: VisualMLPRouter,
@@ -1029,6 +1138,7 @@ def train_on_stream_batch(
     args: SimpleNamespace,
     device: torch.device,
     class_weight: torch.Tensor,
+    training_batch_index: int | None = None,
 ) -> Dict[str, float]:
     """函数功能：用一个 streaming embedding batch 更新 router 参数。"""
     sample_keys = batch_manifest_df["sample_key"].astype(str).tolist()
@@ -1041,6 +1151,8 @@ def train_on_stream_batch(
     huber_criterion = torch.nn.SmoothL1Loss(beta=float(args.huber_beta))
 
     if args.router_mode == "classification":
+        if bool(getattr(args, "verify_training_expert_batch", False)):
+            raise ValueError("--verify-training-expert-batch 只适用于 router_mode=fusion_huber_kl，不支持 classification")
         targets = np.asarray([MODEL_COLUMNS.index(str(row["oracle_model"])) for row in labels_batch], dtype=np.int64)
         for start in range(0, len(sample_keys), int(args.batch_size)):
             stop = start + int(args.batch_size)
@@ -1063,7 +1175,20 @@ def train_on_stream_batch(
             )
         else:
             raise ValueError("fusion_huber_kl 需要 prediction_index 或 prediction_lookup")
-        
+
+        if bool(getattr(args, "verify_training_expert_batch", False)):
+            verify_training_expert_errors_from_expert_batch(
+                sample_keys=sample_keys,
+                y_pred=y_pred,
+                y_true=y_true,
+                legacy_expert_errors=expert_errors,
+                model_columns=MODEL_COLUMNS,
+                error_metric=str(args.metric),
+                training_batch_index=training_batch_index,
+                epoch=getattr(args, "current_epoch", None),
+                output_dir=getattr(args, "output_dir", None),
+            )
+
         soft_oracle = torch.softmax(-torch.from_numpy(expert_errors) / float(args.kl_tau), dim=1).to(dtype=torch.float32)
         for start in range(0, len(sample_keys), int(args.batch_size)):
             stop = start + int(args.batch_size)
@@ -1495,6 +1620,8 @@ def main() -> None:
         raise ValueError("--epochs 必须 >= 0；resume/eval-only 可使用 --epochs 0")
     if bool(args.verify_evaluation_adapter) and bool(args.skip_soft_fusion):
         raise ValueError("--verify-evaluation-adapter 需要 raw soft fusion 对齐证据，不能与 --skip-soft-fusion 同时使用")
+    if bool(args.verify_training_expert_batch) and str(args.router_mode) == "classification":
+        raise ValueError("--verify-training-expert-batch 只适用于 router_mode=fusion_huber_kl，不支持 classification")
     train_args = build_train_args(args)
     validate_training_args(train_args)
     set_seed(int(args.seed))
@@ -1502,6 +1629,9 @@ def main() -> None:
     dtype = resolve_dtype(args.dtype, device)
     output_dir = args.output_dir or args.output_root / f"{now_token()}_visual_router_stage1_online_visual_router_streaming_96_48_s"
     output_dir.mkdir(parents=True, exist_ok=True)
+    # P9f 旁路校验只需要轻量诊断上下文；这些字段不进入正式输出 schema。
+    train_args.verify_training_expert_batch = bool(args.verify_training_expert_batch)
+    train_args.output_dir = output_dir
     resume_checkpoint = load_checkpoint(args.resume_checkpoint) if args.resume_checkpoint is not None else None
     write_status(
         output_dir,
@@ -1622,7 +1752,8 @@ def main() -> None:
         for local_epoch_idx in range(int(args.epochs)):
             global_epoch = previous_completed_epochs + local_epoch_idx + 1
             epoch_rows: List[Dict[str, float]] = []
-            for batch_manifest_df, embeddings, latency_rows in iter_online_embedding_batches(
+            train_args.current_epoch = int(global_epoch)
+            for epoch_batch_index, (batch_manifest_df, embeddings, latency_rows) in enumerate(iter_online_embedding_batches(
                 windows_df=vali_windows_df,
                 data_config=data_config,
                 vit_model=vit_model,
@@ -1630,7 +1761,7 @@ def main() -> None:
                 device=device,
                 dtype=dtype,
                 period_candidate_values=period_candidate_values,
-            ):
+            )):
                 metrics = train_on_stream_batch(
                     router=router,
                     optimizer=optimizer,
@@ -1643,6 +1774,7 @@ def main() -> None:
                     args=train_args,
                     device=device,
                     class_weight=class_weight,
+                    training_batch_index=epoch_batch_index,
                 )
                 epoch_rows.append(metrics)
                 append_latency(output_dir, latency_rows, f"train_epoch_{global_epoch}")

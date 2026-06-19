@@ -178,10 +178,11 @@ provider 可以消费 runtime 准备好的 backend，但不应反向承担这些
 
 建议顺序：
 
-1. **P9f：training loss ExpertBatch bypass check**
-   继续采用方案 A。默认关闭 flag，只在 `fusion_huber_kl` training batch 内把 legacy
+1. **P9f：training loss ExpertBatch bypass check（已完成）**
+   已继续采用方案 A。默认关闭 flag 只在 `fusion_huber_kl` training batch 内把 legacy
    SQLite arrays 包装为 `ExpertBatch`，从 `ExpertBatch.y_pred/y_true` 复算
-   `expert_errors` 并与 legacy `expert_errors` 比较；不改变训练 loss、optimizer 或输出。
+   `expert_errors` 并与 legacy `expert_errors` 比较；未改变训练 loss、optimizer 或输出。
+   详见 `docs/refactor/visual_router_training_expert_batch_bypass.md`。
 
 2. **P10a：抽 shared prediction index prepare helper**
    把 `build_lightweight_prediction_index(...)` 的 index prepare 语义文档化或抽到共享位置前，
@@ -212,6 +213,7 @@ provider 可以消费 runtime 准备好的 backend，但不应反向承担这些
 和训练模式准备 SQLite 子集索引、记录 index artifact metadata、按 batch 查询 packed row
 record，并为训练 loss 计算 `expert_errors`。
 
-因此，短期应继续保留 Visual Router SQLitePredictionIndex，优先做 batch 后
-`ExpertBatch` 旁路校验；中期再抽 shared prediction index prepare helper；长期才考虑
-prepared backend 形式的 `PredictionCacheExpertProvider` full-scale 接入。
+因此，短期应继续保留 Visual Router SQLitePredictionIndex。P9d/P9f 已分别完成
+evaluation 与 training batch 后 `ExpertBatch` 旁路校验；中期下一步应抽 shared
+prediction SQLite backend / index prepare helper；长期才考虑 prepared backend 形式的
+`PredictionCacheExpertProvider` full-scale 接入。

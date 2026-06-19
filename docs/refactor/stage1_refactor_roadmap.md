@@ -1037,6 +1037,49 @@ EvaluationInputAdapter -> summary / per-sample rows
 - 不启动 pressure/full-scale。
 - 不改 TimeFuse 正式入口。
 
+### P9f：Visual Router training loss ExpertBatch bypass check
+
+目标：在 P9e gap audit 之后，只为 Visual Router `fusion_huber_kl` training batch
+增加默认关闭的 `--verify-training-expert-batch` 旁路校验，验证 legacy SQLite path
+返回的 `y_pred/y_true/expert_errors` 可由 `ExpertBatch.y_pred/y_true` 显式表达。
+
+当前状态（2026-06-20）：已完成 P9f 代码、smoke 和文档；新增
+`docs/refactor/visual_router_training_expert_batch_bypass.md` 与
+`tests/smoke/stage1_visual_router_training_expert_batch_bypass_smoke.py`。本阶段不改变默认
+训练行为，不替换 SQLite index，不接 `PredictionCacheExpertProvider` 到正式入口。
+
+本次完成范围：
+
+- 在 `train_visual_router_online_streaming.py` 新增默认关闭 flag
+  `--verify-training-expert-batch`。
+- 新增 `verify_training_expert_errors_from_expert_batch(...)`，只包装当前 training batch
+  已读取出的 legacy `y_pred/y_true`，并从 `ExpertBatch.y_pred/y_true` 复算 MAE/MSE
+  `expert_errors`。
+- flag 只在 `router_mode == "fusion_huber_kl"` 的 training batch 内生效；
+  `classification` 同开时直接报错。
+- 校验失败信息包含 `phase=training`、`router_mode=fusion_huber_kl`、metric、
+  batch index、sample_key、model_name、expert_index、legacy/recomputed value 和 output_dir。
+- 新 smoke 使用纯内存 numpy arrays 覆盖 MAE/MSE 一致性与故意 mismatch 的定位信息，
+  不启动 ViT、不访问 `/data2`、不运行正式入口。
+
+明确不做：
+
+- 不改变默认训练行为。
+- 不替换正式 `expert_errors`、loss、optimizer、scheduler、scaler 或 checkpoint/resume。
+- 不改变 CSV / summary / metadata / status schema。
+- 不替换 `SQLitePredictionIndex`。
+- 不迁移 `PredictionBatchReader` 或 `PredictionCacheExpertProvider` 到正式入口。
+- 不改 `PredictionBatchReader`、`PredictionCacheExpertProvider` 或 `EvaluationInputAdapter`。
+- 不改 VisualFeatureProvider / ViT provider / router head。
+- 不新增 Bash/scripts。
+- 不访问 `/data2`。
+- 不启动 pressure/full-scale。
+- 不改 TimeFuse 正式入口。
+
+P9f 之后，下一步应进入 shared prediction SQLite backend / index prepare consolidation，
+而不是直接抽 VisualFeatureProvider / ViT provider，也不是直接用
+`PredictionBatchReader` 替换 Visual Router 正式 SQLite path。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

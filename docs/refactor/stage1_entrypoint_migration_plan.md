@@ -400,7 +400,7 @@ Visual Router 正式 SQLite prediction path 的能力差距审计，详见
   `y_pred/y_true` 读取和 row index lineage；不应创建 run_dir、写 status/metadata/CSV、
   推导 split required keys、决定 SQLite index 路径、管理 checkpoint/resume 或绑定 `/data2`。
 - 最小安全路线是继续保留 Visual SQLitePredictionIndex，只在 batch 后包装 `ExpertBatch`
-  做旁路校验；P9f 可优先做 training loss `ExpertBatch` bypass check。
+  做旁路校验；P9f 已完成 training loss `ExpertBatch` bypass check。
 - 中期可抽 shared prediction index prepare helper；真正让 provider 消费 prepared
   index / batch query backend 应推迟到 Stage 1.5 或 Stage 2，并在 smoke + pressure 后再进入正式入口。
 
@@ -409,3 +409,29 @@ P9e 不修改 `train_visual_router_online_streaming.py`，不替换 SQLitePredic
 `EvaluationInputAdapter`、Visual FeatureProvider、ViT provider、router head、training loop、
 `fusion_huber_kl` loss、checkpoint/status/metadata/CSV schema，也不访问 `/data2` 或启动
 pressure/full-scale。
+
+## 15. P9f Visual Router Training ExpertBatch Bypass
+
+P9e 之后，已完成 Visual Router `fusion_huber_kl` training loss 阶段默认关闭的
+`--verify-training-expert-batch` 旁路校验，详见
+`docs/refactor/visual_router_training_expert_batch_bypass.md`。
+
+当前状态：
+
+- `--verify-training-expert-batch` 默认关闭，不改变默认训练行为。
+- flag 只在 `router_mode == "fusion_huber_kl"` 的 training batch 内生效；
+  `classification` 同开时直接报错。
+- helper 只包装当前 legacy SQLite path 已经读取出的 `y_pred/y_true`，构造
+  `ExpertBatch` 后显式复算 MAE/MSE `expert_errors`。
+- 复算结果只与 legacy `expert_errors` 做内存一致性比较，不返回替代 loss，不参与反传。
+- 失败信息包含 `phase=training`、`router_mode=fusion_huber_kl`、metric、batch index、
+  sample_key、model_name、expert_index、legacy/recomputed value 和 output_dir。
+- 新增 smoke 使用纯内存 numpy arrays 覆盖 MAE/MSE 与故意 mismatch 定位信息，不启动
+  ViT、不访问 `/data2`、不运行正式入口。
+- P9f 不替换 SQLitePredictionIndex，不接 `PredictionCacheExpertProvider` 到正式入口，
+  不迁移 `PredictionBatchReader`，不改 loss、optimizer、scheduler、scaler、checkpoint
+  或正式输出 schema。
+
+P9f 之后，下一步应进入 shared prediction SQLite backend / index prepare consolidation，
+而不是直接抽 VisualFeatureProvider / ViT provider，也不是直接用 `PredictionBatchReader`
+替换 Visual Router 正式 SQLite path。
