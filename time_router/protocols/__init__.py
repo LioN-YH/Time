@@ -14,7 +14,10 @@ from time_router.protocols.types import (
     ExperimentProtocolSpec,
     FeatureBatch,
     RouterOutput,
+    SampleManifest,
+    SampleManifestRow,
     SplitSpec,
+    SupervisionBatch,
 )
 
 __all__ = [
@@ -23,5 +26,8 @@ __all__ = [
     "ExperimentProtocolSpec",
     "FeatureBatch",
     "RouterOutput",
+    "SampleManifest",
+    "SampleManifestRow",
     "SplitSpec",
+    "SupervisionBatch",
 ]

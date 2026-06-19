@@ -1233,10 +1233,59 @@ launcher、loss 和输出 schema 均未修改。
 - 不修改 `train_visual_router_online_streaming.py`。
 - 不修改 `train_timefuse_fusor_streaming.py`。
 - 不修改 `launch_timefuse_fusor_full_scale.py`。
-- 不新增正式 provider 代码，不新增 `SampleManifest` 代码，不修改 `time_router/protocols/types.py`。
+- P10d 本步不新增正式 provider 代码、不新增 `SampleManifest` 代码、不修改
+  `time_router/protocols/types.py`；后续 P10e 已另起小步新增最小协议骨架。
 - 不改 `PredictionBatchReader` / `PredictionCacheExpertProvider` / `EvaluationInputAdapter`。
 - 不新增 Bash/scripts，不访问 `/data2`，不启动 pressure/full-scale。
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
+
+### P10e：canonical SampleManifest / SupervisionBatch protocol smoke
+
+目标：在 P10d 文档冻结的边界上，只新增最小 canonical `SampleManifest` /
+`SupervisionBatch` lightweight dataclass/helper 与小规模 smoke，用于锁定
+sample identity、split、ordered sample_keys 和 supervision shape 对齐的 public API 雏形。
+
+当前状态（2026-06-20）：已在 `time_router/protocols/types.py` 新增
+`SampleManifestRow`、`SampleManifest` 和 `SupervisionBatch`，并从
+`time_router.protocols` 导出；新增
+`tests/smoke/stage1_sample_supervision_protocol_smoke.py`。本步未修改 Visual Router /
+TimeFuse-style fusor 正式入口，未接 provider，未访问 `/data2`，未改变正式输出 schema。
+
+本次完成范围：
+
+- `SampleManifestRow` 保存 `sample_key`、`split`、`config_name`、`dataset_name`、
+  `item_id`、`channel_id`、`window_index`、可选 `seq_len/pred_len` 和 `extra`。
+- `SampleManifest` 使用 rows 原始顺序返回 ordered sample keys，支持按 split 过滤、
+  `split_counts()` 和 `validate_unique_sample_keys()`。
+- `SupervisionBatch` 保存 `sample_keys`、`model_columns`、`metric`、`oracle_model`、
+  `oracle_value`、`per_model_errors` 和 `extra`。
+- `SupervisionBatch.validate_shapes()` 只校验 `per_model_errors` 的
+  `[sample, expert]` 维度、`oracle_model/oracle_value` 第一维与显式顺序字段对齐；
+  array-like 字段仍为 `Any`，不绑定 numpy/torch 强类型。
+- smoke 构造 4 行 vali/test manifest、两个 split 的 supervision batch、5 个专家列，
+  覆盖保序、split 统计、metric、shape、重复 sample_key 和 shape mismatch 报错。
+
+明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不接 Visual Router / TimeFuse 正式训练。
+- 不新增 Visual/TimeFuse provider 实现。
+- 不改 `PredictionBatchReader` / `PredictionCacheExpertProvider` / `EvaluationInputAdapter`。
+- 不新增 Bash/scripts，不访问 `/data2`，不启动 pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+
+P10e 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_protocol_chain_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_router_training_expert_batch_bypass_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

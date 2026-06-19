@@ -6,6 +6,10 @@
 
 本文记录 P5c 阶段新增的最小 protocol dataclass 类型骨架。该骨架基于 P5b provider interface design，只提供 lightweight contract container，用于后续在 `ExperimentProtocol -> SplitStrategy -> ExpertProvider -> FeatureProvider -> RouterHead -> Evaluator` 链路之间传递显式对象。
 
+P10e 已在同一 lightweight protocol 层追加 canonical `SampleManifestRow`、
+`SampleManifest` 和 `SupervisionBatch` 最小骨架，用于承接 P10d
+`SampleManifest` / supervision boundary 设计；该追加仍不代表正式 provider 或训练入口接入。
+
 本次允许新增少量代码，但只限类型骨架、smoke、文档和日志；不实现训练逻辑、不实现 Python abstract base class、不做文件 IO、不绑定 numpy/torch/pandas/sklearn、不迁移 Visual Router 或 TimeFuse-style fusor 正式入口。
 
 ## 2. Public API
@@ -20,6 +24,9 @@ P5c 新增 `time_router/protocols/`：
 公开导出的类型：
 
 - `SplitSpec`
+- `SampleManifestRow`
+- `SampleManifest`
+- `SupervisionBatch`
 - `ExpertBatch`
 - `FeatureBatch`
 - `RouterOutput`
@@ -41,7 +48,53 @@ P5c 新增 `time_router/protocols/`：
 
 用途：保存 split strategy 的轻量规格。它不读取 manifest，不解析 sample_key，不创建 split 文件，也不决定 provider 如何扫描数据。
 
-### 3.2 `ExpertBatch`
+### 3.2 `SampleManifestRow`
+
+字段：
+
+- `sample_key: str`
+- `split: str`
+- `config_name: str`
+- `dataset_name: str`
+- `item_id: int`
+- `channel_id: int`
+- `window_index: int`
+- `seq_len: int | None = None`
+- `pred_len: int | None = None`
+- `extra: dict[str, Any] = field(default_factory=dict)`
+
+用途：保存 canonical sample identity、split 和轻量 lineage。它不保存 oracle label、
+专家误差或未来信息。
+
+### 3.3 `SampleManifest`
+
+字段：
+
+- `rows: tuple[SampleManifestRow, ...]`
+- `extra: dict[str, Any] = field(default_factory=dict)`
+
+用途：保存 Stage 1 canonical sample source、split 和原始顺序。P10e 最小 helper
+提供 `validate_unique_sample_keys()`、`sample_keys(split=None)` 和 `split_counts()`；
+这些 helper 只做内存校验和 ordered sample_keys 返回，不读取或写入 manifest 文件。
+
+### 3.4 `SupervisionBatch`
+
+字段：
+
+- `sample_keys: tuple[str, ...]`
+- `model_columns: tuple[str, ...]`
+- `metric: str`
+- `oracle_model: Any`
+- `oracle_value: Any`
+- `per_model_errors: Any`
+- `extra: dict[str, Any] = field(default_factory=dict)`
+
+用途：保存 SupervisionProvider 输出的 oracle/error 训练监督信息。P10e 最小 helper
+提供 `validate_shapes()`，只校验 `per_model_errors` 的 `[sample, expert]` 维度、
+`oracle_model/oracle_value` 第一维与 `sample_keys` 对齐，以及专家维与
+`model_columns` 对齐；array-like 字段仍使用 `Any`，不绑定 numpy/torch 类型。
+
+### 3.5 `ExpertBatch`
 
 字段：
 
@@ -54,7 +107,7 @@ P5c 新增 `time_router/protocols/`：
 
 用途：保存 ExpertProvider 输出的专家预测、共享真实值和可选 row lineage。`y_pred` / `y_true` 统一使用 `Any`，P5c 不访问 `.shape`，不检查五专家完整性，不复算 MAE/MSE，不假设数据来自 `packed_npy_v1`。
 
-### 3.3 `FeatureBatch`
+### 3.6 `FeatureBatch`
 
 字段：
 
@@ -65,7 +118,7 @@ P5c 新增 `time_router/protocols/`：
 
 用途：保存 FeatureProvider 输出的特征和 schema metadata。它不执行 pseudo image、ViT encoder、TimeFuse feature cache 读取、scaler fit 或 online computation。
 
-### 3.4 `RouterOutput`
+### 3.7 `RouterOutput`
 
 字段：
 
@@ -77,7 +130,7 @@ P5c 新增 `time_router/protocols/`：
 
 用途：保存 RouterHead 输出。`logits` 与 `weights` 都保留为可选字段；P5c 不强制至少一个存在，避免把 contract container 变成业务 validator。后续训练或 evaluator 层可做语义校验。
 
-### 3.5 `EvaluationInput`
+### 3.8 `EvaluationInput`
 
 字段：
 
@@ -91,7 +144,7 @@ P5c 新增 `time_router/protocols/`：
 
 用途：保存 Evaluator 复算指标所需的显式输入。它同时保留 logits 和 weights，兼容 future calibration、temperature scaling 与 raw logits analysis；P5c 不计算 fusion，不写 summary/rows 文件。
 
-### 3.6 `ExperimentProtocolSpec`
+### 3.9 `ExperimentProtocolSpec`
 
 字段：
 
@@ -116,7 +169,8 @@ P5c 新增 `time_router/protocols/`：
 1. 使用 `dataclass + typing`，不实现 abstract base class。
 2. 不引入 numpy、torch、pandas、sklearn。
 3. array/tensor-like 字段统一使用 `Any`。
-4. 不访问 `.shape`，不做数值、shape、finite 或专家维度校验。
+4. P5c 类型不访问 `.shape`，不做数值、shape、finite 或专家维度校验；P10e
+   `SupervisionBatch.validate_shapes()` 例外，只做 supervision 明确要求的最小维度对齐校验。
 5. `sample_keys`、`model_columns`、`train_splits`、`eval_splits` 稳定使用 tuple。
 6. `extra`、`branch_specific` 和 `feature_schema` 使用 `field(default_factory=dict)`，避免共享默认 dict。
 7. 不自动解析 `Path` / `os.PathLike`，不访问文件系统。
@@ -135,6 +189,14 @@ P5c 新增 `time_router/protocols/`：
 - `RouterOutput` 和 `EvaluationInput` 支持 weights-only、logits-only、两者都有和都为空；
 - array/tensor 字段可以保存普通 object/list，且不会访问 `.shape`；
 - 不创建文件，不访问 `/data2`，不访问正式输出目录。
+
+P10e 新增 `tests/smoke/stage1_sample_supervision_protocol_smoke.py`，覆盖：
+
+- 构造 4 行 vali/test `SampleManifestRow`；
+- 校验 `sample_key` 唯一、split 过滤保序和 `split_counts()`；
+- 构造 2 个 `SupervisionBatch`，使用 5 个专家列和小型 `per_model_errors` array；
+- 校验 sample/model 顺序、metric、oracle 输出和 shape；
+- 故意构造重复 sample_key 与 shape mismatch，确认报错清晰。
 
 ## 6. 明确不做
 

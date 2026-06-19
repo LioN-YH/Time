@@ -1,13 +1,17 @@
-# Stage 1 P10d Canonical SampleManifest 与 Supervision Boundary
+# Stage 1 P10d/P10e Canonical SampleManifest 与 Supervision Boundary
 
 设计日期：2026-06-20
+更新日期：2026-06-20
 
 ## 1. 目标
 
 本文定义 Visual Router 与 TimeFuse-style fusor baseline 后续可共用的 canonical
 `SampleManifest` / `SplitStrategy` / `SupervisionProvider` 边界。
 
-本阶段只做架构设计和文档冻结，不修改正式入口，不新增 provider 代码，不改训练行为。
+P10d 只做架构设计和文档冻结，不修改正式入口，不新增 provider 代码，不改训练行为。
+P10e 在该边界上新增最小 lightweight dataclass/helper 与纯内存 smoke，用于锁定
+`SampleManifest` / `SupervisionBatch` 的 public API 雏形；仍不接 Visual Router、
+TimeFuse-style fusor 或任何正式训练入口。
 用户已接受必要时重跑 Stage 1 实验，因此后续新 schema 应优先服务长期可扩展边界，
 不再把完全兼容历史 labels CSV、feature CSV、oracle SQLite/parquet 或 runtime artifact schema
 作为最高优先级。
@@ -37,7 +41,8 @@ SampleManifest + SplitStrategy
 
 ## 3. Canonical SampleManifest 字段
 
-建议 P11/P12 冻结新的 Stage 1 `SampleManifest` schema 时至少包含：
+P10e 已在 `time_router.protocols` 中新增最小 `SampleManifestRow` / `SampleManifest`
+协议类型；P11/P12 若冻结物理存储 schema，至少应保留以下语义字段：
 
 | 字段 | 必需性 | 含义 |
 | --- | --- | --- |
@@ -61,6 +66,14 @@ SampleManifest + SplitStrategy
 - `split` 不应由 labels CSV、feature CSV、oracle reader 和 prediction reader 各自推导。
 - `SampleManifest` 可以 materialize 为 CSV/Parquet/SQLite，但 interface 语义不能绑定某一种存储。
 - `extra` 只能保存不可训练泄漏的 lineage 或 branch-specific metadata。
+
+P10e 最小 helper 能力：
+
+- `SampleManifest.rows` 使用 `tuple[SampleManifestRow, ...]` 保持调用方原始顺序。
+- `SampleManifest.validate_unique_sample_keys()` 校验 `sample_key` 唯一。
+- `SampleManifest.sample_keys(split=None)` 按 rows 原始顺序返回 ordered sample keys。
+- `SampleManifest.split_counts()` 返回 split 样本数统计。
+- 该 helper 不读取 labels CSV、feature CSV、prediction cache、oracle backend 或正式输出目录。
 
 ## 4. SplitStrategy 边界
 
@@ -106,6 +119,17 @@ SampleManifest + SplitStrategy
   但接口层必须表达清楚来源，避免把 oracle backend 误当作 prediction backend。
 - oracle label 只用于训练监督、诊断、baseline 或 upper-bound。
 - oracle label 不进入 deployable `FeatureProvider`，不作为 Visual/TimeFuse test-time 动态特征。
+
+P10e 已在 `time_router.protocols` 中新增最小 `SupervisionBatch` 协议类型：
+
+- `sample_keys` / `model_columns` 使用 tuple 保序。
+- `metric` 显式记录 supervision metric。
+- `oracle_model`、`oracle_value`、`per_model_errors` 仍使用 `Any`，不在协议层绑定
+  numpy/torch/pandas。
+- `validate_shapes()` 只校验 `per_model_errors` 的 `[sample, expert]` 维度与
+  `sample_keys/model_columns` 对齐，以及 `oracle_model/oracle_value` 第一维与
+  `sample_keys` 对齐。
+- 该类型不实现 `SupervisionProvider`，不读取 oracle SQLite/parquet，不写正式 CSV/status/checkpoint。
 
 ## 6. Prediction 与 Supervision 的区别
 
@@ -159,23 +183,38 @@ TimeFuse-style fusor 当前：
 6. P11/P12 冻结新的 run artifact schema；旧 labels/feature/oracle/prediction artifact schema
    只作为迁移来源和复现材料，不再强制成为新 contract。
 
-## 9. 本阶段明确不做
+## 9. P10e smoke 验收
+
+新增 `tests/smoke/stage1_sample_supervision_protocol_smoke.py`，覆盖：
+
+- 构造 4 个 `SampleManifestRow`，包含 `vali/test` split。
+- 校验 `sample_key` 唯一、split 过滤保序和 `split_counts()`。
+- 分别构造 vali/test 两个 `SupervisionBatch`。
+- 使用 5 个 `model_columns` 和小型 numpy `per_model_errors` 校验 shape、metric 与 oracle 输出。
+- 故意构造重复 `sample_key`、专家维 shape mismatch 和 oracle shape mismatch，确认错误信息清晰。
+
+P10e 验收命令：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+```
+
+## 10. 本阶段明确不做
 
 - 不修改 `train_visual_router_online_streaming.py`。
 - 不修改 `train_timefuse_fusor_streaming.py`。
 - 不修改 `launch_timefuse_fusor_full_scale.py`。
 - 不新增正式 provider 代码。
-- 不新增 `SampleManifest` 代码。
-- 不修改 `time_router/protocols/types.py`。
+- 不实现 `SupervisionProvider` / `OracleLabelProvider` 正式读取逻辑。
 - 不修改 `PredictionBatchReader` / `PredictionCacheExpertProvider` / `EvaluationInputAdapter`。
 - 不新增 Bash/scripts。
 - 不访问 `/data2`。
 - 不启动 pressure/full-scale。
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
 
-## 10. 后续
+## 11. 后续
 
-P10d 后优先进入 P11/P12 schema 冻结设计或小规模 manifest/supervision fixture 设计。
+P10e 后优先进入 P11/P12 schema 冻结设计或小规模 manifest/supervision fixture 设计。
 真正实现前应先决定：
 
 - `SampleManifest` 的物理存储格式和版本号；
