@@ -168,6 +168,31 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改模型结构、loss 或正式输出目录。
 - 不把 oracle/TSF 作为 test-time 动态特征。
 
+### P3c：minimal evaluation summary builder only
+
+目标：在 P3a/P3b 的 fusion/metrics/diagnostics helper 基础上，只抽取最小 evaluation summary builder，把 hard top-1、raw soft fusion、selected counts、weight entropy 和 max weight 组合为稳定 summary dict。
+
+当前状态（2026-06-19）：已完成 P3c 最小 summary helper 抽取并接入 `tests/smoke/stage1_golden_smoke.py` 的 deterministic summary 断言；完整 P3 的 calibration、comparison、per-sample schema 收束和正式入口接入仍保留到后续小步。
+
+本次完成范围：
+
+- 新增 `time_router/evaluation/summary.py`，提供 `build_fusion_summary(...)`。
+- helper 保持纯 numpy / Python 标准库，不引入 torch/sklearn/pandas 训练依赖。
+- helper 只接受调用方显式传入的 `FusionMetricsResult`、`weights` 和 `model_columns`，不读取 manifest、prediction cache、oracle/TSF 或正式训练输出目录。
+- summary dict 固定包含 `hard_mae`、`hard_mse`、`raw_soft_mae`、`raw_soft_mse`、`selected_counts`、`mean_entropy`、`mean_max_weight`、`num_samples`、`num_experts` 和 `model_columns`。
+- `tests/smoke/stage1_golden_smoke.py` 基于 `GOLDEN_WEIGHTS`、`hard_result` 和 `raw_soft_result` 断言 summary 的 golden MAE/MSE、selected counts、样本数、专家数、专家顺序、mean max weight 和 mean entropy。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不实现 temperature/top-k/calibration。
+- 不改变正式 summary / comparison / prediction output schema。
+- 不新增正式训练 CLI。
+- 不读取 oracle/TSF，不实现 oracle regret。
+- 不接入 `OracleTsfReader` 或 full-scale 输出目录。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P4：extract logging/path/config
 
 目标：收束日志、路径解析、状态落盘和配置默认值，减少脚本内硬编码。

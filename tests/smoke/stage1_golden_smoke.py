@@ -42,6 +42,7 @@ from time_router.evaluation.metrics import (  # noqa: E402
     hard_top1_fusion,
     raw_soft_fusion,
 )
+from time_router.evaluation.summary import build_fusion_summary  # noqa: E402
 
 
 DEFAULT_FIXTURE_ROOT = (
@@ -222,6 +223,43 @@ def run_smoke(fixture_root: Path, *, atol: float) -> None:
     assert_close("raw soft fusion MAE", raw_soft_mae, EXPECTED_RAW_SOFT_MAE, atol=atol)
     assert_close("raw soft fusion MSE", raw_soft_mse, EXPECTED_RAW_SOFT_MSE, atol=atol)
     print(f"通过：raw soft fusion MAE={raw_soft_mae:.9f}，MSE={raw_soft_mse:.9f}")
+
+    fusion_summary = build_fusion_summary(
+        model_columns=model_columns,
+        hard_result=hard_result,
+        raw_soft_result=raw_soft_result,
+        weights=GOLDEN_WEIGHTS,
+    )
+    assert_close("summary hard_mae", float(fusion_summary["hard_mae"]), EXPECTED_HARD_MAE, atol=atol)
+    assert_close("summary hard_mse", float(fusion_summary["hard_mse"]), EXPECTED_HARD_MSE, atol=atol)
+    assert_close("summary raw_soft_mae", float(fusion_summary["raw_soft_mae"]), EXPECTED_RAW_SOFT_MAE, atol=atol)
+    assert_close("summary raw_soft_mse", float(fusion_summary["raw_soft_mse"]), EXPECTED_RAW_SOFT_MSE, atol=atol)
+    if fusion_summary["selected_counts"] != EXPECTED_SELECTED_COUNTS:
+        raise AssertionError(f"summary selected_counts 漂移：actual={fusion_summary['selected_counts']} expected={EXPECTED_SELECTED_COUNTS}")
+    if fusion_summary["num_samples"] != len(EXPECTED_SAMPLE_KEYS):
+        raise AssertionError(f"summary num_samples 漂移：actual={fusion_summary['num_samples']}")
+    if fusion_summary["num_experts"] != len(EXPECTED_MODEL_COLUMNS):
+        raise AssertionError(f"summary num_experts 漂移：actual={fusion_summary['num_experts']}")
+    if fusion_summary["model_columns"] != EXPECTED_MODEL_COLUMNS:
+        raise AssertionError(f"summary model_columns 漂移：actual={fusion_summary['model_columns']} expected={EXPECTED_MODEL_COLUMNS}")
+    np.testing.assert_allclose(
+        fusion_summary["mean_max_weight"],
+        np.mean(np.max(GOLDEN_WEIGHTS, axis=1)),
+        rtol=0.0,
+        atol=atol,
+    )
+    np.testing.assert_allclose(
+        fusion_summary["mean_entropy"],
+        np.mean(compute_weight_entropy(GOLDEN_WEIGHTS)),
+        rtol=0.0,
+        atol=atol,
+    )
+    print(
+        "通过：fusion summary "
+        f"selected_counts={fusion_summary['selected_counts']}，"
+        f"mean_entropy={fusion_summary['mean_entropy']:.9f}，"
+        f"mean_max_weight={fusion_summary['mean_max_weight']:.9f}"
+    )
 
     print("完成：Stage 1 golden smoke 全部通过")
 
