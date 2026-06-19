@@ -791,6 +791,33 @@ P6c consolidation（2026-06-20）：已收束 evaluation adapter 命名和职责
 - 不读取 oracle/TSF。
 - 不改模型结构、loss 或正式输出目录。
 
+### P7a：minimal TimeFuseFeatureCacheProvider smoke-only
+
+目标：基于 P5c protocol types、P5d adapter boundary 和 P5e/P5f migration/launcher 设计，新增最小 `TimeFuseFeatureCacheProvider`，只把显式 feature CSV 中的小规模 TimeFuse 17 维 feature batch 包装为 `FeatureBatch`，先供 smoke 使用，不接正式 TimeFuse fusor / Visual Router 入口。
+
+当前状态（2026-06-20）：已完成 P7a 最小 adapter 与 smoke；本阶段新增 `time_router/features/`，但不修改正式训练入口，不实现 runtime、config、launcher、run_dir helper 或 scaler。
+
+本次完成范围：
+
+- 新增 `time_router/features/__init__.py`，导出 `TimeFuseFeatureCacheProvider`。
+- 新增 `time_router/features/timefuse_cache.py`，只读取调用方显式传入的 feature CSV。
+- `TimeFuseFeatureCacheProvider.load_batch(sample_keys)` 要求调用方显式传入非空、不重复 sample_keys。
+- 输出 `FeatureBatch.sample_keys` 保持调用方顺序，`features` 当前为 `numpy.float32` array。
+- `feature_schema` 记录 `feature_schema_name`、`feature_columns`、`feature_dim` 和 `source`。
+- `extra` 只记录 provider name、sample_key 列、feature CSV 路径、可用 feature 行数和 dtype。
+- 新增 `tests/smoke/stage1_timefuse_feature_cache_provider_smoke.py`，使用测试内临时 feature CSV，并阻断除该 CSV 之外的文件读取与 `np.load`。
+
+明确不做：
+
+- 不读取 prediction cache。
+- 不读取 oracle/TSF、`y_true` 或 expert error。
+- 不做 scaler fit；scaler 属于 training/runtime。
+- 不创建 `run_dir`。
+- 不写 status/metadata/CSV/JSON/Parquet。
+- 不访问 `/data2`。
+- 不新增 Bash 或 `scripts/` entrypoint。
+- 不迁移正式 TimeFuse fusor / Visual Router 入口。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
