@@ -266,6 +266,34 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 对现有 launcher 的 `status.json`、metadata 和恢复命令做兼容检查。
 - 不改变既有正式输出目录含义，不破坏后台任务监控脚本。
 
+### P4a：minimal atomic JSON and run status writer only
+
+目标：先抽出 P4 中最低风险的 JSON 原子写入和最小 status writer，统一后续 `status.json` / metadata-like JSON 的安全写入能力，但不迁移正式训练入口、不接入 full-scale 任务。
+
+当前状态（2026-06-19）：已完成 P4a 最小基础设施抽取和小规模 smoke；完整 P4 的 logging、path resolver、config system、launcher/monitor/resume 兼容迁移仍保留到后续小步。
+
+本次完成范围：
+
+- 新增 `time_router/io/json_utils.py`，提供纯标准库 `atomic_write_json(...)`、`build_status_payload(...)` 和 `write_status_json(...)`。
+- `atomic_write_json(...)` 自动创建 parent directory，在目标同目录写临时文件，完成 `flush + fsync` 后通过 `os.replace` 原子替换目标文件。
+- JSON 写入默认 UTF-8、`ensure_ascii=False`，适合中文 status / metadata 文本。
+- `write_status_json(...)` 只写调用方显式传入的 path；payload 至少包含 `status`，可选 `phase`、`message`，`extra` 必须是 dict 或 None。
+- 新增 `tests/smoke/stage1_json_utils_smoke.py`，只在 `tempfile.TemporaryDirectory` 下验证 status 写入、中文 message、第二次覆盖、nested parent directory 自动创建和 `extra` 类型检查。
+- 新增 `docs/refactor/json_utils.md`，记录 P4a helper 边界和完整门禁。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不修改任何现有正式训练脚本。
+- 不接入 full-scale 输出目录。
+- 不改变既有 `status.json` schema。
+- 不改现有 launcher / monitor / resume 行为。
+- 不实现 path resolver、config system 或 logging framework。
+- 不实现 comparison / calibration / report schema。
+- 不读取 oracle/TSF。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+
 ### P5：introduce FeatureProvider interface
 
 目标：引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦。
