@@ -2,7 +2,8 @@
 """
 文件功能：
     Stage 1 oracle/TSF reader 小规模 smoke。该脚本只读已有 dry-run fixture，
-    验证 OracleTsfReader 的 sample_key 保序、oracle/TSF join、重复检测和缺失报告。
+    验证 OracleTsfReader 的 sample_key 保序、oracle/TSF join、默认禁止全扫描、
+    missing_policy 缺失处理、重复检测和缺失报告。
 
 关键约束：
     该 smoke 不训练 router、不生成 oracle/TSF、不改正式输出目录，只验证共享
@@ -75,6 +76,16 @@ def run_smoke(fixture_root: Path) -> None:
     reader = OracleTsfReader(fixture_root=fixture_root, missing_policy="error")
     reversed_keys = list(reversed(EXPECTED_SAMPLE_KEYS))
 
+    # 保护边界：正式入口必须显式传入 batch/shard sample_key，默认不允许无 key 全扫描。
+    try:
+        reader.load_oracle(None, metric="mae")
+    except ValueError as exc:
+        if "默认禁止全扫描" not in str(exc):
+            raise AssertionError(f"allow_full_scan 默认禁止的错误信息异常：{exc}") from exc
+    else:
+        raise AssertionError("allow_full_scan 默认 False 时，load_oracle(None) 未被禁止")
+    print("通过：allow_full_scan 默认禁止无 sample_key 全扫描")
+
     oracle = reader.load_oracle(reversed_keys, metric="mae")
     assert_sample_order(oracle.frame, reversed_keys, "oracle")
     oracle_models = dict(zip(oracle.frame["sample_key"], oracle.frame["oracle_model"]))
@@ -102,8 +113,17 @@ def run_smoke(fixture_root: Path) -> None:
         raise AssertionError("joined 输出存在重复 sample_key")
     print("通过：oracle/TSF join 不重复、不丢失，并保留 metadata 字段")
 
-    report_reader = OracleTsfReader(fixture_root=fixture_root, missing_policy="report")
     missing_key = "missing__sample_key__for_oracle_tsf_reader_smoke"
+    try:
+        reader.load_joined([EXPECTED_SAMPLE_KEYS[0], missing_key], metric="mae")
+    except KeyError as exc:
+        if missing_key not in str(exc):
+            raise AssertionError(f"missing_policy=error 缺失错误信息未包含 sample_key：{exc}") from exc
+    else:
+        raise AssertionError("missing_policy=error 未对缺失 sample_key 报错")
+    print("通过：missing_policy=error 对缺失 sample_key 明确报错")
+
+    report_reader = OracleTsfReader(fixture_root=fixture_root, missing_policy="report")
     reported = report_reader.load_joined([EXPECTED_SAMPLE_KEYS[0], missing_key], metric="mae")
     if reported.missing_report["oracle"]["missing_sample_keys"] != [missing_key]:
         raise AssertionError(f"oracle missing report 异常：{reported.missing_report}")

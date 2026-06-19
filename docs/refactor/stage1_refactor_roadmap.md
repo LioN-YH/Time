@@ -85,6 +85,26 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 新增 `tests/smoke/stage1_oracle_tsf_smoke.py`，复用 4 sample dry-run fixture 检查 oracle label、TSF metadata、join 保序、缺失报告和冲突 TSF sample_key 报错。
 - 新增 `docs/refactor/oracle_tsf_reader.md`，明确 oracle/TSF 仅用于监督、上限、baseline、分层汇总或诊断，不得作为可部署 FeatureProvider 的 test-time 动态特征；full-scale 后续仍应采用 SQLite / shard-local / batch query。
 
+### P2.5：reader hardening only
+
+目标：只补强 `OracleTsfReader` 的小规模 smoke、文档和日志边界，不迁移正式 Visual Router / TimeFuse fusor 入口，不改变 prediction/fusion 契约。
+
+当前状态（2026-06-19）：已完成 hardening 范围界定；本阶段只允许修改 `docs/refactor/oracle_tsf_reader.md`、`docs/refactor/stage1_refactor_roadmap.md`、`tests/smoke/stage1_oracle_tsf_smoke.py`、中文实验日志和必要结构索引。
+
+本次补强范围：
+
+- smoke 明确覆盖 `allow_full_scan` 默认禁止无 sample_key 全扫描。
+- smoke 明确覆盖 `missing_policy=error` 对缺失 sample_key 报错。
+- 文档明确禁止正式入口使用 `allow_full_scan=True`。
+- 文档明确 full-scale 正式训练入口后续必须走 SQLite / shard-local / batch query 或等价批查询方案。
+- oracle/TSF 仍只作为监督、上限、baseline、分层汇总或诊断使用，不进入可部署 `FeatureProvider` 或 test-time 动态调权特征。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式入口；入口迁移仍保留到 P6。
+- 不改 `PredictionBatchReader` 的输出 shape、专家顺序、sample_key 顺序。
+- 不改 fusion metrics、模型结构或正式输出目录。
+
 ### P3：extract metrics/fusion
 
 目标：抽出统一 metrics、fusion 和报告基础，减少 `fusion_utils.py`、Visual Router、calibration 与 TimeFuse fusor 之间的重复实现。

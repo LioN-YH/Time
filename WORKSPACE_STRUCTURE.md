@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-19 17:27:26 CST
+更新日期：2026-06-19 17:48:00 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -51,7 +51,7 @@
 | `docs/refactor/stage1_migration_candidates.md` | manifest、prediction cache、oracle/TSF、SQLite/batch reader、metrics、logging、路径和训练骨架的后续收束候选 | 只记录建议；实际重构完成后更新状态与兼容性结论 |
 | `docs/refactor/golden_fixture.md` | Stage 1 重构前 golden fixture 说明，记录 4 sample packed dry-run fixture 来源、锁定契约和 smoke 运行命令 | 后续调整 golden fixture 或重构验收口径时同步更新；不代表正式逻辑已重构 |
 | `docs/refactor/prediction_batch_reader.md` | Stage 1 P1 共享 `PredictionBatchReader` 接口说明，记录输入、输出、约束和后续正式入口迁移方式 | reader 接口或迁移策略变化时更新；正式入口接入另按 P6 记录 |
-| `docs/refactor/oracle_tsf_reader.md` | Stage 1 P2 共享 `OracleTsfReader` 接口说明，记录 oracle/TSF 读取、保序、缺失报告、join lineage、用途约束和 full-scale 后续 SQLite / shard-local / batch query 要求 | reader 接口或 oracle/TSF 迁移策略变化时更新；正式入口接入另按 P6 记录 |
+| `docs/refactor/oracle_tsf_reader.md` | Stage 1 P2 共享 `OracleTsfReader` 接口说明，记录 oracle/TSF 读取、保序、缺失报告、join lineage、用途约束、正式入口禁止 `allow_full_scan=True` 和 full-scale 后续 SQLite / shard-local / batch query 要求 | reader 接口或 oracle/TSF 迁移策略变化时更新；正式入口接入另按 P6 记录 |
 
 ### 1.2 根目录隐藏目录
 
@@ -194,7 +194,7 @@ visual_router_experiments/
 | 路径 | 层级角色 | 功能 |
 | --- | --- | --- |
 | `tests/smoke/stage1_golden_smoke.py` | Stage 1 只读 golden smoke | 默认读取 `experiment_logs/run_outputs/2026-06-14_stage1_full_scale_dry_run_v2/merged_cache/` 的 4 sample packed fixture；当前通过 `time_router.io.PredictionBatchReader` 组装 `y_pred/y_true`，锁定 sample_key 顺序、五专家顺序、shape、hard top-1、raw soft fusion MAE/MSE 和 `packed_npy_v1` row index 读取一致性；用于后续公共 reader/metrics/入口迁移前后等价验证，不训练、不写正式输出 |
-| `tests/smoke/stage1_oracle_tsf_smoke.py` | Stage 1 oracle/TSF reader 只读 smoke | 默认读取同一 dry-run fixture 的 `window_oracle_labels_with_tsf_cell.csv` 和 `manifest_with_tsf_cell.csv`；验证 `OracleTsfReader` 的显式 sample_key 保序、oracle label、TSF metadata、oracle/TSF join、缺失报告和冲突重复 sample_key 报错；不训练、不生成 oracle/TSF、不写正式输出 |
+| `tests/smoke/stage1_oracle_tsf_smoke.py` | Stage 1 oracle/TSF reader 只读 smoke | 默认读取同一 dry-run fixture 的 `window_oracle_labels_with_tsf_cell.csv` 和 `manifest_with_tsf_cell.csv`；验证 `OracleTsfReader` 的 `allow_full_scan` 默认禁止无 sample_key 全扫描、显式 sample_key 保序、oracle label、TSF metadata、oracle/TSF join、`missing_policy=error` 缺失报错、`missing_policy=report` 缺失报告和冲突重复 sample_key 报错；不训练、不生成 oracle/TSF、不写正式输出 |
 
 ## 3. QuitoBench / Quito 代码与实验层
 
