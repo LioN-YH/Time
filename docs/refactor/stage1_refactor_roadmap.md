@@ -364,6 +364,43 @@ Stage 1 后续重构必须小步提交、先锁定行为再抽象共享模块。
 - 不改 `PredictionBatchReader` / `OracleTsfReader`。
 - 不改模型结构、loss 或正式输出目录。
 
+### P4d：run artifacts boundary review and integration plan only
+
+目标：在 P4a/P4b/P4c 之后，对 `time_router/io` 当前 run artifacts 相关工具做一次文档化架构边界复核，明确 public API、private helper、低风险 IO helper 与正式训练入口 / launcher / resume 层的职责边界，并给出后续接入规划。
+
+当前状态（2026-06-19）：已完成 P4d 文档化 review；本阶段只新增边界复核和 integration plan，不迁移正式 Visual Router / TimeFuse fusor 入口，不接入 `/data2` 或 full-scale 输出目录，不改变既有 `status.json` / `metadata.json` schema。
+
+本次完成范围：
+
+- 新增 `docs/refactor/run_artifacts_boundary.md`，复核 `prediction_cache_reader.py`、`json_utils.py`、`path_resolver.py`、`run_metadata.py` 和 `time_router/io/__init__.py` 的职责边界。
+- 明确 `PredictionBatchReader` / `PredictionBatch` / `DEFAULT_MODEL_COLUMNS` 仍属于 prediction cache 数据读取 public API，不属于 run artifacts writer。
+- 明确 `atomic_write_json`、`build_status_payload`、`write_status_json`、`find_repo_root`、`resolve_under_root`、`resolve_status_path`、`resolve_metadata_path`、`build_run_metadata` 和 `write_run_metadata` 是当前低风险 IO public API。
+- 明确 `_normalize_start_path`、`_require_dict_or_none`、`_to_json_safe` 以及 `prediction_cache_reader.py` 内部下划线 helper 属于 private helper，正式入口不应依赖。
+- 回答后续正式入口接入条件、接入前需比较的 status/metadata 字段、launcher/monitor/resume 不能随便改的字段、checkpoint index 是否拆为 P4e、config system 是否推迟到 P5/P6 前，以及如何保证旧输出目录含义不变。
+- 在 `time_router/io/__init__.py` 补充包级边界注释；不改导出列表、不改函数签名、不改函数行为。
+
+明确不做：
+
+- 不迁移 Visual Router / TimeFuse fusor 正式训练入口。
+- 不修改任何现有正式训练脚本。
+- 不替换现有 launcher / monitor / resume 行为。
+- 不接入 `/data2` 或任何 full-scale 输出目录。
+- 不改变既有正式输出目录含义。
+- 不改变既有 `status.json` / `metadata.json` schema。
+- 不实现 checkpoint index。
+- 不实现 config system。
+- 不实现 logging framework。
+- 不自动调用 git。
+- 不自动读取命令行或训练配置。
+- 不创建正式输出目录。
+- 不改 evaluation helper。
+- 不实现 comparison / calibration / report schema。
+- 不读取 oracle/TSF。
+- 不改 `PredictionBatchReader` / `OracleTsfReader`。
+- 不改模型结构、loss 或正式输出目录。
+- 不移动或重命名 `time_router/io` 文件。
+- 不改变现有 public API 和 helper 行为。
+
 ### P5：introduce FeatureProvider interface
 
 目标：引入显式 `FeatureProvider` 边界，把共享 reader 与路线特征生成解耦。

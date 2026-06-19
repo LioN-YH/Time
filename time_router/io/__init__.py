@@ -1,6 +1,10 @@
 """
 文件功能：
     `time_router` 共享 IO 工具包。
+
+边界说明：
+    本入口只聚合稳定 public API，供后续正式入口优先从 `time_router.io`
+    导入。这里不执行配置读取、路径探测、输出目录创建或任何训练相关副作用。
 """
 
 from time_router.io.json_utils import atomic_write_json, build_status_payload, write_status_json
