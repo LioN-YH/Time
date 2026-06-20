@@ -358,24 +358,29 @@ prediction artifact 写出和 launcher 接手信息。
   cache / oracle parquet / shard-local SQLite / linear-softmax fusor 逻辑；后续需要分别新增
   TimeFuse-specific 和 Visual-specific small canonical entrypoint，但 P15a 不实现入口、不写
   scripts、不迁移正式训练入口；
+- P15b 已完成 TimeFuse-specific small canonical entrypoint thin slice，见
+  `docs/refactor/stage1_timefuse_small_entrypoint.md`；新增
+  `scripts/run_stage1_timefuse_small.py` 和
+  `tests/smoke/stage1_timefuse_small_entrypoint_smoke.py`，使用 P13b real-derived
+  sample manifest/expert JSON 与 P13e 17 维 feature fixture，串联
+  `SampleManifest -> ExpertBatch -> TimeFuseFeatureCacheProvider / FeatureBatch ->
+  TimeFuseLinearSoftmaxHead / RouterOutput -> EvaluationInputAdapter -> Runtime artifact writer`，
+  写出 canonical run_dir；P15b 仍不迁移正式 TimeFuse fusor 训练入口，不访问 `/data2`，
+  不启动训练、pressure 或 full-scale，不修改 generic small CLI；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P15b 优先新增 TimeFuse-specific small canonical entrypoint thin slice，建议未来入口为
-   `scripts/run_stage1_timefuse_small.py`；串联 `SampleManifest -> ExpertBatch ->
-   TimeFuse 17-dim FeatureProvider -> TimeFuseLinearSoftmaxHead -> EvaluationInputAdapter /
-   Evaluator -> Runtime artifact writer`，写 canonical `run_dir`，不访问 `/data2`，不启动正式训练。
-2. P15c 再新增 Visual-specific small canonical entrypoint thin slice，建议未来入口为
+1. P15c 新增 Visual-specific small canonical entrypoint thin slice，建议未来入口为
    `scripts/run_stage1_visual_small.py`；初期使用 `VisualMockFeatureProvider + smoke/legacy MLP
    adapter pattern`，写 canonical `run_dir`，不加载真实 checkpoint，不接真实 ViT。
-3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做

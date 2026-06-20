@@ -2594,7 +2594,7 @@ P14f 验收：
 后续连接：
 
 1. P15a 已完成：branch-specific small entrypoint decision。
-2. P15b：TimeFuse-specific small canonical entrypoint thin slice。
+2. P15b 已完成：TimeFuse-specific small canonical entrypoint thin slice。
 3. P15c：Visual-specific small canonical entrypoint thin slice。
 
 ### P15a：branch-specific small entrypoint decision
@@ -2645,8 +2645,67 @@ rg -n "P14 可以收束|generic small CLI|TimeFuse-specific|Visual-specific|P15b
 
 后续连接：
 
-1. P15b：TimeFuse-specific small canonical entrypoint thin slice。
+1. P15b 已完成：TimeFuse-specific small canonical entrypoint thin slice。
 2. P15c：Visual-specific small canonical entrypoint thin slice。
+
+### P15b：TimeFuse-specific small canonical entrypoint thin slice
+
+目标：新增 TimeFuse-style fusor baseline 支线的 small canonical entrypoint。P15b 只做
+small fixture / real-derived small input 级别 rehearsal，不迁移正式 TimeFuse fusor 训练入口，
+不读取 full-scale artifact，不访问 `/data2`，不启动训练、pressure 或 full-scale。
+
+当前状态（2026-06-21）：已新增 `scripts/run_stage1_timefuse_small.py`、
+`tests/smoke/stage1_timefuse_small_entrypoint_smoke.py` 和
+`docs/refactor/stage1_timefuse_small_entrypoint.md`。
+
+本次完成范围：
+
+- 默认使用 P13b real-derived `sample_manifest.csv`、P13b `expert_predictions.json` 和
+  P13e `features_17d.csv`。
+- CLI 显式支持 `--sample-manifest-csv`、`--features-csv`、`--expert-predictions-json`、
+  `--output-dir`、`--split-name`、`--run-id`、`--config-name` 和 strict 开关。
+- 串联 `SampleManifest -> JsonExpertSmallProvider / ExpertBatch ->
+  TimeFuseFeatureCacheProvider / FeatureBatch -> TimeFuseLinearSoftmaxHead / RouterOutput ->
+  EvaluationInputAdapter -> Runtime artifact writer`。
+- Runtime writer 写出 canonical run_dir：`run_metadata.json`、`run_status.json`、
+  `inputs/sample_manifest_ref.json`、`inputs/split_summary.json`、
+  `evaluation/evaluation_summary.json`、`predictions/prediction_rows.csv` 和最小
+  `logs/timefuse_small_entrypoint.log`。
+- strict 模式验证 sample_key 保序、17 维 FeatureBatch、model_columns 对齐、weights shape、
+  finite 和 softmax row sum，以及 provider 不接收 run_dir。
+- 新增 smoke 通过 subprocess 调用 entrypoint，验证 canonical artifacts、summary 字段、
+  prediction rows 保序、17 维 feature/head/evaluator 对齐、generic small CLI 前后未变、
+  stdout/stderr 不出现 `/data2`，且不启动正式训练入口。
+
+P15b 明确不做：
+
+- 不修改 `scripts/run_stage1_canonical_small.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改正式 Visual Router 入口。
+- 不新增 Visual-specific small entrypoint。
+- 不访问 `/data2`。
+- 不读取 full-scale artifact。
+- 不启动训练、pressure 或 full-scale。
+- 不新增 Bash launcher。
+- 不把 Bash 引入 `time_router`。
+- 不把 `run_dir` 传入 provider。
+- 不把 feature cache path 设计成长期 interface。
+- 不为兼容旧版 `96_48_S` full-scale 输出 schema 写适配逻辑。
+
+P15b 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_backend_expertbatch_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall scripts/run_stage1_timefuse_small.py time_router tests/smoke/stage1_timefuse_small_entrypoint_smoke.py
+```
+
+后续连接：
+
+1. P15c：Visual-specific small canonical entrypoint thin slice。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
