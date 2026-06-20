@@ -2037,7 +2037,7 @@ P13c 验收：
 后续连接：
 
 1. P13d 已完成 prediction backend -> `ExpertBatch` small smoke，对照 P13b JSON fixture，不接正式入口。
-2. P13e 做 TimeFuse 17 维 `FeatureProvider` small smoke，不扩展 generic small CLI 的三列 fixture。
+2. P13e 已完成 TimeFuse 17 维 `FeatureProvider` small smoke，不扩展 generic small CLI 的三列 fixture。
 3. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
 4. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
 
@@ -2101,9 +2101,69 @@ P13d 验收：
 
 后续连接：
 
-1. P13e 做 TimeFuse 17 维 `FeatureProvider` small smoke。
+1. P13e 已完成 TimeFuse 17 维 `FeatureProvider` small smoke。
 2. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
 3. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
+
+### P13e：TimeFuse 17 维 FeatureProvider small smoke
+
+目标：在 P13b real-derived manifest 和 P13c/P13d backend/provider 边界基础上，新增
+TimeFuse-style 17 维 feature-only small smoke。使用 P13b
+`tests/fixtures/stage1_real_derived_small/sample_manifest.csv` 的行顺序作为 ordered
+sample_keys，读取仓库内小型 17 维 feature CSV，经 `TimeFuseFeatureCacheProvider` 输出
+`FeatureBatch`。
+
+当前状态（2026-06-20）：已新增
+`tests/fixtures/stage1_timefuse_17dim_small/`、
+`tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py` 和
+`docs/refactor/stage1_timefuse_17dim_feature_provider_smoke.md`，同步更新 P13c 审计、
+entrypoint migration plan 和结构索引。
+
+本次完成范围：
+
+- `features_17d.csv` 包含 P13b manifest 相同的 4 个 sample_key，CSV 行顺序刻意不同于
+  manifest，用于验证 provider 按调用方 ordered sample_keys 保序。
+- 17 个 feature column 复用正式 TimeFuse feature cache builder 的列名，包括 `mean`、`std`、
+  `min`、`max`、`skewness`、`kurtosis`、`autocorrelation_mean`、`stationarity`、
+  `rate_of_change_mean`、`rate_of_change_std`、`autoreg_coef_mean`、
+  `residual_std_mean`、`frequency_mean`、`frequency_peak`、`spectral_entropy`、
+  `spectral_skewness` 和 `spectral_kurtosis`。
+- smoke 用 `TimeFuseFeatureCacheProvider` 输出 `FeatureBatch`，检查 sample_key 保序、
+  `features=(4, 17)`、`float32` dtype、`feature_schema`、`extra` 和按 manifest 重排后的数值一致性。
+- provider 阶段阻断除 feature CSV 外的文件读取和 `np.load`，证明本阶段不读取 oracle label、
+  oracle value、per-model error、`y_true` 或 prediction cache。
+
+P13e 明确不做：
+
+- 不接 `TimeFuseLinearSoftmaxHead`。
+- 不接 `EvaluationInputAdapter`。
+- 不写 canonical `run_dir`。
+- 不扩展 `scripts/run_stage1_canonical_small.py` 的三列 generic fixture 逻辑。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不把 17 维 feature 塞进 `SampleManifest`。
+- 不把 oracle/error 塞进 `FeatureProvider`。
+- 不声称正式入口已迁移。
+
+P13e 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_backend_expertbatch_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
+2. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

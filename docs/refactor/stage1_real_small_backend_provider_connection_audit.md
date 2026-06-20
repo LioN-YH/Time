@@ -114,10 +114,14 @@ TimeFuse 17 维 feature cache，也不代表 Visual online ViT feature。
    - 对照 P13b `expert_predictions.json` 检查 sample_key、model_columns、`y_pred/y_true` shape 和数值。
    - 见 `docs/refactor/stage1_prediction_backend_expertbatch_smoke.md`。
 
-2. **P13e：TimeFuse 17 维 FeatureProvider small smoke**
-   - 新增或复用小型 17 维 feature CSV。
-   - 用 `TimeFuseFeatureCacheProvider` 输出 `FeatureBatch`，验证 manifest ordered sample_keys 保序。
-   - 若需要 head 输入 shape 验证，另走 TimeFuse branch-specific protocol chain，不扩展 generic small CLI。
+2. **P13e：TimeFuse 17 维 FeatureProvider small smoke（已完成）**
+   - 新增 `tests/fixtures/stage1_timefuse_17dim_small/features_17d.csv`，使用 P13b manifest
+     的 sample_key 集合，CSV 行顺序刻意不同于 manifest。
+   - 新增 `tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py`，用
+     `TimeFuseFeatureCacheProvider` 输出 `FeatureBatch`，验证 manifest ordered sample_keys
+     保序、`[sample, 17]` shape、17 维 schema metadata 和数值一致性。
+   - 见 `docs/refactor/stage1_timefuse_17dim_feature_provider_smoke.md`；本 smoke 不接
+     TimeFuse head/evaluator，不扩展 generic small CLI。
 
 3. **P14a：Visual feature provider insertion audit**
    - 只审计 history window、pseudo image、frozen ViT embedding 在 Visual 正式入口中的可插入点。

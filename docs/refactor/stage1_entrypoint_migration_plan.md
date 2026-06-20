@@ -289,14 +289,21 @@ prediction artifact 写出和 launcher 接手信息。
   `ExpertBatch` 并验证 sample_key、model_columns、shape、row index lineage 和数值一致性；
   P13d 不迁移正式入口、不替换 Visual `SQLitePredictionIndex`，P13b JSON 仍不是正式
   backend schema；
+- P13e 已完成 TimeFuse 17 维 `FeatureProvider` small smoke，见
+  `docs/refactor/stage1_timefuse_17dim_feature_provider_smoke.md`；新增
+  `tests/fixtures/stage1_timefuse_17dim_small/` 和
+  `tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py`，使用 P13b manifest 的
+  ordered sample_keys 和仓库内小型 17 维 TimeFuse-style feature CSV，经
+  `TimeFuseFeatureCacheProvider` 输出 `FeatureBatch`，验证 sample_key 保序、`[sample, 17]`
+  shape、feature schema、provider extra 和数值一致性；P13e 不接 TimeFuse head/evaluator，
+  不扩展 generic small entrypoint，不读取 oracle/error/prediction；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P13e 可做 TimeFuse 17 维 `FeatureProvider` small smoke；Visual history window / pseudo image /
-   ViT provider 应先进入 P14a 插入点审计。
+1. P14a 可做 Visual history window / pseudo image / ViT provider insertion audit。
 2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
 3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
