@@ -528,3 +528,24 @@ P10d 根据允许重跑 Stage 1 的新方向，先冻结 canonical `SampleManife
 本步不改正式入口、不新增 provider 或 SampleManifest 代码、不改 protocols/types，不访问 `/data2`，
 不启动 pressure/full-scale，不改正式 artifact schema。P11/P12 可以在该边界上冻结新的
 run artifact schema；旧 schema 不再强行作为最高兼容目标。
+
+## 20. P10f Visual Labels Sample/Supervision Adapter
+
+P10f 在 P10d/P10e 边界之上新增 smoke-only Visual labels adapter，详见
+`docs/refactor/visual_labels_sample_supervision_adapter.md`。
+
+入口迁移计划新增约束：
+
+- Visual labels CSV 过去同时承担 manifest、split、oracle supervision 和 metadata；
+  迁移时应先拆为 `SampleManifest` 与 `SupervisionBatch`，再考虑正式入口接入。
+- `SampleManifestRow.extra` 只能保存轻量 lineage，不应放入 oracle label、per-model error
+  或未来信息。
+- `SupervisionBatch` 必须由显式 `sample_keys + model_columns + metric` 驱动，并保持该顺序。
+- P10f smoke 使用 `{model_name}_{metric}_error` 作为 fixture 误差列约定；真实历史 labels
+  字段名需要在正式接入前单独审计和映射，不能在 adapter 中猜测并改动正式入口。
+
+本步新增 `time_router/data/visual_labels_adapter.py` 和
+`tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py`，但仍不修改
+`train_visual_router_online_streaming.py`、`train_timefuse_fusor_streaming.py` 或
+`launch_timefuse_fusor_full_scale.py`，不访问 `/data2`，不启动 pressure/full-scale，
+不改变正式 artifact schema、loss、optimizer、scaler 或 checkpoint/resume。

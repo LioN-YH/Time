@@ -1287,6 +1287,56 @@ P10e 验收：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
 ```
 
+### P10f：Visual labels to SampleManifest / SupervisionBatch smoke adapter
+
+目标：在 P10e protocol skeleton 之上，只新增 Visual labels CSV / DataFrame 到
+canonical `SampleManifest` 与 `SupervisionBatch` 的最小 adapter，验证历史 Visual labels
+表可以被拆解为 sample manifest、split 和 supervision 三类职责。
+
+当前状态（2026-06-20）：已新增 `time_router/data/visual_labels_adapter.py`、
+`tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py` 和
+`docs/refactor/visual_labels_sample_supervision_adapter.md`，并从 `time_router.data`
+导出 adapter 函数。本步未修改 Visual Router / TimeFuse-style fusor 正式入口，未访问
+`/data2`，未改变正式输出 schema。
+
+本次完成范围：
+
+- `visual_labels_to_sample_manifest(...)` 支持小型 `pd.DataFrame` 或 CSV 路径输入，
+  构造 `SampleManifest` 并保持 labels 原始行顺序。
+- manifest 字段覆盖 `sample_key`、`split`、`config_name`、`dataset_name`、`item_id`、
+  `channel_id`、`window_index` 和可选 `seq_len/pred_len`。
+- `SampleManifestRow.extra` 只保存白名单 lineage，例如 `manifest_shard`，不保存
+  oracle/error 字段。
+- `visual_labels_to_supervision_batch(...)` 按显式 `sample_keys + model_columns + metric`
+  保序输出 `SupervisionBatch`。
+- smoke fixture 使用 `{model_name}_{metric}_error` 作为最小 per-model error 列约定，
+  推导 `oracle_model`、`oracle_value` 和 `[sample, expert]` 误差矩阵。
+- smoke 覆盖 4 行 vali/test labels、五专家列、CSV/DataFrame 双入口、缺失专家列、
+  重复 `sample_key` 和未知 split 报错。
+
+明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不接 Visual Router / TimeFuse 正式训练。
+- 不改 `PredictionBatchReader` / `PredictionCacheExpertProvider` / `EvaluationInputAdapter`。
+- 不新增 Bash/scripts，不访问 `/data2`，不启动 pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+
+P10f 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续建议：做 TimeFuse feature/oracle 到 `SampleManifest` / `SupervisionBatch` 的 smoke adapter；
+正式入口接入前，仍需对齐真实 Visual labels schema 字段映射。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

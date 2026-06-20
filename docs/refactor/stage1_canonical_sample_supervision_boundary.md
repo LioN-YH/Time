@@ -1,4 +1,4 @@
-# Stage 1 P10d/P10e Canonical SampleManifest 与 Supervision Boundary
+# Stage 1 P10d/P10e/P10f Canonical SampleManifest 与 Supervision Boundary
 
 设计日期：2026-06-20
 更新日期：2026-06-20
@@ -12,6 +12,9 @@ P10d 只做架构设计和文档冻结，不修改正式入口，不新增 provi
 P10e 在该边界上新增最小 lightweight dataclass/helper 与纯内存 smoke，用于锁定
 `SampleManifest` / `SupervisionBatch` 的 public API 雏形；仍不接 Visual Router、
 TimeFuse-style fusor 或任何正式训练入口。
+P10f 新增 Visual labels CSV / DataFrame 到 `SampleManifest` 与 `SupervisionBatch` 的
+最小 smoke adapter，只验证历史 labels 表可拆解为 canonical sample/split/supervision
+协议对象；仍不接正式入口、不改正式输出 schema。
 用户已接受必要时重跑 Stage 1 实验，因此后续新 schema 应优先服务长期可扩展边界，
 不再把完全兼容历史 labels CSV、feature CSV、oracle SQLite/parquet 或 runtime artifact schema
 作为最高优先级。
@@ -199,7 +202,32 @@ P10e 验收命令：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
 ```
 
-## 10. 本阶段明确不做
+## 10. P10f Visual labels adapter smoke
+
+新增 `time_router/data/visual_labels_adapter.py` 和
+`tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py`，详见
+`docs/refactor/visual_labels_sample_supervision_adapter.md`。
+
+P10f 完成范围：
+
+- 支持小型 `pd.DataFrame` 或 CSV 路径输入。
+- 从 labels 字段构造 `SampleManifest`，覆盖 `sample_key`、`split`、`config_name`、
+  `dataset_name`、`item_id`、`channel_id`、`window_index` 和可选 `seq_len/pred_len`。
+- `SampleManifestRow.extra` 只保存 `manifest_shard` 等轻量 lineage，不保存 oracle/error。
+- 按显式 `sample_keys + model_columns + metric` 构造 `SupervisionBatch`。
+- 使用 `{model_name}_{metric}_error` smoke 列推导 `oracle_model`、`oracle_value` 和
+  `[sample, expert]` per-model error 矩阵。
+- 覆盖缺失专家列、重复 `sample_key` 和未知 split 的清晰报错。
+
+P10f 验收命令：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+```
+
+真实历史 labels CSV 字段名仍需在正式入口接入前另做 schema 对齐；P10f 不猜测或重写正式入口。
+
+## 11. 本阶段明确不做
 
 - 不修改 `train_visual_router_online_streaming.py`。
 - 不修改 `train_timefuse_fusor_streaming.py`。
@@ -212,9 +240,10 @@ P10e 验收命令：
 - 不启动 pressure/full-scale。
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
 
-## 11. 后续
+## 12. 后续
 
-P10e 后优先进入 P11/P12 schema 冻结设计或小规模 manifest/supervision fixture 设计。
+P10f 后优先进入 TimeFuse feature/oracle 到 `SampleManifest` / `SupervisionBatch` 的 smoke adapter，
+或进入 P11/P12 schema 冻结设计。
 真正实现前应先决定：
 
 - `SampleManifest` 的物理存储格式和版本号；
