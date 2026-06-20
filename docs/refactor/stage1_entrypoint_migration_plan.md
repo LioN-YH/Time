@@ -549,3 +549,27 @@ P10f 在 P10d/P10e 边界之上新增 smoke-only Visual labels adapter，详见
 `train_visual_router_online_streaming.py`、`train_timefuse_fusor_streaming.py` 或
 `launch_timefuse_fusor_full_scale.py`，不访问 `/data2`，不启动 pressure/full-scale，
 不改变正式 artifact schema、loss、optimizer、scaler 或 checkpoint/resume。
+
+## 21. P10g TimeFuse Feature/Oracle Sample/Supervision Adapter
+
+P10g 在 P10f 之后新增 smoke-only TimeFuse feature/oracle adapter，详见
+`docs/refactor/timefuse_sample_supervision_adapter.md`。
+
+入口迁移计划新增约束：
+
+- TimeFuse feature CSV 过去同时承担 sample source 和 17 维 feature source；迁移时应先拆为
+  `SampleManifest` 与未来 `FeatureProvider` 两个边界。
+- `SampleManifestRow.extra` 只能保存 `feature_shard`、`feature_schema_version` 等轻量 lineage，
+  不应放入 17 维 feature 值、oracle label、per-model error 或未来信息。
+- oracle SQLite/parquet 过去承担 supervision；迁移时应进入 `SupervisionBatch` /
+  `SupervisionProvider`，不进入 deployable `FeatureProvider`。
+- `SupervisionBatch` 必须由显式 `sample_keys + model_columns + metric` 驱动，并保持该顺序。
+- P10g smoke 使用 `{model_name}_{metric}_error` 作为 fixture 误差列约定；真实历史 feature
+  CSV 和 oracle SQLite/parquet 字段名需要在正式接入前单独审计和映射，不能在 adapter 中
+  猜测并改动正式入口。
+
+本步新增 `time_router/data/timefuse_supervision_adapter.py` 和
+`tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py`，但仍不修改
+`train_visual_router_online_streaming.py`、`train_timefuse_fusor_streaming.py` 或
+`launch_timefuse_fusor_full_scale.py`，不访问 `/data2`，不启动 pressure/full-scale，
+不改变正式 artifact schema、loss、optimizer、scaler 或 checkpoint/resume。

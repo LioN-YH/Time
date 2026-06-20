@@ -1,4 +1,4 @@
-# Stage 1 P10d/P10e/P10f Canonical SampleManifest 与 Supervision Boundary
+# Stage 1 P10d/P10e/P10f/P10g Canonical SampleManifest 与 Supervision Boundary
 
 设计日期：2026-06-20
 更新日期：2026-06-20
@@ -15,6 +15,10 @@ TimeFuse-style fusor 或任何正式训练入口。
 P10f 新增 Visual labels CSV / DataFrame 到 `SampleManifest` 与 `SupervisionBatch` 的
 最小 smoke adapter，只验证历史 labels 表可拆解为 canonical sample/split/supervision
 协议对象；仍不接正式入口、不改正式输出 schema。
+P10g 新增 TimeFuse feature/oracle DataFrame / CSV 到 `SampleManifest` 与
+`SupervisionBatch` 的最小 smoke adapter，只验证历史 feature source 与 oracle/supervision
+source 可拆解为 canonical sample/split/supervision 协议对象；仍不接正式入口、不改正式
+feature/oracle/prediction/runtime artifact schema。
 用户已接受必要时重跑 Stage 1 实验，因此后续新 schema 应优先服务长期可扩展边界，
 不再把完全兼容历史 labels CSV、feature CSV、oracle SQLite/parquet 或 runtime artifact schema
 作为最高优先级。
@@ -227,7 +231,36 @@ P10f 验收命令：
 
 真实历史 labels CSV 字段名仍需在正式入口接入前另做 schema 对齐；P10f 不猜测或重写正式入口。
 
-## 11. 本阶段明确不做
+## 11. P10g TimeFuse feature/oracle adapter smoke
+
+新增 `time_router/data/timefuse_supervision_adapter.py` 和
+`tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py`，详见
+`docs/refactor/timefuse_sample_supervision_adapter.md`。
+
+P10g 完成范围：
+
+- 支持小型 `pd.DataFrame` 或 CSV 路径输入。
+- 从 feature source 字段构造 `SampleManifest`，覆盖 `sample_key`、`split`、`config_name`、
+  `dataset_name`、`item_id`、`channel_id`、`window_index` 和可选 `seq_len/pred_len`。
+- `SampleManifestRow.extra` 只保存 `feature_shard`、`feature_schema_version` 等轻量 lineage。
+- 明确 17 维 TimeFuse feature 值属于 `FeatureProvider`，不进入 `SampleManifestRow.extra`。
+- 从 oracle/supervision source 按显式 `sample_keys + model_columns + metric` 构造
+  `SupervisionBatch`。
+- 使用 `{model_name}_{metric}_error` smoke 列推导 `oracle_model`、`oracle_value` 和
+  `[sample, expert]` per-model error 矩阵。
+- 覆盖缺失 oracle 专家列、feature duplicate `sample_key`、oracle 缺失 `sample_key`
+  和未知 split 的清晰报错。
+
+P10g 验收命令：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+```
+
+真实历史 feature CSV 与 oracle SQLite/parquet 字段名仍需在正式入口接入前另做 schema 对齐；
+P10g 不猜测或重写正式入口。
+
+## 12. 本阶段明确不做
 
 - 不修改 `train_visual_router_online_streaming.py`。
 - 不修改 `train_timefuse_fusor_streaming.py`。
@@ -240,10 +273,10 @@ P10f 验收命令：
 - 不启动 pressure/full-scale。
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
 
-## 12. 后续
+## 13. 后续
 
-P10f 后优先进入 TimeFuse feature/oracle 到 `SampleManifest` / `SupervisionBatch` 的 smoke adapter，
-或进入 P11/P12 schema 冻结设计。
+P10g 后，Visual labels 和 TimeFuse feature/oracle 都已有 canonical sample/supervision
+adapter smoke。后续可进入 P11/P12 schema 冻结设计。
 真正实现前应先决定：
 
 - `SampleManifest` 的物理存储格式和版本号；
