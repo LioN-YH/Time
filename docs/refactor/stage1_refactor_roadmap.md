@@ -2164,8 +2164,8 @@ P13e 验收：
 
 后续连接：
 
-1. P14a 已完成 Visual feature provider insertion audit，后续进入 smoke-only Visual provider mock/fixture。
-2. P14b 可做 Visual FeatureProvider minimal mock/fixture smoke。
+1. P14a 已完成 Visual feature provider insertion audit。
+2. P14b 已完成 Visual FeatureProvider minimal mock/fixture smoke。
 3. P14c 可做 Visual eval-only canonical bypass plan。
 4. P15 再根据 P13d/P13e/P14a/P14b/P14c 结果决定是否新增 branch-specific small entrypoint。
 
@@ -2236,10 +2236,79 @@ P14a 验收：
 
 后续连接：
 
-1. P14b：Visual FeatureProvider minimal mock/fixture smoke，先用 fake history window reader
-   或 deterministic encoder stub，不加载真实 full-scale ViT。
+1. P14b 已完成 Visual FeatureProvider minimal mock/fixture smoke，使用 P13b manifest、
+   tiny history window fixture 和 deterministic encoder stub，不加载真实 full-scale ViT。
 2. P14c：Visual eval-only canonical bypass plan，继续不替换正式入口、不改输出 schema。
 3. P15：根据 P13d/P13e/P14a/P14b/P14c 决定是否新增 branch-specific small entrypoint。
+
+### P14b：Visual FeatureProvider minimal mock/fixture smoke
+
+目标：在 P14a insertion audit 之后，新增 smoke-only Visual `FeatureProvider` mock。用 P13b
+real-derived manifest 的 ordered sample_keys、小型 history window fixture 和 deterministic
+encoder stub，验证 Visual-style provider 可输出 canonical `FeatureBatch`，同时守住不读取
+prediction/oracle/run_dir 的边界。
+
+当前状态（2026-06-20）：已新增 `time_router/features/visual_mock.py`、
+`tests/fixtures/stage1_visual_feature_mock/`、
+`tests/smoke/stage1_visual_feature_provider_mock_smoke.py` 和
+`docs/refactor/stage1_visual_feature_provider_mock_smoke.md`，同步更新 P14a 审计、
+entrypoint migration plan、结构索引和中文实验日志。
+
+本次完成范围：
+
+- 新增 `DeterministicVisualEncoderStub`，只把一维 history window `x` 转成 8 维 float32
+  统计 embedding，不加载真实 ViT、不使用 GPU/DataParallel、不访问 Hugging Face cache。
+- 新增 `VisualMockFeatureProvider`，显式接收 `history_windows` 内存映射和调用方传入的
+  `sample_keys`，按 `sample_keys` 顺序读取 history window 并输出 `FeatureBatch`。
+- 新增 `tests/fixtures/stage1_visual_feature_mock/history_windows.json`，保存 4 个
+  `sample_key -> history_window_x`，不包含 future `y`、`y_true`、oracle/error、prediction
+  cache path、run_dir、metadata、status、checkpoint 或 `/data2`。
+- 新增 smoke 验证 `FeatureBatch.sample_keys` 保持 manifest 行顺序，`features=(4, 8)`、
+  dtype 为 `float32`，`feature_schema` 记录 visual mock schema、feature_dim、
+  history_source、pseudo_image/mock_not_materialized 和 encoder_stub 口径，`extra` 只记录
+  provider_name、source 和 num_available_rows。
+- smoke 在 provider 阶段 patch `open`、`Path.open`、`Path.read_text` 和 `np.load`，证明 provider
+  不读取任何文件、prediction cache、oracle/error、`y_true`、run_dir、metadata、status、
+  checkpoint 或 `/data2`。
+
+P14b 明确不做：
+
+- 不接 Visual RouterHead。
+- 不接 `EvaluationInputAdapter`。
+- 不写 canonical `run_dir`。
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不抽正式 ViT provider。
+- 不加载 Hugging Face ViT。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler、checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual RouterHead adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不替换 Visual `SQLitePredictionIndex`。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P14b 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_provider_mock_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_backend_expertbatch_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P14c：Visual eval-only canonical bypass plan，规划 legacy SQLite batch arrays 如何与 Visual
+   `FeatureBatch` / head / evaluator 对齐，但不替换正式入口、不改输出 schema。
+2. P15：根据 P13d/P13e/P14a/P14b/P14c 决定是否新增 branch-specific small entrypoint。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

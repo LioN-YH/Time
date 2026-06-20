@@ -199,11 +199,13 @@ SQLite batch arrays 包装为 `ExpertBatch` 做旁路校验，但它不代表 Vi
 若后续 P14b/P14c 开始实现，建议先做 smoke-only，不迁移正式入口：
 
 1. **P14b：Visual FeatureProvider minimal mock/fixture smoke**
-   - 构造 2-4 个 synthetic / fixture sample metadata。
-   - 使用 fake history window reader 或 tiny in-memory window source。
-   - 可先不加载真实 Hugging Face ViT，用 deterministic encoder stub 输出 `[sample, dim]`。
-   - 验证 `FeatureBatch.sample_keys` 保序、`features` shape、schema/extra、且不读取 oracle /
-     prediction / run_dir。
+   - 已完成，见 `docs/refactor/stage1_visual_feature_provider_mock_smoke.md`。
+   - 使用 P13b real-derived manifest 的 4 个 ordered sample_keys。
+   - 使用 `tests/fixtures/stage1_visual_feature_mock/history_windows.json` 作为 tiny in-memory
+     history window source。
+   - 不加载真实 Hugging Face ViT，用 deterministic encoder stub 输出 `[sample, 8]`。
+   - 验证 `FeatureBatch.sample_keys` 保序、`features` shape、schema/extra、且 provider
+     阶段不读取 oracle / prediction / run_dir。
 2. **P14c：Visual eval-only canonical bypass plan**
    - 只规划或 smoke 验证 eval-only 如何把 legacy Visual batch arrays 包装为
      `ExpertBatch`，再与 Visual `FeatureBatch` 和 Visual head/evaluator 对齐。
@@ -258,4 +260,3 @@ P14a 是纯文档审计。验收命令：
 - 明确 device/dtype/runtime 与 provider 的关系。
 - 明确 `FeatureBatch` 与 `ExpertBatch` 只通过 ordered `sample_keys` 对齐。
 - roadmap / migration plan 同步 P14a 状态和 P14b/P14c 连接。
-

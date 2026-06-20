@@ -307,21 +307,27 @@ prediction artifact 写出和 launcher 接手信息。
   provider 应输出 `FeatureBatch`，只提供可部署视觉特征和轻量 lineage，不读取 prediction
   cache、oracle/error、run_dir/checkpoint/status，也不接管 Visual RouterHead、loss、optimizer
   或正式输出 schema；
+- P14b 已完成 Visual FeatureProvider minimal mock/fixture smoke，见
+  `docs/refactor/stage1_visual_feature_provider_mock_smoke.md`；新增
+  `time_router/features/visual_mock.py`、`tests/fixtures/stage1_visual_feature_mock/` 和
+  `tests/smoke/stage1_visual_feature_provider_mock_smoke.py`，使用 P13b manifest ordered
+  sample_keys 和小型 history window fixture，经 deterministic encoder stub 输出
+  `FeatureBatch(features=(4, 8), dtype=float32)`；smoke 证明 provider 阶段不读取任何文件、
+  prediction/oracle/y_true/run_dir/status/checkpoint 或 `/data2`，不接 Visual RouterHead 或
+  evaluator；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P14b 可做 Visual FeatureProvider minimal mock/fixture smoke，先用 fake history window
-   reader 或 deterministic encoder stub 输出 `FeatureBatch`。
-2. P14c 可做 Visual eval-only canonical bypass plan，规划 legacy SQLite batch arrays 如何与
+1. P14c 可做 Visual eval-only canonical bypass plan，规划 legacy SQLite batch arrays 如何与
    Visual `FeatureBatch` / head / evaluator 对齐，但不替换正式入口。
-3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做
