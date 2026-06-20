@@ -1716,9 +1716,67 @@ P11d 验收：
 
 ### P12：small canonical entrypoint thin slice
 
-目标：在 P11d tiny smoke 证明 dataflow 与 canonical `run_dir` 能组合后，后续用最小 small
-canonical entrypoint 薄接入真实小规模输入。P12 才考虑 entrypoint 层，不应回头把 `run_dir`
-传入 Provider / Head / Evaluator，也不应在 P12 前新增 launcher 或 full-scale 资源调度。
+目标：在 P11d tiny smoke 证明 dataflow 与 canonical `run_dir` 能组合后，新增一个最小
+small canonical Python entrypoint，把 tiny canonical dataflow 包装为可执行 CLI。P12 只解决
+entrypoint 如何显式接收 `output_root/run_name`、创建 `run_dir`、调用已有
+protocol/provider/head/evaluator/runtime writer 并写出 canonical artifact；不迁移正式入口，
+不新增 Bash launcher，不访问 `/data2`，不启动 pressure/full-scale。
+
+当前状态（2026-06-20）：已新增 `scripts/run_stage1_canonical_small.py`、
+`tests/smoke/stage1_canonical_small_entrypoint_smoke.py` 和
+`docs/refactor/stage1_canonical_small_entrypoint.md`。
+
+本次完成范围：
+
+- `scripts/run_stage1_canonical_small.py` 提供薄 CLI，参数包括 `--output-root`、
+  `--run-name`、`--config-name`、`--branch-name`、`--feature-source` 和默认开启的
+  `--strict`。
+- entrypoint 内构造 3 行 tiny `SampleManifest`，从 manifest 取得 ordered sample_keys。
+- small `TinyExpertProvider` 返回 `ExpertBatch`，`TimeFuseFeatureCacheProvider` 读取 tiny
+  feature CSV 返回 `FeatureBatch`，`TimeFuseLinearSoftmaxHead` 输出 `RouterOutput`，
+  `EvaluationInputAdapter` 产生内存 summary/rows。
+- Runtime artifact writer 在 `output_root/run_name/` 写出 `run_metadata.json`、
+  `run_status.json`、`inputs/sample_manifest_ref.json`、`inputs/split_summary.json`、
+  `evaluation/evaluation_summary.json` 和 `predictions/prediction_rows.csv`。
+- smoke 通过 subprocess 调用 entrypoint，验证返回码、stdout `run_dir`、canonical 子目录、
+  JSON/CSV 可读、prediction rows 保持 manifest sample_key 顺序、未引用 `/data2`、未启动训练。
+- Provider / Head / Evaluator 不接收 `run_dir` 的边界由 entrypoint strict 校验和文档共同固定。
+
+P12 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动 small/pressure/full-scale 训练。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider` 或 Visual `RouterHead` adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不声称正式入口已迁移。
+
+P12 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_runtime_artifact_writer_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P12b 可审计更真实的小规模 canonical input 映射，但仍应保持 `scripts/` 是薄 CLI，不承载
+   provider 内部逻辑。
+2. P13 才能开始设计正式入口迁移审计或 adapter 插入策略；迁移前仍不得改变 legacy
+   output schema 或 full-scale launcher 行为。
+3. Provider / Head / Evaluator 不知道 `run_dir` 是 P12 之后继续保留的边界。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

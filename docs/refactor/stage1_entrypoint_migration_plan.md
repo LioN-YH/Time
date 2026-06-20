@@ -198,6 +198,10 @@ prediction artifact 写出和 launcher 接手信息。
 - P11d 已新增 tiny canonical protocol run smoke，把 `SampleManifest`、`ExpertBatch`、
   `FeatureBatch`、`RouterOutput`、`EvaluationInputAdapter` 和 P11c Runtime artifact writer
   串成 tempfile canonical `run_dir`；Provider / Head / Evaluator 仍不知道 `run_dir`，正式入口尚未迁移。
+- P12 已新增 `scripts/run_stage1_canonical_small.py` small canonical Python entrypoint thin slice，
+  可通过 CLI 接收 `--output-root/--run-name`，运行 tiny canonical dataflow，并只由 Runtime
+  artifact writer 写出 canonical `run_dir`；见
+  `docs/refactor/stage1_canonical_small_entrypoint.md`。
 - `launch_timefuse_fusor_full_scale.py` 仍是当前 TimeFuse full-scale preflight、脚本生成、
   PID/PGID、stop/resume 和接手信息层。
 - 正式 CSV / summary / metadata / status / checkpoint schema 本阶段不改。
@@ -245,7 +249,9 @@ prediction artifact 写出和 launcher 接手信息。
   `docs/refactor/stage1_runtime_artifact_writer.md`；正式 legacy entrypoint 尚未迁移；
 - P11d 已提供 tiny canonical protocol run smoke，见
   `docs/refactor/stage1_canonical_protocol_run_smoke.md`；正式 legacy entrypoint 尚未迁移；
-- small / pressure / full-scale canonical scripts 尚未准备。
+- P12 已提供 small canonical Python entrypoint thin slice，见
+  `docs/refactor/stage1_canonical_small_entrypoint.md`；正式 legacy entrypoint 尚未迁移；
+- pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
@@ -253,11 +259,10 @@ prediction artifact 写出和 launcher 接手信息。
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema，明确字段映射、
    缺失策略、metric 维度和 lineage。
-2. 在 P11d tiny canonical protocol run smoke 基础上，后续只在 P12 small canonical entrypoint 中薄接入；
-   仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
-   `time_router`。
-3. 准备 small / pressure / full-scale scripts，但 scripts 只作为 thin entrypoint 或 launcher，
-   不承载 provider 内部逻辑。
+2. P12 small canonical entrypoint 已完成；后续 P12b 若接更真实的小规模输入，仍需保持
+   Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到 `time_router`。
+3. P13 前准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+   不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
 4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
@@ -269,7 +274,7 @@ prediction artifact 写出和 launcher 接手信息。
 - 不新增 provider/head/runtime 代码。
 - 不改 `time_router/protocols/types.py`。
 - 不改 `PredictionBatchReader` / `PredictionCacheExpertProvider` / `EvaluationInputAdapter`。
-- 不新增 Bash/scripts。
+- 不新增 Bash launcher。
 - 不访问 `/data2`。
 - 不启动 pressure/full-scale。
 - 不改正式 CSV / summary / metadata / status / checkpoint schema。
