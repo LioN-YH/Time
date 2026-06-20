@@ -1445,13 +1445,14 @@ SampleManifest + SplitStrategy
 - P11a canonical run artifact schema 已完成；
 - P11b canonical SampleManifest physical schema 已完成；
 - P11c minimal Runtime artifact writer/helper 已完成；
+- P11d canonical protocol run smoke 已完成；
 - 正式入口尚未整体迁移到 canonical dataflow。
 
 下一阶段建议：
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
-2. P11c 已在 P11a/P11b schema 基础上新增最小 Runtime artifact writer；后续可准备
-   small canonical entrypoint 的薄接入。
+2. P11d 已在 tiny fixture 上串通 canonical dataflow 与 Runtime artifact writer；P12 可准备
+   small canonical entrypoint 的薄接入，但仍不应在 provider/head/evaluator 中引入 `run_dir`。
 3. 准备 small / pressure / full-scale scripts。
 4. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
 
@@ -1658,6 +1659,66 @@ P11c 验收：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
 ```
+
+### P11d：canonical protocol run smoke
+
+目标：新增一个最小 canonical protocol run smoke，把已有 protocol/adapters 与 P11c Runtime
+artifact writer 串起来，验证 tiny fixture 上可以完整跑出 canonical `run_dir`；本阶段仍不迁移
+正式入口，不新增 launcher/scripts，不访问 `/data2`，不启动训练或 full-scale。
+
+当前状态（2026-06-20）：已新增
+`tests/smoke/stage1_canonical_protocol_run_smoke.py` 和
+`docs/refactor/stage1_canonical_protocol_run_smoke.md`。smoke 使用 3 行 tiny
+`SampleManifestRow`，从 `SampleManifest.sample_keys()` 取得 ordered sample_keys，经过
+smoke-only `TinyExpertProvider`、`TimeFuseFeatureCacheProvider`、`TimeFuseLinearSoftmaxHead`、
+`EvaluationInputAdapter` 和 `time_router.runtime.artifact_writer` 写出 tempfile canonical
+`run_dir`。
+
+本次完成范围：
+
+- 验证 `SampleManifest` 的 ordered sample_keys 贯通到 `ExpertBatch`、`FeatureBatch`、
+  `RouterOutput`、`EvaluationInput` 和 `predictions/prediction_rows.csv`。
+- 验证 `predictions/` 只保存 per-sample rows，`evaluation/` 只保存聚合 summary。
+- 验证 `run_metadata.json`、`run_status.json`、`inputs/sample_manifest_ref.json`、
+  `inputs/split_summary.json`、`evaluation/evaluation_summary.json` 和
+  `predictions/prediction_rows.csv` 可读且关键 schema/sample/split/row count 正确。
+- 验证 Provider / Head / Evaluator 不接收 `run_dir`，Head/Evaluator 阶段不访问文件系统。
+- 验证 smoke 只使用 `tempfile` 和测试内 tiny fixture，不访问 `/data2`。
+
+P11d 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不修改 legacy entrypoint 实际输出。
+- 不新增 launcher/scripts。
+- 不访问 `/data2`。
+- 不启动 small/pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler、checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider` 或 Visual `RouterHead` adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不设计复杂 Runtime class、registry 或 migration framework。
+- 不声称正式入口已迁移。
+
+P11d 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_runtime_artifact_writer_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+### P12：small canonical entrypoint thin slice
+
+目标：在 P11d tiny smoke 证明 dataflow 与 canonical `run_dir` 能组合后，后续用最小 small
+canonical entrypoint 薄接入真实小规模输入。P12 才考虑 entrypoint 层，不应回头把 `run_dir`
+传入 Provider / Head / Evaluator，也不应在 P12 前新增 launcher 或 full-scale 资源调度。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

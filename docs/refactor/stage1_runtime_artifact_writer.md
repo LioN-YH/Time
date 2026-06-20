@@ -142,3 +142,18 @@ P11c 不做以下事项：
 
 P11c 还应继续运行 P11b 后的 golden smoke 与 compileall，确认新 helper 没有破坏已有
 protocol、adapter、SQLite backend 和 Stage 1 代码导入。
+
+## 7. P11d 后续连接
+
+P11d 已在 `tests/smoke/stage1_canonical_protocol_run_smoke.py` 中复用本 helper，把
+`SampleManifest -> ExpertBatch -> FeatureBatch -> RouterOutput -> EvaluationInputAdapter`
+的内存链路写成 tempfile canonical `run_dir`。
+
+该 smoke 进一步验证：
+
+- `run_dir` 仍只由 Runtime artifact writer 创建和写出；
+- Provider / Head / Evaluator 不接收、不解析 `run_dir`；
+- `predictions/prediction_rows.csv` 保存 per-sample rows；
+- `evaluation/evaluation_summary.json` 保存聚合 summary；
+- `inputs/sample_manifest_ref.json` 与 `inputs/split_summary.json` 记录 P11b 口径；
+- P11d 仍不是正式入口迁移，后续 P12 才考虑 small canonical entrypoint thin slice。
