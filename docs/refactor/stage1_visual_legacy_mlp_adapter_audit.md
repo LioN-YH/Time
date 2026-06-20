@@ -182,14 +182,14 @@ future eval-only legacy MLP adapter 不得：
 
 ## 9. 后续小步建议
 
-推荐 P14f：
+P14f 已完成，见 `docs/refactor/stage1_visual_legacy_mlp_adapter_smoke.md`：
 
-- 做 Visual legacy MLP adapter smoke。
+- 已新增 Visual legacy MLP adapter smoke。
 - 使用 tiny `FeatureBatch` 和小型 torch MLP / loaded `state_dict` fixture。
 - 输入直接使用 head-ready float32 features，不访问真实 ViT、不访问 `/data2`。
 - 输出 `RouterOutput`，验证 sample_key 保序、model_columns 对齐、logits/weights shape、
   softmax row sum、有限值和 `EvaluationInputAdapter` 可消费。
-- smoke-only adapter 可放在测试内或明确标注为 smoke-only，避免被误认为正式入口已迁移。
+- smoke-only adapter 定义在测试内，并明确不是正式 Visual RouterHead adapter。
 
 推荐 P15a：
 
