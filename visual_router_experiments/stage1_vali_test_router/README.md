@@ -81,6 +81,7 @@ TimeFuse-style fusor 是 baseline 支线，相关 reader、feature cache 和 GPU
 | `stage1_cache_contract.md` | 固定 prediction cache、oracle labels、feature cache、router evaluation 字段契约和 full-scale shard/resume 约定 |
 | `stage1_visual_router_mainline.md` | 只梳理 Stage 1 visual router 主线、`96_48_S` 已沉淀的正确路线、废弃路线和扩 config 标准步骤 |
 | `stage1_protocol_and_plan.md` | 记录 per-config 主实验协议、Stage 1B 迁移实验设计、已完成事项和后续验收标准 |
+| `visual_router_v2_pilot_protocol.md` | 基于 Visual Router / TimeFuse-style full-scale 结果定义 V2 架构诊断、小规模分轮消融、ViT domain adaptation、经济性门禁和独立 worktree 实验协议 |
 | `prediction_cache_design.md` | 早期 Quito evaluate/data/model 数据流阅读记录，以及 prediction cache 导出点设计 |
 | `feature_and_rl_extension_notes.md` | TimeFuse-style 结构特征支线、contextual bandit/RL 扩展判断和后续研究路线 |
 | `stage1_timefuse_fusor_streaming_reader_design.md` | 固定 full-scale TimeFuse-style fusor reader 的输入输出契约、SQLite 索引策略、并行策略和 1-shard smoke 验证结果 |
