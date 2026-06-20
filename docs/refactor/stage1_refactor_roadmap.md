@@ -2453,9 +2453,79 @@ P14d 验收：
 
 后续连接：
 
-1. P14e：Visual eval-only legacy MLP adapter audit or smoke。
-2. P15：根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e 决定是否新增 branch-specific small
+1. P14e 已完成：Visual eval-only legacy MLP adapter audit。
+2. P14f：Visual legacy MLP adapter smoke。
+3. P15：根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e/P14f 决定是否新增 branch-specific small
    entrypoint。
+
+### P14e：Visual eval-only legacy MLP adapter audit
+
+目标：在 P14d mock protocol eval smoke 之后，只审计 legacy `VisualMLPRouter` 在
+eval-only 阶段如何被薄包装为 canonical `RouterOutput`。P14e 不新增正式 adapter 代码，
+不修改正式入口，不访问 `/data2`，不启动训练、pressure 或 full-scale。
+
+当前状态（2026-06-20）：已新增
+`docs/refactor/stage1_visual_legacy_mlp_adapter_audit.md`，同步更新 P14c/P14d 文档、
+entrypoint migration plan、结构索引和中文实验日志。
+
+本次完成范围：
+
+- 明确 legacy `VisualMLPRouter.forward(features)` 当前输入是经过 vali-fitted
+  `StandardScaler` transform 的 ViT pooled embedding，shape 为 `[sample, embedding_dim]`，
+  对应 future adapter 的 head-ready `FeatureBatch.features`。
+- 明确 future eval-only legacy MLP adapter 目标边界：
+  `FeatureBatch(sample_keys, features) + model_columns + runtime-loaded legacy MLP checkpoint/scaler/device context
+  -> RouterOutput(sample_keys, model_columns, logits, weights, extra)`。
+- 明确 logits 由 legacy MLP 输出，weights 由 `softmax(logits, dim=1)` 得到；adapter 只负责
+  shape、有限值、softmax row sum、sample_key 保序和 model_columns 对齐检查。
+- 明确 `model_columns` 应由调用方显式传入，并与 `ExpertBatch.model_columns` 完全一致；
+  不从 CSV、checkpoint path 或 prediction cache 反推专家顺序。
+- 明确 scaler fit / scaler checkpoint state 属于 training/runtime state；eval-only
+  transform 可由 Runtime 或 adapter 前的显式 pre-head transform step 完成，adapter 不自己
+  fit scaler、不寻找 checkpoint。
+- 明确 checkpoint loading、signature 校验、resume、optimizer state、device/dtype 和
+  DataParallel 由 Runtime/entrypoint 管理；adapter 可以消费已加载并已放到目标 device 的
+  legacy MLP，但不决定全局资源策略。
+- 给出 P14f/P15a 后续建议：先做 smoke-only legacy MLP adapter，再决定 branch-specific
+  small entrypoint。
+
+P14e 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增正式 Visual RouterHead adapter 代码。
+- 不新增正式 VisualFeatureProvider。
+- 不抽真实 ViT provider。
+- 不接 legacy `VisualMLPRouter` 到 canonical pipeline。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler、checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不替换 Visual `SQLitePredictionIndex`。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P14e 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mock_protocol_eval_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_provider_mock_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_backend_expertbatch_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P14f：Visual legacy MLP adapter smoke，使用 tiny `FeatureBatch` 和小型 torch MLP /
+   loaded state_dict fixture 输出 `RouterOutput`，继续不接正式入口。
+2. P15a：branch-specific small entrypoint decision。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

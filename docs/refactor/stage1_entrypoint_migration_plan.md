@@ -333,16 +333,23 @@ prediction artifact 写出和 launcher 接手信息。
   EvaluationInputAdapter -> summary/rows`；验证 sample_key 保序、model_columns 对齐、
   weights shape/归一化、hard top-1/raw soft fusion 指标和 selected counts 可生成；
   P14d 不改正式入口、不加载真实 ViT、不接 legacy MLP、不写 canonical `run_dir`；
+- P14e 已完成 Visual eval-only legacy MLP adapter audit，见
+  `docs/refactor/stage1_visual_legacy_mlp_adapter_audit.md`；审计确认 legacy
+  `VisualMLPRouter` eval-only 输入是 scaler transform 后的 ViT pooled embedding，对应
+  head-ready `FeatureBatch.features`；future thin adapter 只消费
+  `FeatureBatch + model_columns + runtime-loaded MLP`，输出 `RouterOutput(logits, weights)`，
+  并检查 sample_key 保序、model_columns 与 `ExpertBatch.model_columns` 对齐、shape 和
+  softmax 权重；scaler fit/checkpoint state、checkpoint loading、resume、device/dtype 和
+  DataParallel 仍归 Runtime/entrypoint 管理；P14e 不改正式入口、不新增 adapter 代码；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P14e 可做 Visual eval-only legacy MLP adapter audit or smoke，确认
-   `FeatureBatch -> legacy MLP -> RouterOutput` 的 sample/model 保序、dtype/device 和 checkpoint
-   边界。
-2. P15 再根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e 结果决定是否新增 branch-specific small
+1. P14f 可做 Visual legacy MLP adapter smoke，使用 tiny `FeatureBatch` 和小型 torch MLP /
+   loaded state_dict fixture 验证 `FeatureBatch -> RouterOutput`，继续不接正式入口。
+2. P15 再根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e/P14f 结果决定是否新增 branch-specific small
    entrypoint。
 3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。

@@ -118,8 +118,12 @@ smoke 调用 `EvaluationInputAdapter.evaluate(...)`，并检查：
 
 ## 8. 后续连接
 
-1. P14e：Visual eval-only legacy MLP adapter audit or smoke，重点检查
+1. P14e 已完成：Visual eval-only legacy MLP adapter audit，见
+   `docs/refactor/stage1_visual_legacy_mlp_adapter_audit.md`。已明确 legacy MLP eval-only
+   adapter 的输入、输出、不做范围，以及 scaler/checkpoint/device/dtype/DataParallel
+   归 Runtime/entrypoint 管理。
+2. P14f：Visual legacy MLP adapter smoke，重点检查
    `FeatureBatch -> legacy MLP -> RouterOutput` 的 sample/model 保序、dtype/device 和
-   checkpoint 边界。
-2. P15：根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e 结果决定是否新增 branch-specific
+   checkpoint 边界，继续使用 tiny fixture，不接正式入口。
+3. P15：根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e/P14f 结果决定是否新增 branch-specific
    small entrypoint。
