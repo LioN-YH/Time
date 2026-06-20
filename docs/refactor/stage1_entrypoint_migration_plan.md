@@ -260,18 +260,22 @@ prediction artifact 写出和 launcher 接手信息。
 - P12b 已提供 small fixture input contract hardening，见
   `docs/refactor/stage1_canonical_small_fixture_contract.md`；该 fixture 后续用于 P13 审计真实
   Visual/TimeFuse 小规模输入映射；
+- P13a 已完成真实小规模输入 mapping audit，见
+  `docs/refactor/stage1_real_small_input_mapping_audit.md`；明确 Visual labels、
+  TimeFuse feature/oracle、真实 feature source、prediction cache / SQLite backend 到
+  P12b fixture contract 的映射边界，并确认 P13a 不迁移正式入口、不创建真实 fixture；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema，明确字段映射、
-   缺失策略、metric 维度和 lineage。
-2. P12 small canonical entrypoint 与 P12b small fixture input contract 已完成；后续 P13 审计
-   真实 Visual/TimeFuse 小规模输入映射时，仍需保持 Provider / Head / Evaluator 不知道
-   `run_dir`，且不把 Bash 语义下沉到 `time_router`。
-3. P13 前准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+1. P13b 可从已有 golden fixture、小规模真实样本或 P10f/P10g smoke fixture 派生真实小规模
+   `sample_manifest.csv`、branch-specific feature fixture 和 expert fixture/backend smoke，用
+   P12b entrypoint 验证字段映射、保序 join 与 artifact 可读。
+2. P13b 仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+   `time_router`。
+3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
 4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。

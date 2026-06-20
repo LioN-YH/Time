@@ -113,7 +113,20 @@ Visual labels、TimeFuse feature/oracle 和 expert prediction cache 的小规模
 - feature source 与 expert fixture 是否能按 manifest 保序 join；
 - 哪些逻辑属于 provider 内部，哪些仍应留在 thin entrypoint 或 Runtime。
 
-P13 之前仍不得声称正式入口已经迁移。
+P13a 已新增 `docs/refactor/stage1_real_small_input_mapping_audit.md`，冻结真实 Visual /
+TimeFuse 小规模输入到 P12b fixture contract 的 mapping 边界。结论是：
+
+- Visual labels 与 TimeFuse feature/oracle source 都只向 `SampleManifest` 映射样本身份、
+  split、顺序和轻量 lineage。
+- oracle label / oracle value / per-model error 属于 `SupervisionProvider`，不进入
+  `SampleManifest` 或 deployable `FeatureProvider`。
+- TimeFuse 17 维 feature 与 Visual history / pseudo image / ViT feature 属于 branch-specific
+  `FeatureProvider`，不进入 `SampleManifest`。
+- `expert_predictions.json` 仍只是 tiny fixture 格式；正式路径应继续走 prediction backend /
+  `ExpertProvider` / `ExpertBatch`。
+
+P13a 之后仍不得声称正式入口已经迁移。P13b 若构造真实小规模 fixture，应只做字段派生和保序
+验证，不新增 full-scale 数据链路。
 
 ## 8. 验收
 
