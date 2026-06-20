@@ -377,6 +377,15 @@ prediction artifact 写出和 launcher 接手信息。
   Runtime artifact writer`，写出 canonical run_dir；P15c 仍不迁移正式 Visual Router 训练入口，
   不读取真实 checkpoint，不接真实 ViT，不访问 `/data2`，不启动训练、pressure 或 full-scale，
   不修改 generic small CLI 或 TimeFuse small CLI；
+- P15d 已完成 branch-specific small entrypoint artifact parity smoke，见
+  `docs/refactor/stage1_branch_small_entrypoint_artifact_parity.md`；新增
+  `tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py`，同一 tempfile 下分别运行
+  TimeFuse small entrypoint 和 Visual small entrypoint，并比较两边 canonical run_dir 的共同结构、
+  `run_metadata.json`、`run_status.json`、`inputs/`、`evaluation/evaluation_summary.json`、
+  `predictions/prediction_rows.csv`、ordered sample_keys、split 列、`config_name`、`model_columns`
+  和有限指标字段；P15d 只锁定 schema parity，不比较 TimeFuse/Visual 指标优劣，不修改三个
+  small CLI，不迁移正式训练入口，不访问 `/data2`，不读取真实 checkpoint，不启动 ViT 或
+  full-scale；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
@@ -384,12 +393,15 @@ prediction artifact 写出和 launcher 接手信息。
 建议顺序：
 
 1. 后续可单独设计正式 Visual RouterHead adapter smoke，显式处理 checkpoint/scaler/device
-   边界；P15c 的 script-local smoke adapter 不提升为正式 adapter。
-2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+   边界；P15c 的 script-local smoke adapter 不提升为正式 adapter，P15d 的 parity smoke 也不代表
+   正式 Visual RouterHead 已迁移。
+2. 后续可单独审计 real Visual feature provider，把 history window、pseudo image、frozen ViT
+   provider 和 Runtime resource policy 分层处理。
+3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做

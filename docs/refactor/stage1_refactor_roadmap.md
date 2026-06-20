@@ -2595,7 +2595,8 @@ P14f 验收：
 
 1. P15a 已完成：branch-specific small entrypoint decision。
 2. P15b 已完成：TimeFuse-specific small canonical entrypoint thin slice。
-3. P15c：Visual-specific small canonical entrypoint thin slice。
+3. P15c 已完成：Visual-specific small canonical entrypoint thin slice。
+4. P15d：branch-specific small entrypoint artifact parity smoke。
 
 ### P15a：branch-specific small entrypoint decision
 
@@ -2647,6 +2648,7 @@ rg -n "P14 可以收束|generic small CLI|TimeFuse-specific|Visual-specific|P15b
 
 1. P15b 已完成：TimeFuse-specific small canonical entrypoint thin slice。
 2. P15c 已完成：Visual-specific small canonical entrypoint thin slice。
+3. P15d 已完成：branch-specific small entrypoint artifact parity smoke。
 
 ### P15b：TimeFuse-specific small canonical entrypoint thin slice
 
@@ -2706,6 +2708,7 @@ P15b 验收：
 后续连接：
 
 1. P15c 已完成：Visual-specific small canonical entrypoint thin slice。
+2. P15d 已完成：branch-specific small entrypoint artifact parity smoke。
 
 ### P15c：Visual-specific small canonical entrypoint thin slice
 
@@ -2772,9 +2775,95 @@ P15c 验收：
 
 后续连接：
 
+1. P15d 已完成：branch-specific small entrypoint artifact parity smoke。
+2. 正式 Visual RouterHead adapter design/smoke 可单独处理 checkpoint/scaler/device 边界。
+3. 真实 Visual feature provider / online ViT provider 仍需另起审计与 smoke。
+4. pressure / full-scale canonical scripts 尚未准备，不能由 P15c/P15d 推断完成。
+
+### P15d：branch-specific small entrypoint artifact parity smoke
+
+目标：在 P15b/P15c 之后、新的正式入口迁移之前，新增 cross-branch artifact parity
+smoke。P15d 同时运行 TimeFuse-specific 和 Visual-specific small entrypoint，然后比较
+两边 canonical run_dir 的共同结构、关键 schema、字段命名、ordered sample_keys 和边界。
+
+当前状态（2026-06-21）：已新增
+`tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py` 和
+`docs/refactor/stage1_branch_small_entrypoint_artifact_parity.md`。
+
+本次完成范围：
+
+- 使用 tempfile 下同一个 `run_outputs/`，分别运行：
+  - `scripts/run_stage1_timefuse_small.py --run-id p15d_timefuse_artifact_parity`
+  - `scripts/run_stage1_visual_small.py --run-id p15d_visual_artifact_parity`
+- 检查两边共同 canonical run_dir 结构：`run_metadata.json`、`run_status.json`、
+  `inputs/sample_manifest_ref.json`、`inputs/split_summary.json`、
+  `evaluation/evaluation_summary.json`、`predictions/prediction_rows.csv`、
+  `inputs/`、`indexes/`、`predictions/`、`evaluation/`、`checkpoints/`、`logs/` 和各自
+  最小日志文件。
+- 检查共同 `run_metadata.json` schema：`run_artifact_schema_version`、
+  `protocol_version`、`sample_manifest_schema_version`、`evaluation_schema_version`、
+  `config_name`、`branch_name`、`created_at`、`inputs`，并要求 inputs 共同包含
+  `sample_manifest`、`split_summary` 和 `expert_predictions_json`。
+- 检查共同 `run_status.json` schema：`status == completed`、`current_stage`、
+  `updated_at`、`failure_reason is None`、`checkpoint_pointer is None`。
+- 检查 split/input consistency：两边 `sample_manifest_ref.row_count` 一致、
+  `split_summary.sample_count_by_split` 一致、`prediction_rows.csv` 的 `sample_key` 顺序
+  和 `split` 列一致、`config_name` 一致。
+- 检查 evaluation summary schema：共同包含 `evaluation_schema_version`、`sample_count`、
+  `metrics`、`selected_counts`、`model_columns`；metrics 包含 hard/raw-soft MAE/MSE、
+  `mean_entropy` 和 `mean_max_weight` 且均为有限数值；`selected_counts` key 属于
+  `model_columns`。
+- 检查 prediction rows schema：共同包含 `sample_key`、`split`、`selected_model`、
+  `selected_index`、`y_true`、`y_pred`、hard/raw-soft MAE/MSE、`max_weight` 和
+  `weight_entropy`；行数、sample_key 顺序一致，selected model/index 合法，逐样本数值
+  字段可转 float 且有限。
+- 检查 TimeFuse branch-specific metadata：
+  `branch_name == timefuse_fusor_small`、`timefuse_fusor.training ==
+  not_started_p15b_small_rehearsal_only`、`inputs.features_csv.feature_dim == 17`。
+- 检查 Visual branch-specific metadata：
+  `branch_name == visual_router_small`、`visual_router.training ==
+  not_started_p15c_small_rehearsal_only`、`formal_visual_router_migration is False`、
+  `loads_real_checkpoint is False`、`loads_real_vit is False`、`feature_provider ==
+  VisualMockFeatureProvider`。
+- 检查 stdout/stderr 不出现 `/data2`、正式训练入口、`torch.load`、`ViTModel` 或
+  `AutoImageProcessor`，并确认 generic、TimeFuse 和 Visual small CLI 文件在 smoke 运行
+  前后不变。
+
+P15d 明确不做：
+
+- 不修改 `scripts/run_stage1_canonical_small.py` 行为。
+- 不修改 `scripts/run_stage1_timefuse_small.py` 行为。
+- 不修改 `scripts/run_stage1_visual_small.py` 行为。
+- 不迁移正式 Visual Router / TimeFuse fusor 训练入口。
+- 不访问 `/data2`。
+- 不读取真实 checkpoint。
+- 不启动真实 ViT embedding。
+- 不启动训练、pressure 或 full-scale。
+- 不新增 Bash launcher。
+- 不把 Bash 引入 `time_router`。
+- 不把 `run_dir` 传入 provider。
+- 不把 P15c smoke-only adapter 提升为正式 adapter。
+- 不为兼容旧版 `96_48_S` full-scale 输出 schema 写适配逻辑。
+- 不比较 TimeFuse/Visual 指标数值优劣，只比较共同 schema、共同 ordered sample_keys、
+  共同 ExpertBatch small fixture 和字段合法性。
+
+P15d 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py
+git diff --name-only
+rg -n "/data2|train_visual_router_online_streaming|train_timefuse_fusor_streaming|torch.load|ViTModel|AutoImageProcessor" tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py docs/refactor/stage1_branch_small_entrypoint_artifact_parity.md
+```
+
+后续连接：
+
 1. 正式 Visual RouterHead adapter design/smoke 可单独处理 checkpoint/scaler/device 边界。
-2. 真实 Visual feature provider / online ViT provider 仍需另起审计与 smoke。
-3. pressure / full-scale canonical scripts 尚未准备，不能由 P15c 推断完成。
+2. real Visual feature provider audit 可单独处理 history window、pseudo image、frozen ViT
+   provider 和 Runtime resource policy。
+3. TimeFuse formal streaming 入口接入 canonical artifact writer 仍需另起审计与 smoke。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
