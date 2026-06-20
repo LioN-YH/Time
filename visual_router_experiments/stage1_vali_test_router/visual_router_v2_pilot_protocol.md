@@ -167,6 +167,66 @@ ImageNet ViT 的 CLS token服务于自然图像分类，不保证能汇总平稳
 - future `y`、oracle error 和 expert prediction 只用于训练监督与评估，不进入 deployable feature；
 - 每个变体至少运行 3 个 seed，报告均值和标准差。
 
+### 5.4 已冻结样本集 v1
+
+2026-06-20 已用 `build_visual_router_v2_pilot_samples.py` 冻结第一版固定样本集：
+
+```text
+/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples/
+```
+
+生成命令：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python \
+  visual_router_experiments/stage1_vali_test_router/build_visual_router_v2_pilot_samples.py \
+  --output-dir /data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples \
+  --pilot-train-size 150000 \
+  --pilot-selection-size 30000 \
+  --pilot-test-size 75000 \
+  --diagnostic-balanced-size 20000 \
+  --gap-quantile-reservoir-size 1000000 \
+  --batch-size 500000
+```
+
+固定参数：
+
+| 字段 | 值 |
+| --- | --- |
+| seed | `20260620` |
+| oracle labels | `/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet` |
+| TSF enrichment | `/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/tsf_enrichment_full_scale_2026-06-16/sample_tsf_enrichment.parquet` |
+| prediction manifest | 不读取 `/merged_cache/manifest.csv` |
+| future y | 不作为 feature 读取 |
+| training | 未启动 |
+
+输出文件：
+
+| 文件 | 样本数 | split | 用途 |
+| --- | ---: | --- | --- |
+| `pilot_train_sample_keys.csv` | 150,000 | `vali` | Round 0/Round 1 训练 head、adapter、scaler |
+| `pilot_selection_sample_keys.csv` | 30,000 | `vali` | checkpoint、架构选择和 early stopping |
+| `pilot_test_sample_keys.csv` | 75,000 | `test` | 方案冻结后的最终小规模比较 |
+| `diagnostic_balanced_sample_keys.csv` | 20,000 | `vali` | oracle expert 近似均衡诊断，不替代主指标 |
+| `sample_set_metadata.json` | - | - | 输入路径、seed、抽样规则、目标/实际样本数和输出文件 |
+| `coverage_summary.csv` | - | - | split、dataset、oracle、error-gap quantile、TSF cell 覆盖分布 |
+| `validation_summary.json` | - | - | 唯一性、split 边界、交集和 order_index 验证 |
+
+最终验证结果：
+
+```text
+pilot_train: 150000 rows, split=vali, duplicate sample_key=0
+pilot_selection: 30000 rows, split=vali, duplicate sample_key=0
+pilot_test: 75000 rows, split=test, duplicate sample_key=0
+diagnostic_balanced: 20000 rows, split=vali, duplicate sample_key=0
+pilot_train ∩ pilot_selection = 0
+cross-set duplicate sample_key = 0
+diagnostic_balanced oracle counts = 4000 per expert
+validation_summary.status = passed
+```
+
+后续 Round 0 / Round 1 必须优先复用上述 ordered sample keys。训练、selection、test 的 dataloader、prediction lookup、feature cache 和评估输出都应以 CSV 中的 `order_index` 顺序为准；若需要更换样本集，必须新建输出目录、新 seed 或新版本号，并记录与 v1 的差异。
+
 ## 6. 分轮实验设计
 
 ### Round 0：基线复现与诊断仪表

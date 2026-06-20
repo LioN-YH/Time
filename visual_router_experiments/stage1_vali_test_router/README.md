@@ -64,6 +64,7 @@ TimeFuse-style fusor 是 baseline 支线，相关 reader、feature cache 和 GPU
 | 文件 | 功能 |
 | --- | --- |
 | `build_stage1_sample_manifest.py` | 生成 `96_48_S` 1k manifest-only 样本清单；用于中等规模实验和快速复现 |
+| `build_visual_router_v2_pilot_samples.py` | 从 full-scale oracle labels 与 TSF enrichment parquet 构建 Visual Router V2 固定 pilot sample keys；不读取 116M 行 merged prediction manifest，不训练模型；当前 v1 输出在 `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples/` |
 | `train_visual_router_online.py` | 适合 120/1k 规模；在线生成 ViT embedding 后在运行内暂存全部 embedding，再复用 MLP router 训练和评估逻辑 |
 | `train_visual_router.py` | 离线 embedding manifest 训练入口，也提供 online wrapper 复用的 MLP router、loss、hard/soft fusion 评估函数；当前正式路线不鼓励长期保存 ViT embedding `.npy` |
 
@@ -112,8 +113,7 @@ TimeFuse-style fusor 是 baseline 支线，相关 reader、feature cache 和 GPU
 
 ## 下一步
 
-1. 只读审查 `evaluate_soft_fusion_calibration.py`，确认 full-scale 下不会全量加载 116M 行 merged manifest。
-2. 如有必要，为 calibration 增加 SQLite/streaming 读取路径。
-3. 基于已完成的 `96_48_S` eval-only 输出评估 raw soft、temperature/top-k 和 hard top-1。
-4. 补视觉主线报告，把 `oracle_top1`、`global_best_single`、visual hard top-1、raw soft 和 best calibrated soft 放到同一张表。
-5. 再决定追加 `96_48_S` epoch，或把同一主线复制到下一个 config。
+1. Visual Router V2 pilot 优先复用 `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples/` 中的 ordered sample keys，先完成 Round 0 旧 Visual / TimeFuse-style / global best / oracle 小规模复现。
+2. Round 1 在同一 sample keys 上比较 CLS、mean patch、CLS+mean、RevIN aux-only 和 visual+aux，scaler 只在 `pilot_train` fit，架构选择只看 `pilot_selection`。
+3. `pilot_test` 只在方案冻结后使用；`diagnostic_balanced` 只做 oracle expert 近似均衡诊断，不替代自然分布主指标。
+4. 视觉主线 full-scale 后续仍可独立审查 `evaluate_soft_fusion_calibration.py` 的 streaming/SQLite 读取口径；不要把 V2 pilot 结果直接覆盖旧 full-scale 输出。
