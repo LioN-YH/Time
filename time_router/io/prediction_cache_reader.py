@@ -84,6 +84,7 @@ class PredictionBatchReader:
         fixture_root: Optional[Path] = None,
         model_columns: Optional[Sequence[str]] = None,
         chunk_rows: int = 200_000,
+        validate_manifest_schema: bool = True,
     ) -> None:
         if manifest_path is None and fixture_root is None:
             raise ValueError("必须提供 manifest_path 或 fixture_root")
@@ -96,6 +97,10 @@ class PredictionBatchReader:
         self.manifest_dir = self.manifest_path.parent
         self.model_columns = list(model_columns or DEFAULT_MODEL_COLUMNS)
         self.chunk_rows = int(chunk_rows)
+        # P13d smoke 需要复用 P13b real-derived sample_key（不是 canonical
+        # PredictionCacheKey.as_string() 格式）构造临时 backend fixture。默认仍保持
+        # strict schema 校验；只有调用方显式关闭时才退到最小 sample/model 完整性校验。
+        self.validate_manifest_schema = bool(validate_manifest_schema)
         if self.chunk_rows <= 0:
             raise ValueError("chunk_rows 必须为正整数")
         if len(self.model_columns) != len(set(self.model_columns)):
@@ -222,12 +227,46 @@ class PredictionBatchReader:
 
     def _validate_manifest_subset(self, manifest_df: pd.DataFrame) -> None:
         """函数功能：复用 schema 校验，并确认每个 sample 覆盖固定专家集合。"""
+        if not self.validate_manifest_schema:
+            self._validate_minimal_manifest_subset(manifest_df)
+            return
         validate_manifest_frame(
             manifest_df,
             expected_models=list(self.model_columns),
             require_unique_model_per_sample=True,
             require_shared_y_true_path=False,
         )
+
+    def _validate_minimal_manifest_subset(self, manifest_df: pd.DataFrame) -> None:
+        """
+        函数功能：
+            对非 canonical sample_key fixture 做最小 prediction manifest 校验。
+
+        关键约束：
+            该路径只用于 smoke 或迁移桥接验证；仍要求 `(sample_key, model_name)`
+            唯一、每个 sample 覆盖调用方显式指定的 model_columns，并保留数组路径、
+            指标和 row index 字段。正式 prediction cache 仍应使用 strict schema。
+        """
+        duplicate_count = int(manifest_df.duplicated(["sample_key", "model_name"]).sum())
+        if duplicate_count:
+            raise ValueError(f"sample_key + model_name 存在 {duplicate_count} 条重复记录。")
+
+        expected_models = set(self.model_columns)
+        missing_by_sample: Dict[str, List[str]] = {}
+        extra_by_sample: Dict[str, List[str]] = {}
+        for sample_key, group in manifest_df.groupby("sample_key", sort=False):
+            actual_models = set(group["model_name"].astype(str).tolist())
+            missing = [model_name for model_name in self.model_columns if model_name not in actual_models]
+            extra = sorted(actual_models.difference(expected_models))
+            if missing:
+                missing_by_sample[str(sample_key)] = missing
+            if extra:
+                extra_by_sample[str(sample_key)] = extra
+        if missing_by_sample or extra_by_sample:
+            raise ValueError(
+                "prediction manifest 专家集合不完整："
+                f"missing_by_sample={missing_by_sample} extra_by_sample={extra_by_sample}"
+            )
 
     def _build_record_lookup(
         self, manifest_df: pd.DataFrame

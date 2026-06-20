@@ -39,7 +39,9 @@ SampleManifest ordered sample_keys
 - `SampleManifest` 只提供 ordered sample_keys、split 和样本身份字段。
 - SQLite backend 的 index artifact 属于 Runtime/backend prepare 层，不属于 provider protocol object 的必填字段。
 - 本轮不替换 Visual Router 的 `SQLitePredictionIndex`，不把 `PredictionCacheExpertProvider` 接到正式入口。
-- P13d 若做真实 small backend smoke，应只在 tempfile 或仓库内 fixture 上构造 `ExpertBatch`，并对照 P13b JSON fixture 输出，不改变正式入口。
+- P13d 已按该边界完成 prediction backend -> `ExpertBatch` small smoke：只在 tempfile
+  内构造 packed_npy_v1 prediction cache/backend fixture，对照 P13b JSON fixture 输出，
+  不改变正式入口。
 
 ## 3. FeatureProvider 连接方案
 
@@ -104,12 +106,13 @@ TimeFuse 17 维 feature cache，也不代表 Visual online ViT feature。
 
 建议按下列小步继续推进，保持 smoke-first：
 
-1. **P13d：prediction backend -> ExpertBatch small smoke**
+1. **P13d：prediction backend -> ExpertBatch small smoke（已完成）**
    - 使用 P13b real-derived manifest 的 ordered sample_keys。
-   - 在 tempfile 中构造 packed/per-sample prediction manifest 或复用仓库内 small fixture。
+   - 在 tempfile 中构造 packed_npy_v1 prediction manifest、数组和 SQLite backend。
    - 通过 shared prediction SQLite backend / `PredictionBatchReader` / `PredictionCacheExpertProvider`
      输出 `ExpertBatch`。
-   - 对照 P13b `expert_predictions.json` 检查 sample_key、model_columns、`y_pred/y_true` shape 和指标。
+   - 对照 P13b `expert_predictions.json` 检查 sample_key、model_columns、`y_pred/y_true` shape 和数值。
+   - 见 `docs/refactor/stage1_prediction_backend_expertbatch_smoke.md`。
 
 2. **P13e：TimeFuse 17 维 FeatureProvider small smoke**
    - 新增或复用小型 17 维 feature CSV。

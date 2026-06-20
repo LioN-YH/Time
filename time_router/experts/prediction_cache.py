@@ -44,15 +44,18 @@ class PredictionCacheExpertProvider:
         fixture_root: Optional[Path] = None,
         model_columns: Optional[Sequence[str]] = None,
         chunk_rows: int = 200_000,
+        validate_manifest_schema: bool = True,
     ) -> None:
         self.reader = PredictionBatchReader(
             manifest_path=manifest_path,
             fixture_root=fixture_root,
             model_columns=model_columns,
             chunk_rows=chunk_rows,
+            validate_manifest_schema=validate_manifest_schema,
         )
         self.model_columns = tuple(str(model_name) for model_name in (model_columns or DEFAULT_MODEL_COLUMNS))
         self.chunk_rows = int(chunk_rows)
+        self.validate_manifest_schema = bool(validate_manifest_schema)
 
     def load_batch(self, sample_keys: Sequence[str], *, verify_metrics: bool = True) -> ExpertBatch:
         """
@@ -92,6 +95,7 @@ class PredictionCacheExpertProvider:
                     "manifest_model_order_by_sample": batch.metadata.get("manifest_model_order_by_sample"),
                     "verify_metrics": bool(verify_metrics),
                     "chunk_rows": self.chunk_rows,
+                    "validate_manifest_schema": self.validate_manifest_schema,
                 },
             },
         )

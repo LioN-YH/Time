@@ -280,21 +280,28 @@ prediction artifact 写出和 launcher 接手信息。
   `FeatureProvider` 或 Visual history window / pseudo image / ViT `FeatureProvider` 替换；
   generic small entrypoint 继续保持 thin CLI，branch-specific feature/head 验证另走
   branch-specific smoke 或 small entrypoint；
+- P13d 已完成 prediction backend -> `ExpertBatch` small smoke，见
+  `docs/refactor/stage1_prediction_backend_expertbatch_smoke.md`；新增
+  `tests/smoke/stage1_prediction_backend_expertbatch_smoke.py`，使用 P13b
+  real-derived manifest 的 ordered sample_keys 和 P13b `expert_predictions.json` 数值参考，
+  在 tempfile 内构造 packed_npy_v1 prediction manifest、数组和 SQLite backend，经
+  shared SQLite backend、`PredictionBatchReader` 和 `PredictionCacheExpertProvider` 输出
+  `ExpertBatch` 并验证 sample_key、model_columns、shape、row index lineage 和数值一致性；
+  P13d 不迁移正式入口、不替换 Visual `SQLitePredictionIndex`，P13b JSON 仍不是正式
+  backend schema；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P13d 可优先做 prediction backend -> `ExpertBatch` small smoke，使用 real-derived manifest
-   的 ordered sample_keys，对照 P13b expert JSON fixture 检查 shape、专家顺序和指标。
-2. P13e 可做 TimeFuse 17 维 `FeatureProvider` small smoke；Visual history window / pseudo image /
+1. P13e 可做 TimeFuse 17 维 `FeatureProvider` small smoke；Visual history window / pseudo image /
    ViT provider 应先进入 P14a 插入点审计。
-3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做
@@ -302,7 +309,7 @@ prediction artifact 写出和 launcher 接手信息。
 - 不修改 `train_visual_router_online_streaming.py`。
 - 不修改 `train_timefuse_fusor_streaming.py`。
 - 不修改 `launch_timefuse_fusor_full_scale.py`。
-- 不新增 provider/head/runtime 代码。
+- 不新增正式 provider/head/runtime 代码。
 - 不改 `time_router/protocols/types.py`。
 - 不改 `PredictionBatchReader` / `PredictionCacheExpertProvider` / `EvaluationInputAdapter`。
 - 不新增 Bash launcher。
