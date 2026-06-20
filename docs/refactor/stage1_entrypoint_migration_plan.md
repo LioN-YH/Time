@@ -228,7 +228,8 @@ prediction artifact 写出和 launcher 接手信息。
 - `SampleManifest` 物理存储格式和版本号尚未冻结；
 - 正式 `SupervisionProvider` 尚未实现；
 - Visual online ViT `FeatureProvider` 尚未抽取；
-- run artifact schema 尚未冻结；
+- P11a 已冻结 future canonical run artifact schema，见
+  `docs/refactor/stage1_canonical_run_artifact_schema.md`；正式 legacy output schema 尚未改动；
 - small / pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
@@ -237,9 +238,10 @@ prediction artifact 写出和 launcher 接手信息。
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema，明确字段映射、
    缺失策略、metric 维度和 lineage。
-2. 冻结 `SampleManifest` 物理存储格式与版本号，决定 CSV / Parquet / SQLite 或组合方案。
-3. 冻结 run artifact schema，明确 status、metadata、checkpoint、evaluation、predictions 和
-   launcher 接手信息。
+2. 基于 P11a run artifact schema，冻结 `SampleManifest` 物理存储格式与版本号，决定 CSV /
+   Parquet / SQLite 或组合方案，并明确 `inputs/` 中的 manifest 引用或快照方式。
+3. 设计最小 Runtime artifact writer 或 helper，但保持 Provider / Head / Evaluator 不知道
+   `run_dir`，且不把 Bash 语义下沉到 `time_router`。
 4. 准备 small / pressure / full-scale scripts，但 scripts 只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑。
 5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要

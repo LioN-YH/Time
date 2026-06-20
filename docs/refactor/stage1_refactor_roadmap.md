@@ -1447,11 +1447,87 @@ SampleManifest + SplitStrategy
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
 2. 冻结 `SampleManifest` 物理存储格式与版本号。
-3. 冻结 run artifact schema。
-4. 准备 small / pressure / full-scale scripts。
-5. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
+3. P11a 冻结 run artifact schema。
+4. P11b/P11c 在 run artifact schema 基础上继续冻结 `SampleManifest` 物理存储和最小
+   Runtime artifact writer 接入边界。
+5. 准备 small / pressure / full-scale scripts。
+6. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
 
 P10h 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+### P11a：canonical run artifact schema
+
+目标：只做 Stage 1 canonical run artifact schema 文档冻结，明确新版 canonical pipeline
+运行后 `run_dir` 的最小推荐结构、metadata/status 动静态边界、inputs/indexes/predictions/
+evaluation/checkpoints/logs 的职责、Runtime 与 Provider 的路径边界、最小 versioning strategy、
+legacy `96_48_S` full-scale policy 和 Visual / TimeFuse-style branch-specific artifact policy。
+
+当前状态（2026-06-20）：已新增
+`docs/refactor/stage1_canonical_run_artifact_schema.md`，并同步更新 entrypoint migration plan、
+target architecture、路线图、结构索引和中文实验日志。本阶段只做文档，不修改正式入口，不新增
+launcher/scripts，不启动实验，不访问 `/data2`，不改变当前 legacy entrypoint 的实际 CSV /
+summary / metadata / status / checkpoint schema。
+
+本次冻结的 canonical `run_dir` 推荐结构：
+
+```text
+run_dir/
+  run_metadata.json
+  run_status.json
+  inputs/
+  indexes/
+  predictions/
+  evaluation/
+  checkpoints/
+  logs/
+```
+
+关键结论：
+
+- `run_dir` 属于 Runtime，不属于 Provider。
+- Provider 不持有、不解析、不硬编码 `run_dir`。
+- `evaluation/` 保存 summary、comparison、selected counts、entropy/max weight 和
+  `evaluation_report.md` 等聚合评估输出。
+- `predictions/` 保存 per-sample prediction rows、hard top-1 rows、raw soft fusion rows、
+  router output rows 和 sample-level diagnostic rows。
+- 不新增 `summaries/`，避免与 `evaluation/` 边界重叠。
+- 最小 versioning 只包含 `run_artifact_schema_version`、`protocol_version`、
+  `sample_manifest_schema_version`、`supervision_schema_version`、`prediction_backend_version`
+  和 `evaluation_schema_version`，不设计复杂 registry。
+- `ExpertBatch`、`RouterOutput`、`EvaluationInput` 是内存协议对象，不等同于磁盘 schema。
+- 旧版 `96_48_S` full-scale 输出只作为 sanity reference，不作为 canonical artifact schema
+  的兼容目标，也不驱动新代码接口设计。
+
+P11a 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增 provider/head/runtime 代码。
+- 不新增 Bash/scripts。
+- 不访问 `/data2`。
+- 不启动 small/pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+
+后续连接：
+
+1. P11b 可冻结 `SampleManifest` 物理存储格式、schema version 和 `inputs/` 中的 split
+   summary 写入方式。
+2. P11c 可设计最小 Runtime artifact writer 或 helper，但必须保持 provider/head/evaluator
+   不知道 `run_dir` 的边界。
+3. 后续 scripts/launcher 接入只把 `run_dir` 显式传给 Runtime，不把 Bash 语义下沉到
+   `time_router`。
+
+P11a 验收：
 
 ```bash
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
