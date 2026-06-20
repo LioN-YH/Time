@@ -1,4 +1,4 @@
-# Stage 1 P10d/P10e/P10f/P10g Canonical SampleManifest 与 Supervision Boundary
+# Stage 1 P10d/P10e/P10f/P10g/P10h Canonical SampleManifest 与 Supervision Boundary
 
 设计日期：2026-06-20
 更新日期：2026-06-20
@@ -19,6 +19,10 @@ P10g 新增 TimeFuse feature/oracle DataFrame / CSV 到 `SampleManifest` 与
 `SupervisionBatch` 的最小 smoke adapter，只验证历史 feature source 与 oracle/supervision
 source 可拆解为 canonical sample/split/supervision 协议对象；仍不接正式入口、不改正式
 feature/oracle/prediction/runtime artifact schema。
+P10h 只做 Stage 1 entrypoint migration plan 的 canonical dataflow 对齐，把后续入口迁移叙述
+调整为 `SampleManifest + SplitStrategy -> ExpertProvider / prediction backend ->
+SupervisionProvider -> FeatureProvider -> RouterHead -> EvaluationInputAdapter / Evaluator ->
+Runtime / artifact writer`；仍不修改正式入口、不新增代码。
 用户已接受必要时重跑 Stage 1 实验，因此后续新 schema 应优先服务长期可扩展边界，
 不再把完全兼容历史 labels CSV、feature CSV、oracle SQLite/parquet 或 runtime artifact schema
 作为最高优先级。
@@ -276,7 +280,12 @@ P10g 不猜测或重写正式入口。
 ## 13. 后续
 
 P10g 后，Visual labels 和 TimeFuse feature/oracle 都已有 canonical sample/supervision
-adapter smoke。后续可进入 P11/P12 schema 冻结设计。
+adapter smoke。P10h 后，entrypoint migration plan 也已改为 canonical dataflow 视角，
+明确两条路线共用 `SampleManifest`、`SplitStrategy`、prediction backend / `ExpertBatch`、
+`SupervisionBatch` / `SupervisionProvider`、`EvaluationInputAdapter` / Evaluator metrics 和
+run artifact contract 方向，同时保留 Visual 与 TimeFuse 的 feature/head/objective 分支实现。
+
+后续可进入 P11/P12 schema 冻结设计。
 真正实现前应先决定：
 
 - `SampleManifest` 的物理存储格式和版本号；

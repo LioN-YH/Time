@@ -1391,6 +1391,76 @@ P10g 验收：
 adapter smoke；正式入口接入前，先对齐真实 full-scale schema 字段映射，再冻结
 SampleManifest / SupervisionProvider 物理存储和缺失策略。
 
+### P10h：canonical dataflow alignment review
+
+目标：只更新 Stage 1 entrypoint migration plan 和相关索引文档，把叙述从旧的
+“Visual Router 和 TimeFuse-style fusor 分别拆解入口职责”调整为“统一 canonical dataflow
++ branch-specific implementations”。本步只做文档对齐，不修改正式入口，不新增代码。
+
+当前状态（2026-06-20）：已重写
+`docs/refactor/stage1_entrypoint_migration_plan.md` 的主叙述，新增 canonical dataflow
+总览，并同步更新 target architecture、canonical sample/supervision boundary 和结构索引。
+正式入口、provider/head/runtime、protocol types、prediction reader/backend、evaluation adapter、
+launcher、loss、optimizer、scaler、checkpoint/resume 和正式输出 schema 均未修改。
+
+本次对齐后的 canonical dataflow：
+
+```text
+SampleManifest + SplitStrategy
+  -> ordered sample_keys
+  -> ExpertProvider / prediction backend
+  -> SupervisionProvider
+  -> FeatureProvider
+  -> RouterHead
+  -> EvaluationInputAdapter / Evaluator
+  -> Runtime / artifact writer
+```
+
+两条路线应共用：
+
+- `SampleManifest`；
+- `SplitStrategy` 语义；
+- prediction SQLite backend / `ExpertBatch`；
+- `SupervisionBatch` / `SupervisionProvider` contract；
+- `EvaluationInputAdapter` / Evaluator metrics；
+- run artifact contract 方向。
+
+保留 branch-specific 实现：
+
+- Visual Router 的 Quito history window / pseudo image / ViT feature provider；
+- TimeFuse 的 17 维 feature cache / feature-only scaler；
+- `VisualMLPRouterHead`；
+- `TimeFuseLinearSoftmaxHead`；
+- Visual `fusion_huber_kl` / classification objective；
+- TimeFuse SmoothL1 weighted fusion objective。
+
+当前代码状态：
+
+- Visual evaluation/training `ExpertBatch` bypass 已完成；
+- Visual labels adapter smoke 已完成；
+- TimeFuse protocol chain smoke 已完成；
+- TimeFuse sample/supervision adapter smoke 已完成；
+- shared prediction SQLite backend smoke 已完成；
+- 正式入口尚未整体迁移到 canonical dataflow。
+
+下一阶段建议：
+
+1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
+2. 冻结 `SampleManifest` 物理存储格式与版本号。
+3. 冻结 run artifact schema。
+4. 准备 small / pressure / full-scale scripts。
+5. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
+
+P10h 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
