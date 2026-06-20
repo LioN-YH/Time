@@ -1,0 +1,4 @@
+sample_key,trend_strength,seasonality_strength,recent_volatility
+96_48_S__test__TINY_DATA__item11__ch1__win2,0.05000000,0.40000000,0.15000000
+96_48_S__vali__TINY_DATA__item10__ch0__win0,0.10000000,0.20000000,0.05000000
+96_48_S__test__TINY_DATA__item10__ch0__win1,0.35000000,0.10000000,0.20000000

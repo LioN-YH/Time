@@ -202,6 +202,12 @@ prediction artifact 写出和 launcher 接手信息。
   可通过 CLI 接收 `--output-root/--run-name`，运行 tiny canonical dataflow，并只由 Runtime
   artifact writer 写出 canonical `run_dir`；见
   `docs/refactor/stage1_canonical_small_entrypoint.md`。
+- P12b 已固定 small fixture input contract：entrypoint 继续默认使用内联 tiny fixture，同时
+  可选读取 `--sample-manifest`、`--feature-source` 和 `--expert-fixture`；显式 fixture 保持
+  manifest row order、feature provider 按 manifest 保序、expert fixture 按 manifest 组装
+  `ExpertBatch`，并在 `run_metadata.json inputs` 中记录 `sample_manifest`、`feature_source`
+  和 `expert_fixture` 来源摘要；见
+  `docs/refactor/stage1_canonical_small_fixture_contract.md`。
 - `launch_timefuse_fusor_full_scale.py` 仍是当前 TimeFuse full-scale preflight、脚本生成、
   PID/PGID、stop/resume 和接手信息层。
 - 正式 CSV / summary / metadata / status / checkpoint schema 本阶段不改。
@@ -251,6 +257,9 @@ prediction artifact 写出和 launcher 接手信息。
   `docs/refactor/stage1_canonical_protocol_run_smoke.md`；正式 legacy entrypoint 尚未迁移；
 - P12 已提供 small canonical Python entrypoint thin slice，见
   `docs/refactor/stage1_canonical_small_entrypoint.md`；正式 legacy entrypoint 尚未迁移；
+- P12b 已提供 small fixture input contract hardening，见
+  `docs/refactor/stage1_canonical_small_fixture_contract.md`；该 fixture 后续用于 P13 审计真实
+  Visual/TimeFuse 小规模输入映射；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
@@ -259,8 +268,9 @@ prediction artifact 写出和 launcher 接手信息。
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema，明确字段映射、
    缺失策略、metric 维度和 lineage。
-2. P12 small canonical entrypoint 已完成；后续 P12b 若接更真实的小规模输入，仍需保持
-   Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到 `time_router`。
+2. P12 small canonical entrypoint 与 P12b small fixture input contract 已完成；后续 P13 审计
+   真实 Visual/TimeFuse 小规模输入映射时，仍需保持 Provider / Head / Evaluator 不知道
+   `run_dir`，且不把 Bash 语义下沉到 `time_router`。
 3. P13 前准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
 4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要

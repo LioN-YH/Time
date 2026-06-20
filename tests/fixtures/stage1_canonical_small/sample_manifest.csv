@@ -1,0 +1,4 @@
+sample_key,split,config_name,dataset_name,item_id,channel_id,window_index,seq_len,pred_len
+96_48_S__vali__TINY_DATA__item10__ch0__win0,vali,96_48_S,TINY_DATA,10,0,0,96,48
+96_48_S__test__TINY_DATA__item10__ch0__win1,test,96_48_S,TINY_DATA,10,0,1,96,48
+96_48_S__test__TINY_DATA__item11__ch1__win2,test,96_48_S,TINY_DATA,11,1,2,96,48

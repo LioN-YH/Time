@@ -1,0 +1,32 @@
+{
+  "model_columns": ["DLinear", "PatchTST", "CrossFormer"],
+  "samples": [
+    {
+      "sample_key": "96_48_S__vali__TINY_DATA__item10__ch0__win0",
+      "y_true": [[1.0], [1.2]],
+      "y_pred": [
+        [[1.1], [1.3]],
+        [[0.9], [1.1]],
+        [[1.4], [1.5]]
+      ]
+    },
+    {
+      "sample_key": "96_48_S__test__TINY_DATA__item10__ch0__win1",
+      "y_true": [[2.0], [1.8]],
+      "y_pred": [
+        [[2.2], [1.9]],
+        [[1.7], [1.6]],
+        [[2.1], [1.7]]
+      ]
+    },
+    {
+      "sample_key": "96_48_S__test__TINY_DATA__item11__ch1__win2",
+      "y_true": [[0.5], [0.7]],
+      "y_pred": [
+        [[0.6], [0.8]],
+        [[0.4], [0.6]],
+        [[0.9], [1.0]]
+      ]
+    }
+  ]
+}

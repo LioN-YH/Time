@@ -1778,6 +1778,70 @@ P12 验收：
    output schema 或 full-scale launcher 行为。
 3. Provider / Head / Evaluator 不知道 `run_dir` 是 P12 之后继续保留的边界。
 
+### P12b：small canonical fixture input contract hardening
+
+目标：在 P12 small canonical entrypoint 保持默认内联 tiny fixture 的基础上，固定显式
+small fixture 文件的输入契约，让 entrypoint 可选读取 tiny SampleManifest、feature CSV 和
+expert prediction JSON，并验证显式 fixture 输出与内联 fixture 业务输出一致。
+
+当前状态（2026-06-20）：已新增 `tests/fixtures/stage1_canonical_small/`、
+`tests/smoke/stage1_canonical_small_entrypoint_fixture_smoke.py` 和
+`docs/refactor/stage1_canonical_small_fixture_contract.md`；`scripts/run_stage1_canonical_small.py`
+已支持 `--sample-manifest`、`--expert-fixture` 和既有 `--feature-source`。
+
+本次完成范围：
+
+- `sample_manifest.csv` 使用 P11b `stage1_sample_manifest_v1` 最小字段，行顺序作为 ordered
+  sample_keys 来源。
+- `features.csv` 包含 `sample_key`、`trend_strength`、`seasonality_strength` 和
+  `recent_volatility`，行顺序刻意不同于 manifest，验证 FeatureProvider 按 manifest 保序。
+- `expert_predictions.json` 使用小数组 JSON 保存 `model_columns`、`y_true` 和 `y_pred`，
+  由 `JsonExpertFixtureProvider` 按 manifest sample_keys 组装 `ExpertBatch`。
+- 未传 `--sample-manifest` / `--expert-fixture` 时继续使用 P12 内联 tiny fixture；未传
+  `--feature-source` 时继续生成临时 feature CSV。
+- `run_metadata.json inputs` 记录 `sample_manifest`、`feature_source` 和
+  `expert_fixture` 的来源摘要。
+- 新 smoke 同时运行默认内联 fixture 和显式 fixture，比较 `prediction_rows.csv` 业务输出一致，
+  并验证显式 fixture 的 sample_key 顺序来自 manifest。
+
+P12b 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider` 或 Visual `RouterHead` adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P12b 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_runtime_artifact_writer_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P12b fixture contract 后续用于 P13 审计真实 Visual labels、TimeFuse feature/oracle 和
+   expert prediction cache 的小规模输入映射。
+2. P13 才能开始设计正式入口迁移审计或 adapter 插入策略；迁移前仍不得改变 legacy
+   output schema 或 full-scale launcher 行为。
+3. `scripts/` 继续只作为 thin entrypoint，不承载 provider 内部复杂逻辑。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
