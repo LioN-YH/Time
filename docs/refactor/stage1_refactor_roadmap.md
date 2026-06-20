@@ -1444,12 +1444,14 @@ SampleManifest + SplitStrategy
 - shared prediction SQLite backend smoke 已完成；
 - P11a canonical run artifact schema 已完成；
 - P11b canonical SampleManifest physical schema 已完成；
+- P11c minimal Runtime artifact writer/helper 已完成；
 - 正式入口尚未整体迁移到 canonical dataflow。
 
 下一阶段建议：
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
-2. P11c 在 P11a/P11b schema 基础上设计最小 Runtime artifact writer 接入边界。
+2. P11c 已在 P11a/P11b schema 基础上新增最小 Runtime artifact writer；后续可准备
+   small canonical entrypoint 的薄接入。
 3. 准备 small / pressure / full-scale scripts。
 4. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
 
@@ -1522,8 +1524,8 @@ P11a 明确不做：
 
 1. P11b 已冻结 `SampleManifest` 物理存储格式、schema version 和 `inputs/` 中的 split
    summary 写入方式。
-2. P11c 可设计最小 Runtime artifact writer 或 helper，但必须保持 provider/head/evaluator
-   不知道 `run_dir` 的边界。
+2. P11c 已新增最小 Runtime artifact writer/helper，但仍必须保持 provider/head/evaluator
+   不知道 `run_dir` 的边界；正式入口尚未迁移。
 3. 后续 scripts/launcher 接入只把 `run_dir` 显式传给 Runtime，不把 Bash 语义下沉到
    `time_router`。
 
@@ -1589,14 +1591,67 @@ P11b 明确不做：
 
 后续连接：
 
-1. P11c 可设计最小 Runtime artifact writer/helper，但必须保持 provider/head/evaluator
-   不知道 `run_dir` 的边界。
+1. P11c 已新增最小 Runtime artifact writer/helper，但必须保持 provider/head/evaluator
+   不知道 `run_dir` 的边界；正式入口尚未迁移。
 2. 正式入口迁移前仍需审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
 3. canonical pipeline 后续需要重跑，legacy `96_48_S` full-scale 输出只作为 sanity reference。
 
 P11b 验收：
 
 ```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+### P11c：minimal Runtime artifact writer/helper
+
+目标：在 P11a/P11b schema 基础上新增最小 Runtime artifact writer/helper，让 Runtime 能在
+临时 `run_dir` 写出 canonical 最小 artifact；保持 Provider / Head / Evaluator 不知道
+`run_dir`，不迁移正式入口，不新增 launcher/scripts，不访问 `/data2`，不启动实验。
+
+当前状态（2026-06-20）：已新增 `time_router/runtime/__init__.py`、
+`time_router/runtime/artifact_writer.py`、`tests/smoke/stage1_runtime_artifact_writer_smoke.py`
+和 `docs/refactor/stage1_runtime_artifact_writer.md`。
+
+本次完成范围：
+
+- `create_run_dir(output_root, run_name=None)` 创建 canonical `run_dir` 和 `inputs/`、
+  `indexes/`、`predictions/`、`evaluation/`、`checkpoints/`、`logs/` 子目录。
+- `write_run_metadata(...)` 写 `run_metadata.json` 并校验 P11a 最小字段。
+- `write_run_status(...)` 写 `run_status.json` 并校验动态状态最小字段。
+- `write_sample_manifest_ref(...)` 写 `inputs/sample_manifest_ref.json` 并校验 P11b reference
+  最小字段。
+- `write_split_summary(...)` 写 `inputs/split_summary.json` 并校验
+  `stage1_split_summary_v1` 最小字段。
+- `write_evaluation_summary(...)` 写 `evaluation/evaluation_summary.json`。
+- `write_prediction_rows_csv(...)` 写 `predictions/prediction_rows.csv`。
+- smoke 使用 `tempfile` 构造本地临时 run_dir，并用 `ProviderWithoutRunDir` mock 验证
+  Provider 只接收 `sample_keys`，不接收 `run_dir`。
+
+P11c 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不修改 legacy entrypoint 实际输出。
+- 不新增 launcher/scripts。
+- 不访问 `/data2`。
+- 不启动 small/pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler、checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider` 或 Visual `RouterHead` adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不设计复杂 Runtime framework、registry 或 migration framework。
+- 不声称正式入口已迁移。
+
+P11c 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_runtime_artifact_writer_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py

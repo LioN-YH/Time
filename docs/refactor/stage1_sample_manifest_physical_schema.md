@@ -279,9 +279,10 @@ P11a 冻结的是 `run_dir` 目录职责；P11b 冻结的是 `inputs/` 中 manif
 
 ## 11. 后续连接
 
-- P11c 可设计最小 Runtime artifact writer/helper，用于写出 `run_metadata.json`、
-  `run_status.json`、`inputs/sample_manifest_ref.json` 和 `inputs/split_summary.json`，但必须继续保持
-  Provider / Head / Evaluator 不知道 `run_dir`。
+- P11c 已新增最小 Runtime artifact writer/helper，用于写出 `run_metadata.json`、
+  `run_status.json`、`inputs/sample_manifest_ref.json`、`inputs/split_summary.json`、
+  `evaluation/evaluation_summary.json` 和 `predictions/prediction_rows.csv`；该 helper 只属于
+  Runtime artifact 写出层，继续保持 Provider / Head / Evaluator 不知道 `run_dir`。
 - 正式入口迁移前仍需审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle
   schema，并把字段映射到本文冻结的 canonical physical schema。
 - canonical pipeline 后续需要重跑，legacy `96_48_S` full-scale 输出只作为 sanity reference。

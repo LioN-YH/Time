@@ -191,6 +191,10 @@ prediction artifact 写出和 launcher 接手信息。
 当前状态：
 
 - P5a 已定义 canonical runtime contract 方向。
+- P11c 已新增 `time_router.runtime.artifact_writer` 最小 helper，可在临时 `run_dir` 写出
+  `run_metadata.json`、`run_status.json`、`inputs/sample_manifest_ref.json`、
+  `inputs/split_summary.json`、`evaluation/evaluation_summary.json` 和
+  `predictions/prediction_rows.csv`；该 helper 尚未接入正式入口。
 - `launch_timefuse_fusor_full_scale.py` 仍是当前 TimeFuse full-scale preflight、脚本生成、
   PID/PGID、stop/resume 和接手信息层。
 - 正式 CSV / summary / metadata / status / checkpoint schema 本阶段不改。
@@ -234,6 +238,8 @@ prediction artifact 写出和 launcher 接手信息。
   `docs/refactor/stage1_canonical_run_artifact_schema.md`；正式 legacy output schema 尚未改动；
 - P11b 已冻结 future canonical `SampleManifest` physical schema，见
   `docs/refactor/stage1_sample_manifest_physical_schema.md`；正式 legacy input/output schema 尚未改动；
+- P11c 已提供最小 Runtime artifact writer/helper 和 tempfile smoke，见
+  `docs/refactor/stage1_runtime_artifact_writer.md`；正式 legacy entrypoint 尚未迁移；
 - small / pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
@@ -242,8 +248,9 @@ prediction artifact 写出和 launcher 接手信息。
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema，明确字段映射、
    缺失策略、metric 维度和 lineage。
-2. 基于 P11a/P11b schema，设计最小 Runtime artifact writer 或 helper，但保持 Provider / Head / Evaluator 不知道
-   `run_dir`，且不把 Bash 语义下沉到 `time_router`。
+2. 在 P11c 最小 Runtime artifact writer 基础上，后续只在 small canonical entrypoint 中薄接入；
+   仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+   `time_router`。
 3. 准备 small / pressure / full-scale scripts，但 scripts 只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑。
 4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要

@@ -349,11 +349,13 @@ TimeFuse-style fusor 可在 metadata、inputs、indexes 或 evaluation diagnosti
 - 不声称正式入口已迁移。
 - 不声称整个 Time framework 已完成。
 
-## 11. P11b 连接
+## 11. P11b / P11c 连接
 
 - P11b 已在本文基础上冻结 `SampleManifest` 物理存储格式、schema version 和 split summary
   写入 `inputs/` 的方式，详见 `docs/refactor/stage1_sample_manifest_physical_schema.md`。
-- P11c 可设计最小 Runtime artifact writer 或 helper，但必须先保持 provider/head/evaluator
-  不知道 `run_dir` 的边界。
+- P11c 已新增最小 Runtime artifact writer/helper，见
+  `docs/refactor/stage1_runtime_artifact_writer.md` 和 `time_router/runtime/artifact_writer.py`。
+  该 helper 只在 Runtime 层创建 canonical `run_dir` 并写出最小 JSON/CSV artifact，继续保持
+  Provider / Head / Evaluator 不知道 `run_dir` 的边界。
 - 后续 scripts/launcher 接入应只把 `run_dir` 显式传给 Runtime，不把 Bash 语义下沉到
   `time_router`。
