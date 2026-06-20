@@ -1226,7 +1226,8 @@ launcher、loss 和输出 schema 均未修改。
 1. 先生成或冻结 `SampleManifest`。
 2. 再由 `SampleManifest` 驱动 prediction backend、supervision backend 和 feature provider。
 3. Visual Router / TimeFuse 都以 `SampleManifest` 为主索引训练和评估。
-4. 新 run artifact schema 可在 P11/P12 冻结；旧 schema 不再强行作为最高兼容目标。
+4. P11a/P11b 已冻结 new run artifact schema 与 canonical `SampleManifest` physical
+   schema；旧 schema 不再强行作为最高兼容目标。
 
 明确不做：
 
@@ -1441,17 +1442,16 @@ SampleManifest + SplitStrategy
 - TimeFuse protocol chain smoke 已完成；
 - TimeFuse sample/supervision adapter smoke 已完成；
 - shared prediction SQLite backend smoke 已完成；
+- P11a canonical run artifact schema 已完成；
+- P11b canonical SampleManifest physical schema 已完成；
 - 正式入口尚未整体迁移到 canonical dataflow。
 
 下一阶段建议：
 
 1. 审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
-2. 冻结 `SampleManifest` 物理存储格式与版本号。
-3. P11a 冻结 run artifact schema。
-4. P11b/P11c 在 run artifact schema 基础上继续冻结 `SampleManifest` 物理存储和最小
-   Runtime artifact writer 接入边界。
-5. 准备 small / pressure / full-scale scripts。
-6. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
+2. P11c 在 P11a/P11b schema 基础上设计最小 Runtime artifact writer 接入边界。
+3. 准备 small / pressure / full-scale scripts。
+4. legacy `96_48_S` full-scale 结果只作为 reference baseline，canonical pipeline 后续重跑。
 
 P10h 验收：
 
@@ -1520,7 +1520,7 @@ P11a 明确不做：
 
 后续连接：
 
-1. P11b 可冻结 `SampleManifest` 物理存储格式、schema version 和 `inputs/` 中的 split
+1. P11b 已冻结 `SampleManifest` 物理存储格式、schema version 和 `inputs/` 中的 split
    summary 写入方式。
 2. P11c 可设计最小 Runtime artifact writer 或 helper，但必须保持 provider/head/evaluator
    不知道 `run_dir` 的边界。
@@ -1528,6 +1528,73 @@ P11a 明确不做：
    `time_router`。
 
 P11a 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+### P11b：canonical SampleManifest physical schema
+
+目标：只做 Stage 1 canonical `SampleManifest` physical schema 文档冻结，明确
+`SampleManifest` 最小物理字段、`sample_key` 规则、split summary schema、schema version、
+`run_dir/inputs/` 中 snapshot/reference 两种保存方式，以及 Visual labels 与 TimeFuse
+feature/oracle source 到 canonical manifest 的映射策略。
+
+当前状态（2026-06-20）：已新增
+`docs/refactor/stage1_sample_manifest_physical_schema.md`，并同步更新 P11a run artifact schema、
+canonical sample/supervision boundary、entrypoint migration plan、target architecture、路线图、
+结构索引和中文实验日志。本阶段只做文档，不修改正式入口，不新增 launcher/scripts，不启动实验，
+不访问 `/data2`，不改变当前 legacy entrypoint 的实际 CSV / summary / metadata / status /
+checkpoint schema。
+
+关键结论：
+
+- `SampleManifest` 是样本身份、split 和顺序的 canonical source。
+- `stage1_sample_manifest_v1` 最小物理字段为 `sample_key`、`split`、`config_name`、
+  `dataset_name`、`item_id`、`channel_id`、`window_index`、`seq_len`、`pred_len` 和 `lineage`。
+- `sample_key` 是 Visual Router 与 TimeFuse-style fusor 共用的 canonical join key，不依赖
+  文件路径、`run_dir`、cache path 或 Bash 环境。
+- 当前可继续沿用 legacy stable key，但它只是当前 Stage 1 物理实现，不声明为永远不可变的
+  全局规则。
+- `stage1_split_summary_v1` 写入 `inputs/split_summary.json`，至少记录 split strategy、split
+  names、count、唯一/重复 sample_key 数、split overlap check、ordered sample_keys policy、
+  source manifest reference 和 created_at。
+- split 间样本默认互斥，除非未来协议显式允许。
+- `run_dir/inputs/` 允许小规模 snapshot `sample_manifest.*`，也允许 full-scale reference
+  `sample_manifest_ref.json`；两者都必须能恢复 ordered sample_keys。
+- `run_metadata.json` 只记录 manifest 摘要和引用，不承载完整大表。
+- Visual labels 和 TimeFuse feature/oracle source 只向 `SampleManifest` 映射 sample identity、
+  split、config/dataset/window 字段和轻量 lineage。
+- 17 维 TimeFuse feature、oracle/error、prediction cache path 和 SQLite index path 都不进入
+  `SampleManifest`。
+
+P11b 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不修改 legacy entrypoint 实际输出。
+- 不新增 launcher/scripts。
+- 不访问 `/data2`。
+- 不启动 small/pressure/full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider` 或 Visual `RouterHead` adapter。
+- 不声称正式入口已迁移。
+
+后续连接：
+
+1. P11c 可设计最小 Runtime artifact writer/helper，但必须保持 provider/head/evaluator
+   不知道 `run_dir` 的边界。
+2. 正式入口迁移前仍需审计真实 full-scale Visual labels schema 与 TimeFuse feature/oracle schema。
+3. canonical pipeline 后续需要重跑，legacy `96_48_S` full-scale 输出只作为 sanity reference。
+
+P11b 验收：
 
 ```bash
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py

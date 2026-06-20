@@ -225,7 +225,9 @@ run_dir/
 
 ## 6. 最小 Versioning Strategy
 
-P11a 只定义最小版本字段，不设计复杂 registry。
+P11a 只定义最小版本字段，不设计复杂 registry。P11b 已进一步冻结
+`SampleManifest` 与 split summary 的具体版本号，见
+`docs/refactor/stage1_sample_manifest_physical_schema.md`。
 
 必需版本字段：
 
@@ -233,7 +235,7 @@ P11a 只定义最小版本字段，不设计复杂 registry。
 | --- | --- | --- |
 | `run_artifact_schema_version` | `run_metadata.json` | 磁盘 run artifact schema 版本 |
 | `protocol_version` | `run_metadata.json` / `inputs/protocol_spec.*` | canonical pipeline protocol 版本 |
-| `sample_manifest_schema_version` | `run_metadata.json` / `inputs/` | SampleManifest 物理或快照 schema 版本 |
+| `sample_manifest_schema_version` | `run_metadata.json` / `inputs/` | SampleManifest 物理或快照 schema 版本；P11b 固定为 `stage1_sample_manifest_v1` |
 | `supervision_schema_version` | `run_metadata.json` / `inputs/` | supervision source/schema 版本 |
 | `prediction_backend_version` | `run_metadata.json` / `indexes/` | prediction backend 或 cache/index 版本 |
 | `evaluation_schema_version` | `run_metadata.json` / `evaluation/` | evaluation summary/comparison/diagnostic 输出版本 |
@@ -347,10 +349,10 @@ TimeFuse-style fusor 可在 metadata、inputs、indexes 或 evaluation diagnosti
 - 不声称正式入口已迁移。
 - 不声称整个 Time framework 已完成。
 
-## 11. 后续连接
+## 11. P11b 连接
 
-- P11b 可在本文基础上冻结 `SampleManifest` 物理存储格式、schema version 和 split summary
-  写入 `inputs/` 的方式。
+- P11b 已在本文基础上冻结 `SampleManifest` 物理存储格式、schema version 和 split summary
+  写入 `inputs/` 的方式，详见 `docs/refactor/stage1_sample_manifest_physical_schema.md`。
 - P11c 可设计最小 Runtime artifact writer 或 helper，但必须先保持 provider/head/evaluator
   不知道 `run_dir` 的边界。
 - 后续 scripts/launcher 接入应只把 `run_dir` 显式传给 Runtime，不把 Bash 语义下沉到

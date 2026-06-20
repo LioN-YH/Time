@@ -53,7 +53,8 @@ SampleManifest + SplitStrategy
 ## 3. Canonical SampleManifest 字段
 
 P10e 已在 `time_router.protocols` 中新增最小 `SampleManifestRow` / `SampleManifest`
-协议类型；P11/P12 若冻结物理存储 schema，至少应保留以下语义字段：
+协议类型；P11b 已在 `docs/refactor/stage1_sample_manifest_physical_schema.md` 冻结
+`stage1_sample_manifest_v1` 物理 schema，至少保留以下语义字段：
 
 | 字段 | 必需性 | 含义 |
 | --- | --- | --- |
@@ -64,19 +65,22 @@ P10e 已在 `time_router.protocols` 中新增最小 `SampleManifestRow` / `Sampl
 | `item_id` | 必需 | 样本所在 item / series 标识 |
 | `channel_id` | 必需 | 单变量或多变量 channel 标识；当前 Stage 1 S 口径通常为单 channel |
 | `window_index` | 必需 | 同一 item/channel 下的窗口序号 |
-| `seq_len` | 可选但推荐 | 历史窗口长度；同 manifest 支持多 config 时应写入 |
-| `pred_len` | 可选但推荐 | 预测长度；同 manifest 支持多 config 时应写入 |
-| `manifest_shard` | 可选 | 大规模 materialize 时的 shard lineage |
-| `source_manifest_path` | 可选 | 兼容期记录生成来源 |
-| `extra` | 可选 | branch-specific 或审计 metadata；不得放入 oracle label、专家误差或未来信息 |
+| `seq_len` | 必需 | 历史窗口长度；同 manifest 支持多 config 时必须写入 |
+| `pred_len` | 必需 | 预测长度；同 manifest 支持多 config 时必须写入 |
+| `lineage` | 必需 | 轻量来源信息；不得放入 oracle label、专家误差、feature vector、prediction cache path 或未来信息 |
 
 字段约束：
 
 - `sample_key` 必须唯一；若未来支持同一 `sample_key` 多 metric supervision，应在
   supervision 层用 `metric` 区分，而不是复制 manifest 行。
 - `split` 不应由 labels CSV、feature CSV、oracle reader 和 prediction reader 各自推导。
-- `SampleManifest` 可以 materialize 为 CSV/Parquet/SQLite，但 interface 语义不能绑定某一种存储。
-- `extra` 只能保存不可训练泄漏的 lineage 或 branch-specific metadata。
+- `SampleManifest` 可以 materialize 为 CSV/Parquet/JSONL；SQLite 可作为 Runtime/index
+  implementation，但 interface 语义不能绑定某一种存储。
+- `lineage` 只能保存不可训练泄漏的轻量来源信息。
+- canonical `run_dir/inputs/` 可保存 `sample_manifest.*` snapshot，或 full-scale 下保存
+  `sample_manifest_ref.json` reference；两者都必须能恢复 ordered sample_keys。
+- Runtime 应写出 `inputs/split_summary.json`，schema version 为 `stage1_split_summary_v1`；
+  split summary 是 Runtime/input artifact，不是 Provider interface。
 
 P10e 最小 helper 能力：
 
@@ -285,10 +289,11 @@ adapter smoke。P10h 后，entrypoint migration plan 也已改为 canonical data
 `SupervisionBatch` / `SupervisionProvider`、`EvaluationInputAdapter` / Evaluator metrics 和
 run artifact contract 方向，同时保留 Visual 与 TimeFuse 的 feature/head/objective 分支实现。
 
-后续可进入 P11/P12 schema 冻结设计。
+P11a 后已冻结 future canonical run artifact schema；P11b 后已冻结 canonical
+`SampleManifest` physical schema、split summary schema 和 `run_dir/inputs/` 中的
+snapshot/reference 保存方式。
 真正实现前应先决定：
 
-- `SampleManifest` 的物理存储格式和版本号；
 - `SplitStrategy` 如何 materialize / validate split；
 - `SupervisionProvider` 的 metric 维度、缺失策略和 per-model error 来源；
 - Visual Router / TimeFuse-style fusor 现有历史 artifact 如何迁移到新 canonical schema。
