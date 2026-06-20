@@ -315,19 +315,34 @@ prediction artifact 写出和 launcher 接手信息。
   `FeatureBatch(features=(4, 8), dtype=float32)`；smoke 证明 provider 阶段不读取任何文件、
   prediction/oracle/y_true/run_dir/status/checkpoint 或 `/data2`，不接 Visual RouterHead 或
   evaluator；
+- P14c 已完成 Visual eval-only canonical bypass plan，见
+  `docs/refactor/stage1_visual_eval_canonical_bypass_plan.md`；冻结 future eval-only 链路：
+  `SampleManifest ordered sample_keys -> VisualFeatureProvider / mock provider / legacy embedding path
+  -> FeatureBatch -> legacy SQLite prediction arrays 或 PredictionCacheExpertProvider
+  -> ExpertBatch -> Visual RouterHead / legacy MLP adapter -> RouterOutput
+  -> EvaluationInputAdapter -> Evaluator summary/rows -> future Runtime artifact writer`；明确
+  `ExpertBatch` 不读取视觉特征，`FeatureBatch` 不读取 prediction/oracle/run_dir，head 只输出
+  `RouterOutput`，artifact writer 只在 future canonical run_dir 写出；P14c 不改正式入口、
+  不替换 Visual `SQLitePredictionIndex`、不接 `PredictionCacheExpertProvider` 到正式入口、
+  不改 legacy 输出 schema；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P14c 可做 Visual eval-only canonical bypass plan，规划 legacy SQLite batch arrays 如何与
-   Visual `FeatureBatch` / head / evaluator 对齐，但不替换正式入口。
-2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+1. P14d 可做 Visual mock `FeatureBatch + mock RouterHead + EvaluationInputAdapter` protocol
+   smoke，继续只用 tiny fixture 和内存结果，不替换正式入口。
+2. P14e 可做 Visual eval-only legacy MLP adapter audit or smoke，确认
+   `FeatureBatch -> legacy MLP -> RouterOutput` 的 sample/model 保序、dtype/device 和 checkpoint
+   边界。
+3. P15 再根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e 结果决定是否新增 branch-specific small
+   entrypoint。
+4. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+5. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+6. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做

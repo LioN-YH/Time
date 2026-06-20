@@ -207,8 +207,13 @@ SQLite batch arrays 包装为 `ExpertBatch` 做旁路校验，但它不代表 Vi
    - 验证 `FeatureBatch.sample_keys` 保序、`features` shape、schema/extra、且 provider
      阶段不读取 oracle / prediction / run_dir。
 2. **P14c：Visual eval-only canonical bypass plan**
-   - 只规划或 smoke 验证 eval-only 如何把 legacy Visual batch arrays 包装为
-     `ExpertBatch`，再与 Visual `FeatureBatch` 和 Visual head/evaluator 对齐。
+   - 已完成文档冻结，见
+     `docs/refactor/stage1_visual_eval_canonical_bypass_plan.md`。
+   - 明确 eval-only 目标链路：
+     `SampleManifest -> FeatureBatch -> ExpertBatch -> RouterOutput ->
+     EvaluationInputAdapter -> Evaluator -> future Runtime artifact writer`。
+   - 明确 legacy SQLite batch arrays 短期只在已加载后包装为 `ExpertBatch`，再与
+     Visual `FeatureBatch`、Visual head/evaluator 通过 ordered `sample_keys` 对齐。
    - 不改正式 CSV/summary/metadata/status/checkpoint schema。
    - 不替换 `SQLitePredictionIndex`，不接 full-scale prepared backend。
 

@@ -2306,9 +2306,82 @@ P14b 验收：
 
 后续连接：
 
-1. P14c：Visual eval-only canonical bypass plan，规划 legacy SQLite batch arrays 如何与 Visual
-   `FeatureBatch` / head / evaluator 对齐，但不替换正式入口、不改输出 schema。
-2. P15：根据 P13d/P13e/P14a/P14b/P14c 决定是否新增 branch-specific small entrypoint。
+1. P14c 已完成 Visual eval-only canonical bypass plan，见
+   `docs/refactor/stage1_visual_eval_canonical_bypass_plan.md`。
+2. P14d 可做 Visual mock `FeatureBatch + mock RouterHead + EvaluationInputAdapter` protocol
+   smoke，仍不替换正式入口、不改输出 schema。
+3. P15：根据 P13d/P13e/P14a/P14b/P14c/P14d 决定是否新增 branch-specific small entrypoint。
+
+### P14c：Visual eval-only canonical bypass plan
+
+目标：在 P14b Visual mock `FeatureProvider` 已证明可以输出 `FeatureBatch` 之后，只做
+Visual eval-only canonical bypass 文档冻结。P14c 不改正式入口，不新增 Visual head/provider
+正式代码，不访问 `/data2`，不启动训练、pressure 或 full-scale。
+
+当前状态（2026-06-20）：已新增
+`docs/refactor/stage1_visual_eval_canonical_bypass_plan.md`，同步更新 P14a/P14b 文档、
+entrypoint migration plan、结构索引和中文实验日志。
+
+本次完成范围：
+
+- 冻结 future eval-only 目标链路：
+  `SampleManifest ordered sample_keys -> VisualFeatureProvider / mock provider / legacy embedding path
+  -> FeatureBatch -> legacy SQLite prediction arrays 或 PredictionCacheExpertProvider
+  -> ExpertBatch -> Visual RouterHead / legacy MLP adapter -> RouterOutput
+  -> EvaluationInputAdapter -> Evaluator summary/rows -> future Runtime artifact writer`。
+- 明确 P9d/P9f 已证明 legacy Visual SQLite batch arrays 可包装为 `ExpertBatch`；短期仍保留
+  `SQLitePredictionIndex`，只在 batch arrays 已加载后旁路包装，不接
+  `PredictionCacheExpertProvider` 到正式入口。
+- 明确 `ExpertBatch` 提供 `sample_keys`、`model_columns`、`y_pred`、`y_true` 和轻量
+  lineage，不读取 visual history、pseudo image、ViT feature、oracle/error 或 run_dir。
+- 明确 `FeatureBatch` 可来自 P14b mock provider、future VisualFeatureProvider 或 legacy
+  embedding path；它只保存 router/head 所需视觉特征，不读取 prediction cache、oracle/error
+  或 run_dir，并且只通过 ordered `sample_keys` 与 `ExpertBatch` 对齐。
+- 明确 Visual RouterHead adapter 尚未抽取；后续可先做 mock VisualRouterHead smoke 或 legacy
+  MLP thin adapter，输出 `RouterOutput(sample_keys, model_columns, weights/logits/extra)`。
+- 明确 `EvaluationInputAdapter` 消费 `ExpertBatch + RouterOutput`，Evaluator 产生内存
+  summary/rows；Runtime artifact writer 后续才写 future canonical
+  `evaluation/` 与 `predictions/`，本轮不改 legacy CSV/summary/metadata/status/checkpoint
+  schema。
+- 给出 P14d/P14e/P15 小步建议：先做 Visual mock protocol smoke，再审计或 smoke legacy MLP
+  eval-only adapter，最后决定 branch-specific small entrypoint。
+
+P14c 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增正式 VisualFeatureProvider。
+- 不抽真实 ViT provider。
+- 不新增 Visual RouterHead adapter 代码。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler、checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不替换 Visual `SQLitePredictionIndex`。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P14c 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_provider_mock_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_backend_expertbatch_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P14d：Visual mock `FeatureBatch + mock RouterHead + EvaluationInputAdapter` protocol smoke。
+2. P14e：Visual eval-only legacy MLP adapter audit or smoke。
+3. P15：根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e 决定是否新增 branch-specific small
+   entrypoint。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

@@ -127,7 +127,14 @@ canonical run_dir。
 
 ## 8. 后续连接
 
-P14b 只证明 Visual-style `FeatureProvider -> FeatureBatch` 的最小 mock contract。P14c 可继续
-做 Visual eval-only canonical bypass plan，规划 legacy SQLite batch arrays 如何与 Visual
-`FeatureBatch`、Visual head 和 evaluator 对齐，但仍不替换正式入口、不改正式输出 schema。
+P14b 只证明 Visual-style `FeatureProvider -> FeatureBatch` 的最小 mock contract。P14c 已在
+`docs/refactor/stage1_visual_eval_canonical_bypass_plan.md` 冻结 Visual eval-only canonical
+bypass 方案：legacy SQLite batch arrays 短期仍由正式入口读取，只在 batch 后包装为
+`ExpertBatch`；Visual mock/future/legacy embedding path 产生 `FeatureBatch`；Visual head 或
+legacy MLP thin adapter 输出 `RouterOutput`；`EvaluationInputAdapter` 只消费
+`ExpertBatch + RouterOutput` 生成内存 evaluation input；future Runtime artifact writer
+后续才负责 canonical `evaluation/` 与 `predictions/` 写出。
 
+后续 P14d 可做 Visual mock `FeatureBatch + RouterOutput + EvaluationInputAdapter` protocol
+smoke。正式入口、legacy 输出 schema、真实 ViT provider、Visual RouterHead adapter 和
+`PredictionCacheExpertProvider` 接入仍留到后续迁移阶段。
