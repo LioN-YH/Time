@@ -1908,6 +1908,71 @@ P13a 验收：
 2. P13b 仍不得迁移正式入口或替换 Visual / TimeFuse 正式 prediction backend。
 3. 正式入口迁移继续留到后续 P6/P13+ 小步旁路校验之后。
 
+### P13b：real-derived small fixture smoke for canonical entrypoint
+
+目标：从仓库内已有 P10f/P10g smoke 的 ETTh1 / ETTm2 / weather 小样本身份派生
+real-derived / schema-style small fixture，并用 P12b small entrypoint 验证 manifest 保序、
+feature/expert join 和 canonical artifact 写出。
+
+当前状态（2026-06-20）：已新增
+`tests/fixtures/stage1_real_derived_small/`、
+`tests/smoke/stage1_real_derived_small_fixture_smoke.py` 和
+`docs/refactor/stage1_real_derived_small_fixture.md`。
+
+本次完成范围：
+
+- `sample_manifest.csv` 使用 P11b 最小字段，行顺序作为 ordered sample_keys 来源。
+- `features.csv` 使用 P12b entrypoint 当前支持的
+  `trend_strength / seasonality_strength / recent_volatility` 三列，并刻意打乱行顺序验证按
+  `sample_key` join；该文件是 schema-style fixture，不是 TimeFuse 17 维 full-scale feature
+  cache。
+- `expert_predictions.json` 继续使用 P12b 小数组格式，刻意打乱 sample 顺序验证按 manifest
+  sample_keys 组装 `ExpertBatch`；它不是正式 prediction backend schema。
+- 新 smoke 通过 subprocess 调用 `scripts/run_stage1_canonical_small.py`，检查 canonical
+  `run_dir`、`prediction_rows.csv` 保序、`run_metadata.inputs` 三个输入来源摘要、
+  `evaluation_summary.sample_count` 和 `/data2` 禁止边界。
+
+P13b 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider`。
+- 不抽 Visual `RouterHead` adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不替换 Visual `SQLitePredictionIndex`。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P13b 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_runtime_artifact_writer_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P13c 可继续审计真实 small batch 的 prediction backend / feature provider 连接点，但仍应先保持
+   bypass 或 smoke-only，不直接迁移正式入口。
+2. 若要验证 TimeFuse 17 维真实 feature，应另起小步扩展 small entrypoint/head contract 或提供
+   branch-specific provider smoke，不能把 P13b 三列 fixture 误读为 full-scale feature cache。
+3. 正式入口迁移继续留到后续 P6/P13+ 小步旁路校验之后。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

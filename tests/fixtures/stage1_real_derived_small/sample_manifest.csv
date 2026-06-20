@@ -1,0 +1,5 @@
+sample_key,split,config_name,dataset_name,item_id,channel_id,window_index,seq_len,pred_len
+96_48_S::ETTh1::item0::ch0::win0,vali,96_48_S,ETTh1,0,0,0,96,48
+96_48_S::ETTh1::item0::ch0::win1,test,96_48_S,ETTh1,0,0,1,96,48
+96_48_S::ETTm2::item3::ch0::win0,vali,96_48_S,ETTm2,3,0,0,96,48
+96_48_S::weather::item8::ch0::win2,test,96_48_S,weather,8,0,2,96,48

@@ -264,16 +264,22 @@ prediction artifact 写出和 launcher 接手信息。
   `docs/refactor/stage1_real_small_input_mapping_audit.md`；明确 Visual labels、
   TimeFuse feature/oracle、真实 feature source、prediction cache / SQLite backend 到
   P12b fixture contract 的映射边界，并确认 P13a 不迁移正式入口、不创建真实 fixture；
+- P13b 已完成 real-derived / schema-style small fixture smoke，见
+  `docs/refactor/stage1_real_derived_small_fixture.md`；新增
+  `tests/fixtures/stage1_real_derived_small/` 和
+  `tests/smoke/stage1_real_derived_small_fixture_smoke.py`，从 P10f/P10g smoke 的 ETTh1 /
+  ETTm2 / weather 小样本身份派生 manifest，用 P12b entrypoint 验证 manifest 保序、
+  feature/expert join、canonical `run_dir` 写出、metadata inputs 来源摘要和 evaluation
+  sample_count；P13b 不迁移正式入口，也不把 expert JSON 升级为正式 prediction backend；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P13b 可从已有 golden fixture、小规模真实样本或 P10f/P10g smoke fixture 派生真实小规模
-   `sample_manifest.csv`、branch-specific feature fixture 和 expert fixture/backend smoke，用
-   P12b entrypoint 验证字段映射、保序 join 与 artifact 可读。
-2. P13b 仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+1. P13c 可在不迁移正式入口的前提下，审计或旁路验证真实 small batch 的 prediction backend /
+   feature provider 连接点；仍不得访问 `/data2` 或启动 pressure/full-scale，除非另起目标明确授权。
+2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
 3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。

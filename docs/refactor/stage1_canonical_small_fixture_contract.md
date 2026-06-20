@@ -125,14 +125,21 @@ TimeFuse 小规模输入到 P12b fixture contract 的 mapping 边界。结论是
 - `expert_predictions.json` 仍只是 tiny fixture 格式；正式路径应继续走 prediction backend /
   `ExpertProvider` / `ExpertBatch`。
 
-P13a 之后仍不得声称正式入口已经迁移。P13b 若构造真实小规模 fixture，应只做字段派生和保序
-验证，不新增 full-scale 数据链路。
+P13a 之后仍不得声称正式入口已经迁移。P13b 已新增
+`docs/refactor/stage1_real_derived_small_fixture.md`、
+`tests/fixtures/stage1_real_derived_small/` 和
+`tests/smoke/stage1_real_derived_small_fixture_smoke.py`，从 P10f/P10g smoke 的 ETTh1 /
+ETTm2 / weather 小样本身份派生 real-derived / schema-style fixture，并用 P12b entrypoint
+验证 manifest 保序、feature/expert join、canonical `run_dir` 写出、metadata inputs 来源摘要和
+evaluation sample_count。P13b 仍只做字段派生和保序验证，不新增 full-scale 数据链路；
+`expert_predictions.json` 继续只是 small fixture，不是正式 prediction backend。
 
 ## 8. 验收
 
 新增 fixture smoke：
 
 ```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_fixture_smoke.py
 ```
 

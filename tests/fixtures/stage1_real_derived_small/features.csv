@@ -1,0 +1,5 @@
+sample_key,trend_strength,seasonality_strength,recent_volatility
+96_48_S::weather::item8::ch0::win2,0.44000000,0.28000000,0.33000000
+96_48_S::ETTh1::item0::ch0::win0,0.12000000,0.51000000,0.08000000
+96_48_S::ETTm2::item3::ch0::win0,0.31000000,0.36000000,0.21000000
+96_48_S::ETTh1::item0::ch0::win1,0.27000000,0.18000000,0.26000000
