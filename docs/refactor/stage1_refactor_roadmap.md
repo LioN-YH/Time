@@ -1973,6 +1973,74 @@ P13b 验收：
    branch-specific provider smoke，不能把 P13b 三列 fixture 误读为 full-scale feature cache。
 3. 正式入口迁移继续留到后续 P6/P13+ 小步旁路校验之后。
 
+### P13c：real small backend / provider connection audit
+
+目标：在 P13b real-derived fixture 之后，只审计真实 small batch 的 prediction backend /
+`ExpertProvider` / `FeatureProvider` 连接点，冻结 `expert_predictions.json` 和三列
+`features.csv` 后续如何替换为真实 backend/provider，但不迁移正式入口，不新增真实数据脚本。
+
+当前状态（2026-06-20）：已新增
+`docs/refactor/stage1_real_small_backend_provider_connection_audit.md`，同步更新 P13a/P13b 文档、
+entrypoint migration plan 和结构索引。
+
+本次完成范围：
+
+- 明确 P13b `expert_predictions.json` 只是 small fixture；正式 canonical path 应为
+  prediction backend -> `ExpertProvider` -> `ExpertBatch`。
+- 明确 shared prediction SQLite backend 适合 Runtime/backend prepare 层，
+  `PredictionBatchReader` 适合底层 cache reader，`PredictionCacheExpertProvider` 适合作为
+  smoke-only prediction-cache adapter。
+- 明确 prediction cache path、SQLite path、packed npy path 不进入 `SampleManifest`。
+- 明确 P13b 三列 `features.csv` 只是 schema-style fixture；TimeFuse 17 维 feature 后续通过
+  `TimeFuseFeatureCacheProvider` 或 branch-specific small provider smoke 输出 `FeatureBatch`。
+- 明确 Visual history window / pseudo image / frozen ViT embedding 属于 Visual
+  `FeatureProvider` 插入点，feature values 不进入 `SampleManifest`，本轮不抽 Visual online
+  ViT provider。
+- 明确 `scripts/run_stage1_canonical_small.py` 继续保持 generic thin CLI；TimeFuse 17 维输入
+  shape 或 Visual ViT feature/head 验证应另走 branch-specific smoke 或 branch-specific small
+  entrypoint。
+- 给出 P13d/P13e/P14a/P14b/P15 的 smoke-first 小步建议。
+
+P13c 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增真实数据脚本、Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler 或 checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual online ViT `FeatureProvider`。
+- 不抽 Visual `RouterHead` adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不替换 Visual `SQLitePredictionIndex`。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P13c 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_runtime_artifact_writer_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_labels_sample_supervision_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_sample_supervision_protocol_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_sqlite_backend_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P13d 优先做 prediction backend -> `ExpertBatch` small smoke，对照 P13b JSON fixture，不接正式入口。
+2. P13e 做 TimeFuse 17 维 `FeatureProvider` small smoke，不扩展 generic small CLI 的三列 fixture。
+3. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
+4. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

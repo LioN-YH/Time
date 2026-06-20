@@ -90,3 +90,14 @@ P13b 证明 real-derived / schema-style 小 fixture 可以复用 P12b entrypoint
 canonical artifact 写出。下一步若继续推进，应优先设计 P13c：在不迁移正式入口的前提下，审计
 或旁路验证真实 small batch 的 prediction backend / feature provider 接口连接点，仍保持正式入口
 schema 和 full-scale 行为不变。
+
+P13c 已新增 `docs/refactor/stage1_real_small_backend_provider_connection_audit.md`，结论是：
+
+- `expert_predictions.json` 后续应由 prediction backend / `ExpertProvider` / `ExpertBatch` 替换，
+  但本轮不接正式入口；
+- 三列 `features.csv` 后续应分别由 TimeFuse 17 维 `FeatureProvider` 或 Visual history window /
+  pseudo image / ViT `FeatureProvider` 替换；
+- `scripts/run_stage1_canonical_small.py` 继续保持 generic thin CLI，branch-specific feature 或 head
+  验证应另走 branch-specific smoke / small entrypoint；
+- 下一步优先做 P13d prediction backend -> `ExpertBatch` small smoke 和 P13e TimeFuse 17 维
+  feature provider small smoke。

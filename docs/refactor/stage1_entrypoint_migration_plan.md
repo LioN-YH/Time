@@ -271,19 +271,30 @@ prediction artifact 写出和 launcher 接手信息。
   ETTm2 / weather 小样本身份派生 manifest，用 P12b entrypoint 验证 manifest 保序、
   feature/expert join、canonical `run_dir` 写出、metadata inputs 来源摘要和 evaluation
   sample_count；P13b 不迁移正式入口，也不把 expert JSON 升级为正式 prediction backend；
+- P13c 已完成 real small backend / provider connection audit，见
+  `docs/refactor/stage1_real_small_backend_provider_connection_audit.md`；明确 P13b
+  `expert_predictions.json` 后续由 prediction backend / `ExpertProvider` / `ExpertBatch`
+  替换，shared prediction SQLite backend 属于 Runtime/backend prepare 层，
+  `PredictionBatchReader` 属于底层 reader，`PredictionCacheExpertProvider` 属于 smoke-only
+  prediction-cache adapter；明确三列 `features.csv` 后续由 TimeFuse 17 维
+  `FeatureProvider` 或 Visual history window / pseudo image / ViT `FeatureProvider` 替换；
+  generic small entrypoint 继续保持 thin CLI，branch-specific feature/head 验证另走
+  branch-specific smoke 或 small entrypoint；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P13c 可在不迁移正式入口的前提下，审计或旁路验证真实 small batch 的 prediction backend /
-   feature provider 连接点；仍不得访问 `/data2` 或启动 pressure/full-scale，除非另起目标明确授权。
-2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+1. P13d 可优先做 prediction backend -> `ExpertBatch` small smoke，使用 real-derived manifest
+   的 ordered sample_keys，对照 P13b expert JSON fixture 检查 shape、专家顺序和指标。
+2. P13e 可做 TimeFuse 17 维 `FeatureProvider` small smoke；Visual history window / pseudo image /
+   ViT provider 应先进入 P14a 插入点审计。
+3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做

@@ -194,6 +194,12 @@ ETTh1 / ETTm2 / weather 小样本身份派生 manifest；feature 仍是 P12b sma
 三列 schema-style fixture，不是 TimeFuse 17 维 full-scale feature cache；expert JSON 仍只是
 small fixture，不是正式 prediction backend。
 
+P13c 已新增 `docs/refactor/stage1_real_small_backend_provider_connection_audit.md`，进一步冻结真实
+small batch 后续连接方案：`expert_predictions.json` 由 prediction backend / `ExpertProvider` /
+`ExpertBatch` 替换；三列 `features.csv` 由 TimeFuse 17 维 feature provider 或 Visual history
+window / pseudo image / ViT feature provider 替换；generic small entrypoint 继续保持 thin CLI，
+branch-specific 输入 shape 或 provider/head 验证另起 smoke 或 small entrypoint。
+
 ## 9. P13a 明确不做
 
 - 不修改 `train_visual_router_online_streaming.py`。
