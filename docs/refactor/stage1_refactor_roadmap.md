@@ -1999,7 +1999,7 @@ entrypoint migration plan 和结构索引。
 - 明确 `scripts/run_stage1_canonical_small.py` 继续保持 generic thin CLI；TimeFuse 17 维输入
   shape 或 Visual ViT feature/head 验证应另走 branch-specific smoke 或 branch-specific small
   entrypoint。
-- 给出 P13d/P13e/P14a/P14b/P15 的 smoke-first 小步建议。
+- 给出 P13d/P13e/P14a/P14b/P14c/P15 的 smoke-first 小步建议。
 
 P13c 明确不做：
 
@@ -2038,8 +2038,9 @@ P13c 验收：
 
 1. P13d 已完成 prediction backend -> `ExpertBatch` small smoke，对照 P13b JSON fixture，不接正式入口。
 2. P13e 已完成 TimeFuse 17 维 `FeatureProvider` small smoke，不扩展 generic small CLI 的三列 fixture。
-3. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
-4. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
+3. P14a 已完成 Visual feature provider insertion audit。
+4. P14b/P14c 继续以 smoke-only 方式推进 Visual provider mock/fixture 和 eval-only bypass plan。
+5. P15 再根据 P13d/P13e/P14a/P14b/P14c 结果决定是否新增 branch-specific small entrypoint。
 
 ### P13d：prediction backend -> ExpertBatch small smoke
 
@@ -2102,8 +2103,9 @@ P13d 验收：
 后续连接：
 
 1. P13e 已完成 TimeFuse 17 维 `FeatureProvider` small smoke。
-2. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
-3. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
+2. P14a 已完成 Visual feature provider insertion audit。
+3. P14b/P14c 继续以 smoke-only 方式推进 Visual provider mock/fixture 和 eval-only bypass plan。
+4. P15 再根据 P13d/P13e/P14a/P14b/P14c 结果决定是否新增 branch-specific small entrypoint。
 
 ### P13e：TimeFuse 17 维 FeatureProvider small smoke
 
@@ -2162,8 +2164,82 @@ P13e 验收：
 
 后续连接：
 
-1. P14a 先做 Visual feature provider insertion audit，再决定是否需要 branch-specific Visual small smoke。
-2. P15 再根据 P13d/P13e/P14a 结果决定是否新增 branch-specific small entrypoint。
+1. P14a 已完成 Visual feature provider insertion audit，后续进入 smoke-only Visual provider mock/fixture。
+2. P14b 可做 Visual FeatureProvider minimal mock/fixture smoke。
+3. P14c 可做 Visual eval-only canonical bypass plan。
+4. P15 再根据 P13d/P13e/P14a/P14b/P14c 结果决定是否新增 branch-specific small entrypoint。
+
+### P14a：Visual FeatureProvider insertion audit
+
+目标：在 P13d prediction backend -> `ExpertBatch` small smoke 和 P13e TimeFuse 17 维
+`FeatureProvider` small smoke 之后，只审计 Visual Router 正式入口中可迁移为 Visual
+`FeatureProvider` 的最小边界。P14a 不抽 provider，不改正式入口，不访问 `/data2`，不启动
+训练、pressure 或 full-scale。
+
+当前状态（2026-06-20）：已新增
+`docs/refactor/stage1_visual_feature_provider_insertion_audit.md`，同步更新 P13c 审计、
+target architecture、entrypoint migration plan、结构索引和中文实验日志。
+
+本次完成范围：
+
+- 审计 `train_visual_router_online_streaming.py` 中 labels/sample metadata、`windows_from_labels`、
+  `iter_online_embedding_batches`、history window 读取、pseudo image、frozen ViT forward、
+  router embedding 输入、Visual MLP head、SQLite prediction path、ExpertBatch bypass、
+  checkpoint/resume、device/dtype、DataParallel 和 latency 的职责边界。
+- 明确未来 Visual `FeatureProvider` 输出应是 `FeatureBatch`：`sample_keys` 保持 manifest
+  ordered sample_keys，`features` 是 router/head 消费的视觉特征或轻量表示，
+  `feature_schema` 记录 visual schema name、feature dim、history/pseudo-image/ViT 来源，
+  `extra` 只放轻量 lineage。
+- 明确属于 provider 的候选逻辑：按 sample metadata 定位 history window、只读取历史
+  `x`、构造 pseudo image 或等价 router input、可选执行 frozen ViT feature extraction、
+  输出 batch-level visual features。
+- 明确不属于 provider 的逻辑：oracle label/value/error、prediction cache、SQLite backend、
+  `ExpertBatch`、loss、optimizer、backprop、checkpoint/resume、run_dir/status/metadata/logs、
+  full evaluation rows/summary、Bash/`exp_scripts`/`/data2` 路径策略和 Visual RouterHead 权重计算。
+- 明确 device/dtype/runtime 边界：ViT forward 牵涉 GPU、dtype、DataParallel、Hugging Face
+  cache、latency 和 checkpoint signature；Runtime 或 encoder factory 应显式管理这些策略，
+  pure provider 不私自决定全局 device、checkpoint 或 run_dir。
+- 明确 `FeatureBatch` 与 `ExpertBatch` 只通过 ordered `sample_keys` 对齐；Visual provider
+  不读取 prediction cache，专家预测仍通过 `ExpertProvider` / `ExpertBatch` 进入。
+- 给出 P14b/P14c 后续小步：先做 Visual FeatureProvider minimal mock/fixture smoke，再做
+  Visual eval-only canonical bypass plan；继续 smoke-only，不直接迁移正式入口。
+
+P14a 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改 `launch_timefuse_fusor_full_scale.py`。
+- 不新增 VisualFeatureProvider 代码。
+- 不抽 ViT provider。
+- 不新增 Bash launcher 或 `exp_scripts`。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不改正式 CSV / summary / metadata / status / checkpoint schema。
+- 不改 loss、optimizer、scaler、checkpoint/resume。
+- 不实现正式 `SupervisionProvider`。
+- 不抽 Visual RouterHead adapter。
+- 不接 `PredictionCacheExpertProvider` 到正式入口。
+- 不替换 Visual `SQLitePredictionIndex`。
+- 不引入复杂 config/runtime framework。
+- 不声称正式入口已迁移。
+
+P14a 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_17dim_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_prediction_backend_expertbatch_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_real_derived_small_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_fixture_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router scripts tests/smoke visual_router_experiments/stage1_vali_test_router
+```
+
+后续连接：
+
+1. P14b：Visual FeatureProvider minimal mock/fixture smoke，先用 fake history window reader
+   或 deterministic encoder stub，不加载真实 full-scale ViT。
+2. P14c：Visual eval-only canonical bypass plan，继续不替换正式入口、不改输出 schema。
+3. P15：根据 P13d/P13e/P14a/P14b/P14c 决定是否新增 branch-specific small entrypoint。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

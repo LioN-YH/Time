@@ -124,15 +124,24 @@ TimeFuse 17 维 feature cache，也不代表 Visual online ViT feature。
      TimeFuse head/evaluator，不扩展 generic small CLI。
 
 3. **P14a：Visual feature provider insertion audit**
-   - 只审计 history window、pseudo image、frozen ViT embedding 在 Visual 正式入口中的可插入点。
-   - 明确哪些 runtime/encoder/device/latency/checkpoint 逻辑不能进入 pure `FeatureProvider`。
+   - 已完成，见 `docs/refactor/stage1_visual_feature_provider_insertion_audit.md`。
+   - 审计 history window、pseudo image、frozen ViT embedding 在 Visual 正式入口中的可插入点。
+   - 明确 Runtime / encoder factory 应显式管理 device、dtype、DataParallel、Hugging Face
+     cache、latency 与 checkpoint/resume；pure Visual `FeatureProvider` 不拥有 `run_dir`、
+     checkpoint、status 或正式输出 schema。
 
-4. **P14b：Visual eval-only canonical bypass plan**
-   - 规划 eval-only 阶段如何从 legacy SQLite batch arrays 旁路包装 `ExpertBatch`，再接 Visual feature/head/evaluator。
+4. **P14b：Visual FeatureProvider minimal mock/fixture smoke**
+   - 先用 fake history window reader 或 deterministic encoder stub 输出 `FeatureBatch`。
+   - 验证 ordered sample_keys、feature shape、schema/extra 和 provider 不读取 oracle /
+     prediction / run_dir。
+
+5. **P14c：Visual eval-only canonical bypass plan**
+   - 规划 eval-only 阶段如何从 legacy SQLite batch arrays 旁路包装 `ExpertBatch`，再接 Visual
+     `FeatureBatch` / head / evaluator。
    - 仍不替换正式入口、不改输出 schema。
 
-5. **P15：branch-specific small entrypoint decision**
-   - 根据 P13d/P13e/P14a 结果判断是否需要 TimeFuse/Visual 各自 small CLI。
+6. **P15：branch-specific small entrypoint decision**
+   - 根据 P13d/P13e/P14a/P14b/P14c 结果判断是否需要 TimeFuse/Visual 各自 small CLI。
    - 若新增，必须保持 thin CLI，不把 Bash launcher 或 full-scale path strategy 下沉。
 
 ## 7. 明确不做
