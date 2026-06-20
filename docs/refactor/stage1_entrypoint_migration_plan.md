@@ -351,19 +351,31 @@ prediction artifact 写出和 launcher 接手信息。
   softmax row sum、有限值、sample_key 保序、model_columns 对齐和 rows 保序；adapter
   阶段 patch 文件 IO、`np.load`、`np.save` 和 `torch.load`，确认不读取 checkpoint、
   prediction、oracle、run_dir 或 `/data2`；P14f 不新增正式 adapter、不改正式入口；
+- P15a 已完成 branch-specific small entrypoint decision，见
+  `docs/refactor/stage1_branch_specific_small_entrypoints.md`；决策确认 P14 可以收束，
+  `scripts/run_stage1_canonical_small.py` 必须继续保持 generic thin CLI，不承载 Visual
+  legacy MLP / ViT embedding / SQLitePredictionIndex 逻辑，也不承载 TimeFuse 17 维 feature
+  cache / oracle parquet / shard-local SQLite / linear-softmax fusor 逻辑；后续需要分别新增
+  TimeFuse-specific 和 Visual-specific small canonical entrypoint，但 P15a 不实现入口、不写
+  scripts、不迁移正式训练入口；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P15 再根据 P13d/P13e/P14a/P14b/P14c/P14d/P14e/P14f 结果决定是否新增 branch-specific small
-   entrypoint。
-2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+1. P15b 优先新增 TimeFuse-specific small canonical entrypoint thin slice，建议未来入口为
+   `scripts/run_stage1_timefuse_small.py`；串联 `SampleManifest -> ExpertBatch ->
+   TimeFuse 17-dim FeatureProvider -> TimeFuseLinearSoftmaxHead -> EvaluationInputAdapter /
+   Evaluator -> Runtime artifact writer`，写 canonical `run_dir`，不访问 `/data2`，不启动正式训练。
+2. P15c 再新增 Visual-specific small canonical entrypoint thin slice，建议未来入口为
+   `scripts/run_stage1_visual_small.py`；初期使用 `VisualMockFeatureProvider + smoke/legacy MLP
+   adapter pattern`，写 canonical `run_dir`，不加载真实 checkpoint，不接真实 ViT。
+3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-4. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+5. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做

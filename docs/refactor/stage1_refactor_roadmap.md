@@ -2593,7 +2593,60 @@ P14f 验收：
 
 后续连接：
 
-1. P15a：branch-specific small entrypoint decision。
+1. P15a 已完成：branch-specific small entrypoint decision。
+2. P15b：TimeFuse-specific small canonical entrypoint thin slice。
+3. P15c：Visual-specific small canonical entrypoint thin slice。
+
+### P15a：branch-specific small entrypoint decision
+
+目标：在 P13d/P13e/P14a-P14f 之后，只做 branch-specific small entrypoint 的文档决策。P15a
+判断 P14 是否可以收束、generic small CLI 是否继续保持 thin，以及后续是否需要分别新增
+TimeFuse-specific 和 Visual-specific small canonical entrypoint。
+
+当前状态（2026-06-21）：已新增
+`docs/refactor/stage1_branch_specific_small_entrypoints.md`。P15a 决策结论为：
+
+- P14 可以收束；P14f 只证明未来正式 Visual legacy MLP adapter pattern 的插入点，不代表
+  正式 `VisualMLPRouter` 已迁移完成。
+- `scripts/run_stage1_canonical_small.py` 必须继续保持 generic thin CLI，只服务通用 tiny
+  fixture 和 canonical dataflow 最小验证。
+- 后续需要新增 TimeFuse-specific small canonical entrypoint，推荐未来命名为
+  `scripts/run_stage1_timefuse_small.py`，但不在 P15a 实现。
+- 后续需要新增 Visual-specific small canonical entrypoint，推荐未来命名为
+  `scripts/run_stage1_visual_small.py`，但分阶段推进，也不在 P15a 实现。
+- P15b 建议先做 TimeFuse thin slice，因为 TimeFuse-style fusor 是正式 baseline 支线，
+  且 17 维 feature/head/runtime 组合更稳定。
+- P15c 再做 Visual thin slice，初期使用 `VisualMockFeatureProvider + smoke/legacy MLP
+  adapter pattern`，不加载真实 checkpoint，不接真实 ViT。
+
+P15a 明确不做：
+
+- 不新增 `scripts/run_stage1_timefuse_small.py`。
+- 不新增 `scripts/run_stage1_visual_small.py`。
+- 不修改 `scripts/run_stage1_canonical_small.py`。
+- 不修改正式训练或 evaluation 入口。
+- 不访问 `/data2`。
+- 不读取真实 checkpoint。
+- 不接真实 `VisualMLPRouter`。
+- 不启动 ViT embedding。
+- 不启动训练、pressure 或 full-scale。
+- 不新增 provider/head/runtime core。
+- 不把 Bash 引入 `time_router`。
+- 不把 `run_dir` 传入 provider。
+- 不把 cache 设计成 interface。
+- 不为兼容旧版 `96_48_S` 输出 schema 写适配逻辑。
+
+P15a 验收：
+
+```bash
+git diff --name-only
+rg -n "P14 可以收束|generic small CLI|TimeFuse-specific|Visual-specific|P15b|P15c" docs/refactor/stage1_branch_specific_small_entrypoints.md
+```
+
+后续连接：
+
+1. P15b：TimeFuse-specific small canonical entrypoint thin slice。
+2. P15c：Visual-specific small canonical entrypoint thin slice。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
