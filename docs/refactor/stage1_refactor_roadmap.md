@@ -2646,7 +2646,7 @@ rg -n "P14 可以收束|generic small CLI|TimeFuse-specific|Visual-specific|P15b
 后续连接：
 
 1. P15b 已完成：TimeFuse-specific small canonical entrypoint thin slice。
-2. P15c：Visual-specific small canonical entrypoint thin slice。
+2. P15c 已完成：Visual-specific small canonical entrypoint thin slice。
 
 ### P15b：TimeFuse-specific small canonical entrypoint thin slice
 
@@ -2705,7 +2705,76 @@ P15b 验收：
 
 后续连接：
 
-1. P15c：Visual-specific small canonical entrypoint thin slice。
+1. P15c 已完成：Visual-specific small canonical entrypoint thin slice。
+
+### P15c：Visual-specific small canonical entrypoint thin slice
+
+目标：新增 Visual Router 主线的 small canonical entrypoint。P15c 只做 small fixture /
+mock feature / smoke adapter pattern 级别 rehearsal，不迁移正式 Visual Router 训练入口，
+不读取真实 checkpoint，不接真实 ViT，不访问 `/data2`，不启动训练、pressure 或 full-scale。
+
+当前状态（2026-06-21）：已新增 `scripts/run_stage1_visual_small.py`、
+`tests/smoke/stage1_visual_small_entrypoint_smoke.py` 和
+`docs/refactor/stage1_visual_small_entrypoint.md`。
+
+本次完成范围：
+
+- 默认使用 P13b real-derived `sample_manifest.csv`、P13b `expert_predictions.json` 和
+  P14b `history_windows.json`。
+- CLI 显式支持 `--sample-manifest-csv`、`--history-windows-json`、
+  `--expert-predictions-json`、`--output-dir`、`--split-name`、`--run-id`、
+  `--config-name`、`--feature-dim` 和 strict 开关。
+- 串联 `SampleManifest -> VisualMockFeatureProvider / FeatureBatch ->
+  JsonExpertSmallProvider / ExpertBatch -> script-local SmokeOnlyVisualMLPAdapter / RouterOutput ->
+  EvaluationInputAdapter -> Runtime artifact writer`。
+- Runtime writer 写出 canonical run_dir：`run_metadata.json`、`run_status.json`、
+  `inputs/sample_manifest_ref.json`、`inputs/split_summary.json`、
+  `evaluation/evaluation_summary.json`、`predictions/prediction_rows.csv` 和最小
+  `logs/visual_small_entrypoint.log`。
+- strict 模式验证 sample_key 保序、8 维 float32 Visual `FeatureBatch`、
+  model_columns 对齐、weights shape、finite 和 softmax row sum，以及 provider 不接收
+  run_dir。
+- 新增 smoke 通过 subprocess 调用 entrypoint，验证 canonical artifacts、summary 字段、
+  prediction rows 保序、Visual feature/head/evaluator 对齐、generic small CLI 与
+  TimeFuse small CLI 前后未变、stdout/stderr 不出现 `/data2`，且不启动正式训练入口、
+  不读取真实 checkpoint、不接真实 ViT。
+
+P15c 明确不做：
+
+- 不修改 `scripts/run_stage1_canonical_small.py`。
+- 不修改 `scripts/run_stage1_timefuse_small.py`。
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改 `train_timefuse_fusor_streaming.py`。
+- 不修改正式 evaluation 入口。
+- 不新增 TimeFuse 逻辑。
+- 不访问 `/data2`。
+- 不读取真实 checkpoint。
+- 不接真实 Visual RouterHead。
+- 不启动 ViT embedding。
+- 不启动训练、pressure 或 full-scale。
+- 不新增 Bash launcher。
+- 不把 Bash 引入 `time_router`。
+- 不把 `run_dir` 传入 provider。
+- 不为兼容旧版 `96_48_S` full-scale 输出 schema 写适配逻辑。
+
+P15c 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_provider_mock_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mock_protocol_eval_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_timefuse_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_protocol_run_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_canonical_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall scripts/run_stage1_visual_small.py time_router tests/smoke/stage1_visual_small_entrypoint_smoke.py
+```
+
+后续连接：
+
+1. 正式 Visual RouterHead adapter design/smoke 可单独处理 checkpoint/scaler/device 边界。
+2. 真实 Visual feature provider / online ViT provider 仍需另起审计与 smoke。
+3. pressure / full-scale canonical scripts 尚未准备，不能由 P15c 推断完成。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

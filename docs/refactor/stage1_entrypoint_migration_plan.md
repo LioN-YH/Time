@@ -367,15 +367,24 @@ prediction artifact 写出和 launcher 接手信息。
   TimeFuseLinearSoftmaxHead / RouterOutput -> EvaluationInputAdapter -> Runtime artifact writer`，
   写出 canonical run_dir；P15b 仍不迁移正式 TimeFuse fusor 训练入口，不访问 `/data2`，
   不启动训练、pressure 或 full-scale，不修改 generic small CLI；
+- P15c 已完成 Visual-specific small canonical entrypoint thin slice，见
+  `docs/refactor/stage1_visual_small_entrypoint.md`；新增
+  `scripts/run_stage1_visual_small.py` 和
+  `tests/smoke/stage1_visual_small_entrypoint_smoke.py`，使用 P13b real-derived
+  sample manifest/expert JSON 与 P14b Visual mock history window fixture，串联
+  `SampleManifest -> VisualMockFeatureProvider / FeatureBatch -> ExpertBatch ->
+  script-local smoke-only MLP adapter / RouterOutput -> EvaluationInputAdapter ->
+  Runtime artifact writer`，写出 canonical run_dir；P15c 仍不迁移正式 Visual Router 训练入口，
+  不读取真实 checkpoint，不接真实 ViT，不访问 `/data2`，不启动训练、pressure 或 full-scale，
+  不修改 generic small CLI 或 TimeFuse small CLI；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P15c 新增 Visual-specific small canonical entrypoint thin slice，建议未来入口为
-   `scripts/run_stage1_visual_small.py`；初期使用 `VisualMockFeatureProvider + smoke/legacy MLP
-   adapter pattern`，写 canonical `run_dir`，不加载真实 checkpoint，不接真实 ViT。
+1. 后续可单独设计正式 Visual RouterHead adapter smoke，显式处理 checkpoint/scaler/device
+   边界；P15c 的 script-local smoke adapter 不提升为正式 adapter。
 2. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
 3. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
