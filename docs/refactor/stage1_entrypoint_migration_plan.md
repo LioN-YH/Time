@@ -467,14 +467,21 @@ prediction artifact 写出和 launcher 接手信息。
   P16d optional scaler transform，并继续写 canonical run_dir metadata；P16j 仍只使用
   small fixture / tempfile tiny checkpoint，不读取真实 checkpoint、不访问 `/data2`、
   不启动 ViT、不迁移正式 streaming 入口；
+- P16k 已完成 Visual small entrypoint loaded path artifact parity smoke，见
+  `docs/refactor/stage1_visual_small_loaded_path_artifact_parity.md`；新增 smoke 同时运行
+  默认 mock path 和显式 loaded legacy path，比较 canonical run_dir 共同结构、
+  metadata/status schema、input refs、evaluation summary schema、prediction rows schema、
+  `model_columns`、`split` 列和 `sample_key` 顺序；本步不比较 metrics 数值优劣，
+  loaded path 仍只使用 P16c small precomputed fixture 和 tempfile tiny checkpoint payload；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P16j 已把 small entrypoint 串成 integrated rehearsal；下一步可做真实 checkpoint dry-run、
-   real Visual feature chain 或正式 eval entrypoint migration，但仍应小步拆分。
+1. P16k 已锁定 Visual small entrypoint 默认 mock path 与 loaded legacy path 的 artifact
+   parity；下一步可做真实 checkpoint dry-run、real Visual feature chain 或正式 eval
+   entrypoint migration，但仍应小步拆分。
 2. P16c/P16d 已完成 precomputed head-ready provider 与 loaded scaler transform 边界；后续
    real Visual provider 应继续按 fake encoder 和 online ViT provider 分步推进，不直接迁移正式入口。
 3. 后续正式 Visual entrypoint 迁移应在 Runtime 中加载 checkpoint/scaler、准备 head-ready

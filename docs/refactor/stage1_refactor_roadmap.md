@@ -3328,6 +3328,47 @@ P16j 验收：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_scaler_smoke.py
 ```
 
+### P16k：Visual small loaded path artifact parity smoke
+
+P16k 已新增 Visual small entrypoint 内部两条路径的 artifact parity smoke，见
+`docs/refactor/stage1_visual_small_loaded_path_artifact_parity.md`。
+
+本次新增范围：
+
+- 新增 `tests/smoke/stage1_visual_small_loaded_path_artifact_parity_smoke.py`。
+- 在 tempfile output root 下分别运行 `scripts/run_stage1_visual_small.py` 默认 mock path
+  和显式 loaded legacy path。
+- loaded path 使用 P16c precomputed visual feature fixture 和 tempfile tiny checkpoint
+  payload；本步选择 no-scaler 简化，P16j smoke 已覆盖 scaler-enabled 组合。
+- 比较两条 path 的 canonical run_dir 共同结构、metadata/status schema、input refs、
+  evaluation summary schema、prediction rows schema、`model_columns`、`split` 列和
+  `sample_key` 顺序。
+- 检查默认 path 记录 `loaded_legacy_mlp=false`，loaded path 记录
+  `checkpoint_payload_source=explicit_small_fixture`、`scaler_enabled=false`、
+  `p16i_helper_used=true` 和 `p16a_adapter_used=true`。
+
+P16k 明确不做：
+
+- 不比较两条 path 的 metrics 数值优劣。
+- 不读取真实 checkpoint。
+- 不访问 `/data2`。
+- 不启动 ViT / transformers。
+- 不调用或迁移 `train_visual_router_online_streaming.py`。
+- 不修改 TimeFuse small entrypoint。
+- 不新增 Bash launcher。
+- 不把 checkpoint/scaler/run_dir 放入 P16a adapter interface。
+- 不声称正式 Visual Router 已迁移完成。
+
+P16k 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall \
+  tests/smoke/stage1_visual_small_loaded_path_artifact_parity_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_loaded_path_artifact_parity_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_entrypoint_loaded_legacy_path_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py
+```
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
