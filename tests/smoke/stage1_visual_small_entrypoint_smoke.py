@@ -82,7 +82,6 @@ def assert_no_forbidden_static_references() -> None:
         "train_visual_router_online_streaming",
         "train_timefuse_fusor_streaming",
         "launch_timefuse_fusor_full_scale",
-        "VisualMLPRouter",
         "ViTModel",
         "AutoImageProcessor",
         "subprocess",

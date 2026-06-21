@@ -3282,6 +3282,52 @@ P16i 验收：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
 ```
 
+### P16j：Visual small entrypoint loaded legacy path
+
+P16j 已完成 Visual-specific small entrypoint 的 integrated rehearsal，见
+`docs/refactor/stage1_visual_small_loaded_legacy_path.md`。
+
+本次新增范围：
+
+- 扩展 `scripts/run_stage1_visual_small.py` 的可选 loaded legacy path。
+- 默认不传新参数时，继续走 P15c mock feature + script-local smoke adapter。
+- 显式传入 `--use-loaded-legacy-mlp --router-checkpoint-payload` 时，在 Runtime/entrypoint
+  侧使用 P16i helper 读取 tiny checkpoint payload、提取/清理 `router_state_dict`、
+  strict load 到 legacy `VisualMLPRouter`，再交给 P16a `LoadedTorchMLPRouterHeadAdapter`。
+- `--feature-source precomputed` 时使用 P16c `VisualPrecomputedFeatureProvider`。
+- `--scaler-state-json` 且未 `--disable-scaler` 时使用 P16d `LoadedFeatureScaler`。
+- Runtime writer 继续写 canonical run_dir，并在 metadata 中记录 `feature_source`、
+  `loaded_legacy_mlp`、`checkpoint_payload_source`、`scaler_enabled`、
+  `loads_real_checkpoint=false`、`loads_real_vit=false` 和
+  `formal_visual_router_migration=false`。
+- 新增 `tests/smoke/stage1_visual_small_entrypoint_loaded_legacy_path_smoke.py`，用
+  tempfile tiny checkpoint、P16d raw/scaler fixture 和 small expert JSON 覆盖 loaded path。
+
+P16j 明确不做：
+
+- 不读取真实 checkpoint。
+- 不访问 `/data2`。
+- 不启动 ViT / transformers。
+- 不调用或迁移 `train_visual_router_online_streaming.py`。
+- 不新增 Bash launcher。
+- 不改变 TimeFuse small entrypoint。
+- 不把 checkpoint/scaler/run_dir 放入 P16a adapter interface。
+- 不声称正式 Visual Router 已迁移完成。
+
+P16j 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall \
+  scripts/run_stage1_visual_small.py \
+  tests/smoke/stage1_visual_small_entrypoint_loaded_legacy_path_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_entrypoint_loaded_legacy_path_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_checkpoint_payload_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_precomputed_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_scaler_smoke.py
+```
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

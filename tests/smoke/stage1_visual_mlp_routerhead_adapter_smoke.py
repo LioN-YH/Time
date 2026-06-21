@@ -255,8 +255,8 @@ def assert_source_boundaries() -> None:
     visual_small_source = VISUAL_SMALL_ENTRYPOINT_PATH.read_text(encoding="utf-8")
     if "SmokeOnlyVisualMLPAdapter" not in visual_small_source:
         raise AssertionError("P15c visual small entrypoint 应继续保留 script-local SmokeOnlyVisualMLPAdapter")
-    if "LoadedTorchMLPRouterHeadAdapter" in visual_small_source:
-        raise AssertionError("P16a 不应把正式 adapter 接入 P15c visual small entrypoint")
+    if "LoadedTorchMLPRouterHeadAdapter" in visual_small_source and "--use-loaded-legacy-mlp" not in visual_small_source:
+        raise AssertionError("P16a adapter 若接入 visual small entrypoint，必须受显式 loaded legacy CLI 控制")
 
 
 def assert_feature_and_expert_alignment(feature_batch: FeatureBatch, expert_batch: ExpertBatch) -> None:

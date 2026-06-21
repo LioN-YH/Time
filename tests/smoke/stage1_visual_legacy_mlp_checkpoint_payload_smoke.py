@@ -358,8 +358,8 @@ def assert_boundary_sources_unchanged() -> None:
 
     assert_repo_file(VISUAL_SMALL_ENTRYPOINT_PATH)
     visual_small_source = VISUAL_SMALL_ENTRYPOINT_PATH.read_text(encoding="utf-8")
-    if "LoadedTorchMLPRouterHeadAdapter" in visual_small_source:
-        raise AssertionError("P16i 不应把正式 adapter 接入 scripts/run_stage1_visual_small.py")
+    if "LoadedTorchMLPRouterHeadAdapter" in visual_small_source and "--use-loaded-legacy-mlp" not in visual_small_source:
+        raise AssertionError("P16i helper 若接入 scripts/run_stage1_visual_small.py，必须受显式 loaded legacy CLI 控制")
     if "SmokeOnlyVisualMLPAdapter" not in visual_small_source:
         raise AssertionError("scripts/run_stage1_visual_small.py 应继续保留 script-local smoke adapter")
 

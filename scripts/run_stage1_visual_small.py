@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 文件功能：
-    Stage 1 P15c Visual-specific small canonical entrypoint thin slice。
+    Stage 1 P15c/P16j Visual-specific small canonical entrypoint thin slice。
 
 输入：
     命令行显式传入 small SampleManifest CSV、Visual mock history windows JSON、
@@ -12,10 +12,12 @@
     inputs 引用、evaluation summary、prediction rows 和最小日志。
 
 关键约束：
-    本脚本只做 Visual branch-specific small fixture / mock feature / smoke adapter
-    pattern 级别的 canonical rehearsal；不访问 `/data2`，不启动训练、
-    不读取真实 checkpoint，不接真实视觉 MLP 路由器，不启动 ViT embedding，
-    不修改 generic small CLI 或 TimeFuse small CLI，也不把 run_dir 传入 provider。
+    默认仍只做 Visual branch-specific small fixture / mock feature / smoke adapter
+    pattern 级别的 canonical rehearsal。P16j 新增的 loaded legacy path 必须由 CLI
+    显式启用，并且只接受 tiny checkpoint payload / precomputed feature / optional
+    scaler state。两条路径都不访问 `/data2`，不启动训练、不读取真实 checkpoint、
+    不启动 ViT embedding，不修改 generic small CLI 或 TimeFuse small CLI，也不把
+    run_dir 传入 provider/adapter。
 """
 
 from __future__ import annotations
@@ -38,10 +40,14 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from time_router.evaluation import EvaluationInputAdapter, EvaluationInputAdapterResult  # noqa: E402
-from time_router.features import VisualMockFeatureProvider  # noqa: E402
+from time_router.features import LoadedFeatureScaler, VisualMockFeatureProvider, VisualPrecomputedFeatureProvider  # noqa: E402
+from time_router.models import LoadedTorchMLPRouterHeadAdapter  # noqa: E402
 from time_router.protocols import ExpertBatch, FeatureBatch, RouterOutput, SampleManifest, SampleManifestRow  # noqa: E402
 from time_router.runtime import (  # noqa: E402
     create_run_dir,
+    extract_router_state_dict,
+    load_checkpoint_payload,
+    load_router_state_dict,
     write_evaluation_summary,
     write_prediction_rows_csv,
     write_run_metadata,
@@ -55,8 +61,10 @@ DEFAULT_FIXTURE_ROOT = REPO_ROOT / "tests" / "fixtures"
 DEFAULT_SAMPLE_MANIFEST_CSV = DEFAULT_FIXTURE_ROOT / "stage1_real_derived_small" / "sample_manifest.csv"
 DEFAULT_EXPERT_PREDICTIONS_JSON = DEFAULT_FIXTURE_ROOT / "stage1_real_derived_small" / "expert_predictions.json"
 DEFAULT_HISTORY_WINDOWS_JSON = DEFAULT_FIXTURE_ROOT / "stage1_visual_feature_mock" / "history_windows.json"
+DEFAULT_VISUAL_FEATURES_CSV = DEFAULT_FIXTURE_ROOT / "stage1_visual_precomputed_small" / "visual_embeddings.csv"
 DEFAULT_RUN_ID = "stage1_visual_small"
 DEFAULT_FEATURE_DIM = 8
+LEGACY_MODULE_IMPORT_PATH = "visual_router_experiments.stage1_vali_test_router.train_visual_router"
 
 
 def assert_not_data2(path: Path, *, role: str) -> None:
@@ -169,6 +177,84 @@ def load_history_windows_json(path: Path) -> dict[str, list[float]]:
             raise ValueError(f"history window 必须是非空 list：sample_key={sample_key}")
         history_windows[sample_key] = [float(value) for value in window]
     return history_windows
+
+
+def import_legacy_visual_mlp_router() -> type[torch.nn.Module]:
+    """
+    函数功能：
+        在 P16j loaded legacy path 中动态导入 legacy `VisualMLPRouter` 类型。
+
+    输入：
+        无；模块路径固定为 Stage 1 Visual Router 历史训练脚本。
+
+    输出：
+        legacy `VisualMLPRouter` class。
+
+    关键约束：
+        只有显式 `--use-loaded-legacy-mlp` 时才调用，避免默认 mock path 引入
+        checkpoint/训练入口语义；本函数只取 class，不启动训练或 ViT。
+    """
+    import importlib
+
+    module = importlib.import_module(LEGACY_MODULE_IMPORT_PATH)
+    router_cls = getattr(module, "VisualMLPRouter")
+    if not isinstance(router_cls, type) or not issubclass(router_cls, torch.nn.Module):
+        raise TypeError(f"legacy VisualMLPRouter 必须是 torch.nn.Module class：actual={type(router_cls)!r}")
+    return router_cls
+
+
+def build_loaded_legacy_mlp_from_payload(
+    *,
+    checkpoint_payload_path: Path,
+    input_dim: int,
+    output_dim: int,
+) -> tuple[torch.nn.Module, Mapping[str, object]]:
+    """
+    函数功能：
+        用 P16i Runtime helper 从 tiny checkpoint payload strict load legacy MLP。
+
+    输入：
+        checkpoint_payload_path: CLI 显式传入的 tiny checkpoint payload；
+        input_dim/output_dim: 来自当前 FeatureBatch 和 ExpertBatch 的运行时维度。
+
+    输出：
+        已加载权重的 legacy VisualMLPRouter，以及用于 run_metadata 留痕的摘要。
+
+    关键约束：
+        checkpoint path 只在 Runtime/entrypoint 侧使用，不传入 P16a adapter；本函数
+        不做 checkpoint discovery，不访问 `/data2`，不处理真实 full-scale checkpoint。
+    """
+    assert_not_data2(checkpoint_payload_path, role="router_checkpoint_payload")
+    payload = load_checkpoint_payload(checkpoint_payload_path, map_location="cpu")
+    config = payload.get("config", {})
+    if not isinstance(config, Mapping):
+        config = {}
+    hidden_dim = int(config.get("hidden_dim", max(4, input_dim + 1)))
+    dropout = float(config.get("dropout", 0.0))
+    configured_input_dim = int(config.get("input_dim", input_dim))
+    configured_output_dim = int(config.get("output_dim", output_dim))
+    if configured_input_dim != input_dim:
+        raise ValueError(f"checkpoint config input_dim 与 FeatureBatch 不一致：checkpoint={configured_input_dim} feature={input_dim}")
+    if configured_output_dim != output_dim:
+        raise ValueError(f"checkpoint config output_dim 与 ExpertBatch 不一致：checkpoint={configured_output_dim} expert={output_dim}")
+
+    router_cls = import_legacy_visual_mlp_router()
+    model = router_cls(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, dropout=dropout)
+    router_state_dict = extract_router_state_dict(payload)
+    load_router_state_dict(model, router_state_dict, strict=True)
+    metadata = {
+        "checkpoint_payload_source": "explicit_small_fixture",
+        "checkpoint_payload_path": str(checkpoint_payload_path),
+        "checkpoint_payload_sha256": sha256_file(checkpoint_payload_path),
+        "checkpoint_load_helper": "time_router.runtime.visual_mlp_checkpoint",
+        "router_state_dict_key_count": len(router_state_dict),
+        "legacy_module_import_path": LEGACY_MODULE_IMPORT_PATH,
+        "legacy_router_class": "VisualMLPRouter",
+        "hidden_dim": hidden_dim,
+        "dropout": dropout,
+        "loads_real_checkpoint": False,
+    }
+    return model, metadata
 
 
 class JsonExpertSmallProvider:
@@ -457,18 +543,170 @@ def assert_strict_contract(
         raise AssertionError("ExpertProvider 不应接收 run_dir")
 
 
+def build_feature_batch(args: argparse.Namespace, ordered_sample_keys: Sequence[str]) -> tuple[FeatureBatch, Mapping[str, object]]:
+    """
+    函数功能：
+        按 CLI 选择 Visual small feature source，并可选执行 LoadedFeatureScaler。
+
+    输入：
+        args: CLI 参数；
+        ordered_sample_keys: SampleManifest 确定的样本顺序。
+
+    输出：
+        FeatureBatch，以及用于 run_metadata 的 feature/scaler 摘要。
+
+    关键约束：
+        `mock` 路径保持 P15c 默认行为；`precomputed` 只读取显式 small fixture。
+        scaler 只有传入 `--scaler-state-json` 且未 `--disable-scaler` 时执行，
+        不做 silent fit。
+    """
+    feature_source = str(args.feature_source)
+    if feature_source == "mock":
+        history_windows_json = Path(args.history_windows_json)
+        history_windows = load_history_windows_json(history_windows_json)
+        feature_provider = VisualMockFeatureProvider(
+            history_windows=history_windows,
+            history_source_name="stage1_visual_feature_mock_history_window_x",
+            source=f"{history_windows_json}:in_memory",
+        )
+        feature_batch = feature_provider.load_batch(ordered_sample_keys)
+        provider_metadata: dict[str, object] = {
+            "feature_source": "mock",
+            "feature_provider": "VisualMockFeatureProvider",
+            "history_windows_json": {
+                "reference_type": "file",
+                "path": str(history_windows_json),
+                "checksum": sha256_file(history_windows_json),
+                "checksum_algorithm": "sha256",
+            },
+        }
+    elif feature_source == "precomputed":
+        visual_features_csv = Path(args.visual_features_csv)
+        assert_not_data2(visual_features_csv, role="visual_features_csv")
+        if not visual_features_csv.is_file():
+            raise FileNotFoundError(f"visual_features_csv 不存在：{visual_features_csv}")
+        feature_provider = VisualPrecomputedFeatureProvider(feature_source_path=visual_features_csv)
+        feature_batch = feature_provider.load_batch(ordered_sample_keys)
+        provider_metadata = {
+            "feature_source": "precomputed",
+            "feature_provider": "VisualPrecomputedFeatureProvider",
+            "visual_features_csv": {
+                "reference_type": "file",
+                "path": str(visual_features_csv),
+                "checksum": sha256_file(visual_features_csv),
+                "checksum_algorithm": "sha256",
+            },
+        }
+    else:
+        raise ValueError(f"未知 feature_source：{feature_source}")
+
+    scaler_state_json = Path(args.scaler_state_json) if args.scaler_state_json else None
+    scaler_enabled = scaler_state_json is not None and not bool(args.disable_scaler)
+    if scaler_enabled:
+        assert_not_data2(scaler_state_json, role="scaler_state_json")
+        if not scaler_state_json.is_file():
+            raise FileNotFoundError(f"scaler_state_json 不存在：{scaler_state_json}")
+        scaler = LoadedFeatureScaler.from_json(scaler_state_json)
+        feature_batch = scaler.transform(feature_batch)
+        provider_metadata["scaler"] = {
+            "scaler_enabled": True,
+            "scaler_name": "LoadedFeatureScaler",
+            "scaler_state_json": {
+                "reference_type": "file",
+                "path": str(scaler_state_json),
+                "checksum": sha256_file(scaler_state_json),
+                "checksum_algorithm": "sha256",
+            },
+            "fit_performed": False,
+        }
+    else:
+        provider_metadata["scaler"] = {
+            "scaler_enabled": False,
+            "disabled_by_cli": bool(args.disable_scaler),
+            "fit_performed": False,
+        }
+    return feature_batch, provider_metadata
+
+
+def build_router_output(
+    *,
+    args: argparse.Namespace,
+    feature_batch: FeatureBatch,
+    expert_batch: ExpertBatch,
+) -> tuple[RouterOutput, Mapping[str, object]]:
+    """
+    函数功能：
+        根据 CLI 选择默认 script-local smoke adapter 或 P16j loaded legacy path。
+
+    输入：
+        feature_batch: 已完成 provider/scaler 的 head-ready features；
+        expert_batch: 提供显式 model_columns 和专家动作空间。
+
+    输出：
+        RouterOutput，以及 run_metadata 中的 head/checkpoint 摘要。
+
+    关键约束：
+        只有 `--use-loaded-legacy-mlp` 且显式 checkpoint payload 时才调用 P16i
+        helper 和 P16a adapter；默认路径继续使用 P15c smoke adapter。
+    """
+    input_dim = int(feature_batch.features.shape[1])
+    output_dim = len(expert_batch.model_columns)
+    if bool(args.use_loaded_legacy_mlp):
+        checkpoint_payload = args.router_checkpoint_payload
+        if not checkpoint_payload:
+            raise ValueError("--use-loaded-legacy-mlp 必须同时传入 --router-checkpoint-payload")
+        model, checkpoint_metadata = build_loaded_legacy_mlp_from_payload(
+            checkpoint_payload_path=Path(checkpoint_payload),
+            input_dim=input_dim,
+            output_dim=output_dim,
+        )
+        adapter = LoadedTorchMLPRouterHeadAdapter(
+            model=model,
+            device=torch.device("cpu"),
+            adapter_name="P16jLoadedLegacyVisualMLPAdapter",
+        )
+        router_output = adapter.predict(feature_batch, expert_batch.model_columns)
+        head_metadata = {
+            "head": "LoadedTorchMLPRouterHeadAdapter over legacy VisualMLPRouter",
+            "adapter_name": "LoadedTorchMLPRouterHeadAdapter",
+            "loaded_legacy_mlp": True,
+            "p16i_helper_used": True,
+            "p16a_adapter_used": True,
+            **dict(checkpoint_metadata),
+        }
+    else:
+        if args.router_checkpoint_payload:
+            raise ValueError("--router-checkpoint-payload 只能与 --use-loaded-legacy-mlp 一起使用")
+        mlp = build_loaded_smoke_mlp(input_dim=input_dim, output_dim=output_dim)
+        router_output = SmokeOnlyVisualMLPAdapter(mlp=mlp, device=torch.device("cpu")).predict(
+            feature_batch,
+            expert_batch.model_columns,
+        )
+        head_metadata = {
+            "head": "SmokeOnlyVisualMLPAdapter script-local deterministic in-memory MLP",
+            "adapter_name": "SmokeOnlyVisualMLPAdapter",
+            "loaded_legacy_mlp": False,
+            "p16i_helper_used": False,
+            "p16a_adapter_used": False,
+            "checkpoint_payload_source": "none",
+            "loads_real_checkpoint": False,
+        }
+    return router_output, head_metadata
+
+
 def write_runtime_artifacts(
     *,
     args: argparse.Namespace,
     manifest: SampleManifest,
     feature_batch: FeatureBatch,
     result: EvaluationInputAdapterResult,
+    feature_metadata: Mapping[str, object],
+    head_metadata: Mapping[str, object],
     run_dir: Path,
     created_at: str,
 ) -> None:
     """函数功能：Runtime 层统一写出 canonical run_dir artifact。"""
     sample_manifest_csv = Path(args.sample_manifest_csv)
-    history_windows_json = Path(args.history_windows_json)
     expert_predictions_json = Path(args.expert_predictions_json)
     manifest_ref = {
         "sample_manifest_schema_version": "stage1_sample_manifest_v1",
@@ -509,12 +747,6 @@ def write_runtime_artifacts(
         "inputs": {
             "sample_manifest": {"reference_type": "file", "path": str(sample_manifest_csv), "artifact_path": "inputs/sample_manifest_ref.json"},
             "split_summary": "inputs/split_summary.json",
-            "history_windows_json": {
-                "reference_type": "file",
-                "path": str(history_windows_json),
-                "checksum": sha256_file(history_windows_json),
-                "checksum_algorithm": "sha256",
-            },
             "expert_predictions_json": {
                 "reference_type": "file",
                 "path": str(expert_predictions_json),
@@ -523,13 +755,23 @@ def write_runtime_artifacts(
             },
         },
         "visual_router": {
-            "feature_provider": "VisualMockFeatureProvider",
+            "feature_source": feature_metadata["feature_source"],
+            "feature_provider": feature_metadata["feature_provider"],
             "feature_schema": dict(feature_batch.feature_schema),
-            "head": "SmokeOnlyVisualMLPAdapter script-local deterministic in-memory MLP",
+            "scaler_enabled": dict(feature_metadata["scaler"])["scaler_enabled"],
+            "scaler": dict(feature_metadata["scaler"]),
+            "head": head_metadata["head"],
+            "adapter_name": head_metadata["adapter_name"],
+            "loaded_legacy_mlp": head_metadata["loaded_legacy_mlp"],
+            "p16i_helper_used": head_metadata["p16i_helper_used"],
+            "p16a_adapter_used": head_metadata["p16a_adapter_used"],
+            "checkpoint_payload_source": head_metadata["checkpoint_payload_source"],
             "training": "not_started_p15c_small_rehearsal_only",
             "formal_visual_router_migration": False,
             "loads_real_checkpoint": False,
             "loads_real_vit": False,
+            "feature_lineage": dict(feature_metadata),
+            "head_lineage": dict(head_metadata),
         },
     }
     status = {
@@ -584,7 +826,7 @@ def write_runtime_artifacts(
 
 
 def run_entrypoint(args: argparse.Namespace) -> Path:
-    """函数功能：执行 P15c Visual small canonical dataflow，并返回 run_dir。"""
+    """函数功能：执行 Visual small canonical dataflow，并返回 run_dir。"""
     output_dir = Path(args.output_dir)
     sample_manifest_csv = Path(args.sample_manifest_csv)
     history_windows_json = Path(args.history_windows_json)
@@ -606,20 +848,14 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
 
     manifest = load_sample_manifest_csv(sample_manifest_csv, split_name=str(args.split_name))
     ordered_sample_keys = manifest.sample_keys()
-    history_windows = load_history_windows_json(history_windows_json)
-    feature_provider = VisualMockFeatureProvider(
-        history_windows=history_windows,
-        history_source_name="stage1_visual_feature_mock_history_window_x",
-        source=f"{history_windows_json}:in_memory",
-    )
-    feature_batch = feature_provider.load_batch(ordered_sample_keys)
+    feature_batch, feature_metadata = build_feature_batch(args, ordered_sample_keys)
     expert_provider = JsonExpertSmallProvider(expert_predictions_json)
     expert_batch = expert_provider.load_batch(feature_batch.sample_keys)
-    mlp = build_loaded_smoke_mlp(input_dim=int(feature_batch.features.shape[1]), output_dim=len(expert_batch.model_columns))
-    router_output = SmokeOnlyVisualMLPAdapter(mlp=mlp, device=torch.device("cpu")).predict(feature_batch, expert_batch.model_columns)
+    router_output, head_metadata = build_router_output(args=args, feature_batch=feature_batch, expert_batch=expert_batch)
     result = EvaluationInputAdapter().evaluate(expert_batch=expert_batch, router_output=router_output)
 
     if args.strict:
+        expected_feature_dim = int(args.feature_dim) if str(args.feature_source) == "mock" else int(feature_batch.features.shape[1])
         assert_strict_contract(
             manifest=manifest,
             expert_batch=expert_batch,
@@ -627,7 +863,7 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
             router_output=router_output,
             result=result,
             expert_provider=expert_provider,
-            expected_feature_dim=int(args.feature_dim),
+            expected_feature_dim=expected_feature_dim,
         )
 
     created_at = now_iso()
@@ -637,6 +873,8 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
         manifest=manifest,
         feature_batch=feature_batch,
         result=result,
+        feature_metadata=feature_metadata,
+        head_metadata=head_metadata,
         run_dir=run_dir,
         created_at=created_at,
     )
@@ -651,6 +889,9 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
                 "split_counts": manifest.split_counts(),
                 "feature_dim": int(feature_batch.features.shape[1]),
                 "num_experts": len(expert_batch.model_columns),
+                "feature_source": str(args.feature_source),
+                "loaded_legacy_mlp": bool(args.use_loaded_legacy_mlp),
+                "scaler_enabled": bool(dict(feature_metadata["scaler"])["scaler_enabled"]),
                 "hard_mae": summary["metrics"]["hard_mae"],
                 "raw_soft_mae": summary["metrics"]["raw_soft_mae"],
             },
@@ -662,8 +903,8 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """函数功能：解析 P15c Visual-specific small CLI 参数。"""
-    parser = argparse.ArgumentParser(description="Run Stage 1 P15c Visual-specific small canonical entrypoint.")
+    """函数功能：解析 Visual-specific small CLI 参数。"""
+    parser = argparse.ArgumentParser(description="Run Stage 1 Visual-specific small canonical entrypoint.")
     parser.add_argument("--sample-manifest-csv", default=str(DEFAULT_SAMPLE_MANIFEST_CSV), help="small SampleManifest CSV。")
     parser.add_argument("--history-windows-json", default=str(DEFAULT_HISTORY_WINDOWS_JSON), help="small Visual mock history windows JSON。")
     parser.add_argument("--expert-predictions-json", default=str(DEFAULT_EXPERT_PREDICTIONS_JSON), help="small expert prediction JSON。")
@@ -672,6 +913,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID, help="output-dir 下创建的单层 run 目录名。")
     parser.add_argument("--config-name", default="96_48_S", help="写入 run metadata 的 config 名。")
     parser.add_argument("--feature-dim", type=int, default=DEFAULT_FEATURE_DIM, help="VisualMockFeatureProvider 期望输出维度，默认 8。")
+    parser.add_argument("--feature-source", choices=("mock", "precomputed"), default="mock", help="Visual feature source；默认 mock 保持 P15c 行为。")
+    parser.add_argument("--visual-features-csv", default=str(DEFAULT_VISUAL_FEATURES_CSV), help="precomputed feature source 的 small CSV fixture。")
+    parser.add_argument("--router-checkpoint-payload", default=None, help="显式 tiny checkpoint payload；仅 --use-loaded-legacy-mlp 时允许。")
+    parser.add_argument("--use-loaded-legacy-mlp", action="store_true", help="显式启用 P16j loaded legacy VisualMLPRouter path。")
+    parser.add_argument("--scaler-state-json", default=None, help="可选 loaded scaler state JSON；传入且未 disable 时执行 LoadedFeatureScaler。")
+    parser.add_argument("--disable-scaler", action="store_true", help="即使传入 scaler state，也跳过 scaler transform。")
     parser.add_argument(
         "--strict",
         action=argparse.BooleanOptionalAction,
