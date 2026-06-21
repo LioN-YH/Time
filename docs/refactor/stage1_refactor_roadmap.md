@@ -3078,6 +3078,64 @@ P16d 验收：
 3. 正式 Visual entrypoint 迁移仍需在 Runtime 中加载 checkpoint/scaler/encoder，再把
    head-ready `FeatureBatch` 交给 P16a adapter。
 
+### P16e：Visual feature architecture variant boundary consolidation
+
+P16e 已新增 Visual feature architecture variant 边界文档，见
+`docs/refactor/stage1_visual_feature_architecture_variants.md`。
+
+本次完成范围：
+
+- 明确 Stage 1 长期固定的是 canonical dataflow 契约：
+  `SampleManifest / ordered sample_keys -> FeatureProvider / FeatureTransform ->
+  FeatureBatch -> RouterHeadAdapter -> EvaluationInputAdapter / Evaluator -> Runtime artifact writer`。
+- 明确长期不固定的是 RevIN、resize、pseudo image 口径、encoder choice、ViT pooling、
+  CLS vs mean patch、是否使用 scaler / normalizer、是否 precompute embedding 和是否使用
+  cache。
+- 将 Visual feature chain 拆成可替换 architecture variant 插槽：`RawWindowProvider`、
+  optional pre-image transform、`PseudoImageTransformer`、`ResizePolicy` / image input
+  policy、`VisualEncoderProvider`、`PoolingStrategy`、optional `FeatureTransform` 和
+  `FeatureBatch`。
+- 明确 P16c `VisualPrecomputedFeatureProvider` 是 precomputed/head-ready fixture provider，
+  可用于 smoke、debug、ablation 和跳过 ViT 的快速验证；它不代表正式 Visual Router 必须读
+  CSV，也不代表必须落盘 embedding/cache。
+- 明确 P16d `LoadedFeatureScaler` 是 `FeatureBatch -> FeatureBatch` transform 的一个实现；
+  它不代表正式 Visual Router 必须使用 scaler，也不允许把 scaler 塞进 RouterHead adapter
+  或 provider silent fit。
+- 明确 cache 是 implementation，不是 interface；precomputed CSV/cache path 不是长期
+  `FeatureProvider` contract；full-scale 若使用 cache，输出仍必须是同一 `FeatureBatch`
+  contract。
+- 明确并行架构探索若采用 RevIN before imaging、resize/no resize、CLS pooling、
+  mean_patch pooling、different visual encoder、no scaler 或 different normalizer，应通过
+  替换 feature-chain 组件接入当前 canonical pipeline，而不是重写 evaluator/runtime/expert
+  provider。
+
+P16e 明确不做：
+
+- 不新增 provider / transform / model 代码。
+- 不修改 P16a / P16c / P16d 代码。
+- 不修改 `scripts/run_stage1_visual_small.py`。
+- 不修改正式训练或 evaluation 入口。
+- 不访问 `/data2`。
+- 不启动 ViT、训练、pressure 或 full-scale。
+- 不新增 Bash launcher。
+- 不声称正式 Visual Router 已迁移完成。
+
+P16e 验收：
+
+```bash
+git diff --name-only
+rg -n "RevIN|resize|CLS|mean_patch|cache|FeatureBatch|FeatureTransform|VisualPrecomputedFeatureProvider|LoadedFeatureScaler" docs/refactor/stage1_visual_feature_architecture_variants.md
+```
+
+后续连接：
+
+1. fake encoder provider / online ViT provider audit 应按 P16e 插槽边界单独处理
+   pseudo image、resize policy、encoder、pooling、device/dtype 和资源策略。
+2. legacy checkpoint/signature audit 仍应单独处理 `VisualMLPRouter` import、constructor、
+   state_dict、DataParallel key 和 device。
+3. 正式 Visual entrypoint migration plan 应把 Runtime 的 scaler/encoder/checkpoint 注入、
+   FeatureBatch 生成、RouterHead adapter 和 Evaluator 接入分开规划。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
