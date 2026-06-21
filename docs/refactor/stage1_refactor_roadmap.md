@@ -3418,12 +3418,56 @@ git diff --name-only
 
 后续候选：
 
-1. P16m：visual explicit real-checkpoint dry-run CLI guard smoke，只验证路径 guard，不读
-   `/data2`。
-2. P16n：manual real checkpoint dry-run，用户显式提供 artifact path 后再执行。
-3. P17a：Visual canonical eval entrypoint migration plan。
-4. P17b：real Visual feature chain dry-run / fake encoder to online ViT boundary。
-5. P17c：Visual full-scale / pressure plan。
+1. P17a：Visual canonical eval entrypoint migration plan。
+2. P17b：Visual canonical eval guarded real-checkpoint dry-run path。
+3. P17c：real Visual feature chain dry-run / fake encoder to online ViT boundary。
+4. P17d：Visual full-scale / pressure plan。
+
+### P17a：Visual canonical eval entrypoint
+
+P17a 已新增 `scripts/run_stage1_visual_eval_canonical.py`，见
+`docs/refactor/stage1_visual_eval_canonical_entrypoint.md`。
+
+完成内容：
+
+- 串联 `SampleManifest -> VisualPrecomputedFeatureProvider -> optional LoadedFeatureScaler ->
+  Runtime-loaded legacy VisualMLPRouter checkpoint payload ->
+  LoadedTorchMLPRouterHeadAdapter -> ExpertBatch -> EvaluationInputAdapter -> Runtime artifact writer`。
+- 写出 canonical `run_dir`。
+- 默认只允许 fixture 或 `/tmp` tiny checkpoint payload。
+- 不启动 ViT、训练、pressure 或 full-scale。
+
+### P17b：Visual canonical eval guarded real-checkpoint dry-run path
+
+P17b 已新增受控 real-checkpoint dry-run path，见
+`docs/refactor/stage1_visual_eval_real_checkpoint_guard.md`。
+
+完成内容：
+
+- 新增 `time_router/runtime/visual_eval_checkpoint_guard.py`，只做 checkpoint path policy。
+- 扩展 `scripts/run_stage1_visual_eval_canonical.py`，新增
+  `--allow-real-checkpoint`、`--allow-external-checkpoint-path` 和
+  `--checkpoint-path-label`。
+- 默认 tiny checkpoint 行为保持不变；非 fixture/tmp checkpoint 必须显式授权；
+  `/data2` checkpoint path 必须双重授权。
+- metadata 记录 `loads_real_checkpoint`、`checkpoint_payload_source`、
+  `checkpoint_payload_sha256`、`checkpoint_path_policy`、`checkpoint_path_label`、
+  `allow_real_checkpoint`、`allow_external_checkpoint_path`、`loads_real_vit=false`、
+  `training_started=false` 和 `formal_training_migration=false`。
+- 新增 `tests/smoke/stage1_visual_eval_canonical_real_checkpoint_guard_smoke.py`；
+  `/data2` guard smoke 只调用 helper，不创建或读取 `/data2` 文件，不执行
+  `torch.load`。
+
+P17b 仍明确不做：
+
+- 不迁移训练入口。
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不启动 full-scale。
+- 不接真实 ViT。
+- 不自动搜索 `/data2`。
+- 不新增 Bash launcher。
+- 不修改 P15c/P16j Visual small entrypoint 或 TimeFuse small entrypoint 默认行为。
+- 不把 checkpoint path、allow flag 或 run_dir 放入 FeatureProvider / RouterHead adapter。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 

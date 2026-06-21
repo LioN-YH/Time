@@ -26,11 +26,21 @@ from time_router.runtime.visual_mlp_checkpoint import (
     load_router_state_dict,
     strip_dataparallel_prefix,
 )
+from time_router.runtime.visual_eval_checkpoint_guard import (
+    CheckpointPathPolicy,
+    authorize_visual_eval_checkpoint_path,
+    is_data2_path,
+    is_fixture_or_tempfile_checkpoint,
+)
 
 __all__ = [
     "CANONICAL_RUN_SUBDIRS",
+    "CheckpointPathPolicy",
+    "authorize_visual_eval_checkpoint_path",
     "create_run_dir",
     "extract_router_state_dict",
+    "is_data2_path",
+    "is_fixture_or_tempfile_checkpoint",
     "load_checkpoint_payload",
     "load_router_state_dict",
     "strip_dataparallel_prefix",

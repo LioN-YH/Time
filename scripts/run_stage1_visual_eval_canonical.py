@@ -44,8 +44,10 @@ from time_router.features import LoadedFeatureScaler, VisualPrecomputedFeaturePr
 from time_router.models import LoadedTorchMLPRouterHeadAdapter  # noqa: E402
 from time_router.protocols import ExpertBatch, FeatureBatch, RouterOutput, SampleManifest, SampleManifestRow  # noqa: E402
 from time_router.runtime import (  # noqa: E402
+    authorize_visual_eval_checkpoint_path,
     create_run_dir,
     extract_router_state_dict,
+    is_data2_path,
     load_checkpoint_payload,
     load_router_state_dict,
     write_evaluation_summary,
@@ -64,43 +66,9 @@ PROTOCOL_VERSION = "stage1_visual_eval_canonical_entrypoint_v1"
 
 def assert_not_data2(path: Path, *, role: str) -> None:
     """函数功能：阻止 P17a 默认 thin slice 读取或写入 `/data2`。"""
-    resolved = str(path.resolve())
-    if resolved == "/data2" or resolved.startswith("/data2/"):
-        raise ValueError(f"P17a Visual eval canonical 默认禁止 /data2 {role}：{resolved}")
-
-
-def assert_checkpoint_allowed(path: Path, *, allow_real_checkpoint: bool) -> None:
-    """
-    函数功能：
-        执行 checkpoint guard：默认只允许 fixture/tempfile tiny payload。
-
-    关键约束：
-        即使显式开启 `--allow-real-checkpoint`，`/data2` checkpoint 在 P17a 仍禁止；
-        后续真实 dry-run 必须单独设计更完整的授权和审计口径。
-    """
-    assert_not_data2(path, role="router_checkpoint_payload")
-    if allow_real_checkpoint:
-        return
-    resolved = path.resolve()
-    allowed_roots = (
-        (REPO_ROOT / "tests" / "fixtures").resolve(),
-        Path("/tmp").resolve(),
-    )
-    if not any(resolved == root or str(resolved).startswith(f"{root}/") for root in allowed_roots):
-        raise ValueError(
-            "--allow-real-checkpoint 未开启时，router checkpoint payload 只能位于 tests/fixtures 或 /tmp tempfile："
-            f"{resolved}"
-        )
-
-
-def is_fixture_or_tempfile_checkpoint(path: Path) -> bool:
-    """函数功能：判断 checkpoint path 是否属于 P17a 默认 tiny fixture/tempfile 范围。"""
-    resolved = path.resolve()
-    allowed_roots = (
-        (REPO_ROOT / "tests" / "fixtures").resolve(),
-        Path("/tmp").resolve(),
-    )
-    return any(resolved == root or str(resolved).startswith(f"{root}/") for root in allowed_roots)
+    if is_data2_path(path):
+        resolved = str(path.resolve())
+        raise ValueError(f"P17b Visual eval canonical 默认禁止 /data2 {role}：{resolved}")
 
 
 def now_iso() -> str:
@@ -337,10 +305,16 @@ def build_router_output(
         在 Runtime/entrypoint 侧加载 checkpoint payload 和 legacy MLP，再交给 P16a adapter。
 
     关键约束：
-        checkpoint path 不进入 adapter；默认不允许真实 checkpoint 或 `/data2` path。
+        checkpoint path 不进入 adapter；默认不允许真实 checkpoint，`/data2` path 需要
+        allow-real-checkpoint 与 allow-external-checkpoint-path 双重显式授权。
     """
     checkpoint_payload_path = Path(args.router_checkpoint_payload)
-    assert_checkpoint_allowed(checkpoint_payload_path, allow_real_checkpoint=bool(args.allow_real_checkpoint))
+    checkpoint_policy = authorize_visual_eval_checkpoint_path(
+        checkpoint_payload_path,
+        repo_root=REPO_ROOT,
+        allow_real_checkpoint=bool(args.allow_real_checkpoint),
+        allow_external_checkpoint_path=bool(args.allow_external_checkpoint_path),
+    )
     payload = load_checkpoint_payload(checkpoint_payload_path, map_location="cpu")
     config = payload.get("config", {})
     if not isinstance(config, Mapping):
@@ -370,18 +344,22 @@ def build_router_output(
         "head": "LoadedTorchMLPRouterHeadAdapter over legacy VisualMLPRouter",
         "adapter_name": "LoadedTorchMLPRouterHeadAdapter",
         "loaded_legacy_mlp": True,
-        "checkpoint_payload_source": "explicit_cli_path",
+        "checkpoint_payload_source": checkpoint_policy.checkpoint_payload_source,
         "checkpoint_payload_path": str(checkpoint_payload_path),
         "checkpoint_payload_sha256": sha256_file(checkpoint_payload_path),
+        "checkpoint_path_policy": checkpoint_policy.checkpoint_path_policy,
+        "checkpoint_path_guard": checkpoint_policy.policy_name,
+        "checkpoint_path_label": str(args.checkpoint_path_label or ""),
         "checkpoint_load_helper": "time_router.runtime.visual_mlp_checkpoint",
         "strict_checkpoint_load": bool(args.strict_checkpoint_load),
         "allow_real_checkpoint": bool(args.allow_real_checkpoint),
+        "allow_external_checkpoint_path": bool(args.allow_external_checkpoint_path),
         "router_state_dict_key_count": len(router_state_dict),
         "legacy_module_import_path": LEGACY_MODULE_IMPORT_PATH,
         "legacy_router_class": "VisualMLPRouter",
         "hidden_dim": hidden_dim,
         "dropout": dropout,
-        "loads_real_checkpoint": bool(args.allow_real_checkpoint) and not is_fixture_or_tempfile_checkpoint(checkpoint_payload_path),
+        "loads_real_checkpoint": checkpoint_policy.loads_real_checkpoint,
     }
     return router_output, metadata
 
@@ -554,6 +532,11 @@ def write_runtime_artifacts(
             "head": head_metadata["head"],
             "adapter_name": head_metadata["adapter_name"],
             "checkpoint_payload_source": head_metadata["checkpoint_payload_source"],
+            "checkpoint_payload_sha256": head_metadata["checkpoint_payload_sha256"],
+            "checkpoint_path_policy": head_metadata["checkpoint_path_policy"],
+            "checkpoint_path_label": head_metadata["checkpoint_path_label"],
+            "allow_real_checkpoint": head_metadata["allow_real_checkpoint"],
+            "allow_external_checkpoint_path": head_metadata["allow_external_checkpoint_path"],
             "scaler": scaler_metadata,
             "feature_lineage": dict(feature_metadata),
             "head_lineage": dict(head_metadata),
@@ -626,7 +609,6 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
         ("sample_manifest_csv", Path(args.sample_manifest_csv)),
         ("expert_predictions_json", Path(args.expert_predictions_json)),
         ("visual_features_csv", Path(args.visual_features_csv)),
-        ("router_checkpoint_payload", Path(args.router_checkpoint_payload)),
     ):
         if not path.is_file():
             raise FileNotFoundError(f"{role} 不存在：{path}")
@@ -701,7 +683,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split-name", required=True, help="使用的 split；可传 all 使用全部 fixture。")
     parser.add_argument("--feature-source", default="precomputed", choices=("precomputed",), help="Visual feature source；P17a 只支持 precomputed。")
     parser.add_argument("--strict-checkpoint-load", action="store_true", help="对 checkpoint state_dict 执行 strict load。")
-    parser.add_argument("--allow-real-checkpoint", action="store_true", help="显式允许非 fixture/tempfile checkpoint；仍禁止 /data2。默认 false。")
+    parser.add_argument("--allow-real-checkpoint", action="store_true", help="显式允许非 fixture/tempfile checkpoint；默认 false。")
+    parser.add_argument(
+        "--allow-external-checkpoint-path",
+        action="store_true",
+        help="/data2 checkpoint path 的额外显式授权；必须与 --allow-real-checkpoint 一起使用。",
+    )
+    parser.add_argument("--checkpoint-path-label", default="", help="可选脱敏路径来源说明，写入 metadata，不参与读取。")
     return parser.parse_args(argv)
 
 
