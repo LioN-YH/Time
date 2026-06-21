@@ -3136,6 +3136,63 @@ rg -n "RevIN|resize|CLS|mean_patch|cache|FeatureBatch|FeatureTransform|VisualPre
 3. 正式 Visual entrypoint migration plan 应把 Runtime 的 scaler/encoder/checkpoint 注入、
    FeatureBatch 生成、RouterHead adapter 和 Evaluator 接入分开规划。
 
+### P16f：Visual feature chain protocol skeleton
+
+P16f 已新增 Visual feature chain 的最小 protocol skeleton，见
+`docs/refactor/stage1_visual_feature_chain_protocol.md`。本阶段只定义
+`RawWindowProvider -> PreImageTransform -> PseudoImageTransformer -> ResizePolicy ->
+VisualEncoderProvider -> PoolingStrategy -> FeatureTransform -> FeatureBatch` 的轻量契约，
+并用 dummy-chain smoke 验证 sample_key 保序、batch shape、lineage 和 P16a adapter /
+`EvaluationInputAdapter` 可组合。
+
+P16f 明确不做真实 RevIN、pseudo image、resize、ViT、pooling、scaler fit、cache path、
+checkpoint 或正式入口迁移。
+
+### P16g：legacy VisualMLPRouter checkpoint/signature audit
+
+P16g 已完成 legacy `VisualMLPRouter` checkpoint/signature 文档审计，见
+`docs/refactor/stage1_visual_legacy_mlp_checkpoint_signature_audit.md`。
+
+本次审计结论：
+
+- `VisualMLPRouter` 定义在 `train_visual_router.py`，constructor 为
+  `input_dim, hidden_dim, output_dim, dropout`，forward 返回二维 logits tensor。
+- streaming 入口复用该类，`input_dim` 来自 scaler 的 `n_features_in_`，也就是 ViT pooled
+  embedding 的 feature_dim；`output_dim=len(MODEL_COLUMNS)`，logits 第二维对应固定五专家顺序。
+- streaming checkpoint 不是裸 `state_dict`，而是包含 `router_state_dict`、
+  `optimizer_state_dict`、`scaler_state`、`completed_epochs`、`epoch_summaries` 和 resume
+  signature 的 payload；当前 key 名不是 `model_state_dict`。
+- 当前 `DataParallel` 只包裹 frozen ViT encoder，router `state_dict` 源码层面预期不带
+  `module.` 前缀；真实 checkpoint 未读取，后续仍需单独 smoke 覆盖 `module.` 兼容。
+- checkpoint loading、constructor 参数解析、`map_location`、strict loading、
+  missing/unexpected keys、device policy、optimizer/scaler resume 属于 Runtime / entrypoint；
+  P16a `LoadedTorchMLPRouterHeadAdapter` 仍只接收已加载 torch module 和 head-ready
+  `FeatureBatch`。
+
+P16g 明确不做：
+
+- 不新增 checkpoint loader 代码。
+- 不修改 `time_router/models/visual_mlp_adapter.py`。
+- 不读取真实 checkpoint。
+- 不访问 `/data2`。
+- 不修改 `train_visual_router_online_streaming.py` 或 `scripts/run_stage1_visual_small.py`。
+- 不启动训练、ViT、pressure 或 full-scale。
+
+P16g 验收：
+
+```bash
+git diff --name-only
+rg -n "VisualMLPRouter|state_dict|DataParallel|torch.load|checkpoint|scaler|LoadedTorchMLPRouterHeadAdapter" docs/refactor/stage1_visual_legacy_mlp_checkpoint_signature_audit.md
+```
+
+后续连接：
+
+1. P16h 可做 legacy `VisualMLPRouter` loaded-module smoke，使用 in-memory fake
+   `state_dict` 或 tiny checkpoint fixture，不读取 `/data2` 真实 checkpoint。
+2. P16h 可覆盖 strict loading、missing/unexpected keys 和可选 `module.` 前缀兼容策略。
+3. 正式 Visual entrypoint migration 仍需在 Runtime 中加载 checkpoint/scaler/encoder，再把
+   head-ready `FeatureBatch` 交给 P16a adapter。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
