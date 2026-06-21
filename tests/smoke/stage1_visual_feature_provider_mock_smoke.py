@@ -37,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from time_router.features import DeterministicVisualEncoderStub, VisualMockFeatureProvider  # noqa: E402
+from tests.helpers.visual_smoke_providers import DeterministicVisualEncoderStub, VisualMockFeatureProvider  # noqa: E402
 from time_router.protocols import FeatureBatch  # noqa: E402
 
 

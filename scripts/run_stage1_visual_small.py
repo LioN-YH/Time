@@ -40,7 +40,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from time_router.evaluation import EvaluationInputAdapter, EvaluationInputAdapterResult  # noqa: E402
-from time_router.features import LoadedFeatureScaler, VisualMockFeatureProvider, VisualPrecomputedFeatureProvider  # noqa: E402
+from time_router.features import LoadedFeatureScaler, VisualPrecomputedFeatureProvider
+from tests.helpers.visual_smoke_providers import VisualMockFeatureProvider  # noqa: E402
 from time_router.models import LoadedTorchMLPRouterHeadAdapter  # noqa: E402
 from time_router.protocols import ExpertBatch, FeatureBatch, RouterOutput, SampleManifest, SampleManifestRow  # noqa: E402
 from time_router.runtime import (  # noqa: E402

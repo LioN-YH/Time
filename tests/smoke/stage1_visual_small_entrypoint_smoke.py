@@ -45,7 +45,7 @@ from scripts.run_stage1_visual_small import (  # noqa: E402
     load_sample_manifest_csv,
 )
 from time_router.evaluation import EvaluationInputAdapter  # noqa: E402
-from time_router.features import VisualMockFeatureProvider  # noqa: E402
+from tests.helpers.visual_smoke_providers import VisualMockFeatureProvider  # noqa: E402
 
 
 ENTRYPOINT = REPO_ROOT / "scripts" / "run_stage1_visual_small.py"

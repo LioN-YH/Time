@@ -9,7 +9,8 @@
 
 输出：
     标准输出打印中文检查日志；若 canonical core / P17 bridge public import 漂移，
-    或 smoke-only scaffold 进入 public `__all__`，则抛出 AssertionError。
+    或 smoke-only scaffold 进入 public `__all__` / package 入口属性，
+    则抛出 AssertionError。
 
 关键约束：
     本 smoke 只验证 import 边界，不启动 ViT、不导入 transformers、不启动训练、
@@ -141,11 +142,12 @@ def run_smoke() -> None:
     leaked = sorted(smoke_only_names & set(getattr(features, "__all__", ())))
     if leaked:
         raise AssertionError(f"smoke-only scaffold 不应进入 time_router.features.__all__：{leaked}")
-    # 中文注释：保留属性兼容旧 smoke，但 public star-import 边界不再推广这些名字。
+    # 中文注释：P18b 后 package 入口不再保留 smoke-only 属性；旧子模块兼容层
+    # 只用于 P18c 前的直接 `time_router.features.visual_mock` import。
     for name in smoke_only_names:
-        if not hasattr(features, name):
-            raise AssertionError(f"P18a 兼容期仍应保留 smoke-only 属性，避免旧 smoke 断裂：{name}")
-    print("通过：smoke-only Visual mock scaffold 未出现在 features.__all__，兼容属性仍可用")
+        if hasattr(features, name):
+            raise AssertionError(f"P18b 后 smoke-only scaffold 不应保留在 features package 入口：{name}")
+    print("通过：smoke-only Visual mock scaffold 未出现在 features.__all__ 或 package 入口属性")
 
     entrypoint_module = import_entrypoint_module()
     for name in (
