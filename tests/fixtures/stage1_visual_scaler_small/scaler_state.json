@@ -1,0 +1,15 @@
+{
+  "scaler_schema_version": "stage1_visual_feature_scaler_v1",
+  "feature_columns": [
+    "feature_0",
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5",
+    "feature_6",
+    "feature_7"
+  ],
+  "mean": [2.0, -1.0, 5.0, 4.0, 0.0, 3.0, 2.0, 1.0],
+  "scale": [2.0, 1.0, 3.0, 2.0, 4.0, 3.0, 2.0, 3.0]
+}

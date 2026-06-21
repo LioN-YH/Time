@@ -417,26 +417,34 @@ prediction artifact 写出和 launcher 接手信息。
   `FeatureBatch(features=(4, 8), dtype=float32)`，并串到 P16a
   `LoadedTorchMLPRouterHeadAdapter` 与 `EvaluationInputAdapter`；P16c 不接真实 ViT、不做
   pseudo image、不处理 scaler、不读取 checkpoint、不迁移正式入口、不访问 `/data2`；
+- P16d 已完成 loaded Visual FeatureScaler boundary smoke，见
+  `docs/refactor/stage1_visual_feature_scaler.md`；新增
+  `time_router/features/visual_scaler.py`、
+  `tests/fixtures/stage1_visual_scaler_small/` 和
+  `tests/smoke/stage1_visual_feature_scaler_smoke.py`，用 P13b manifest 的 ordered
+  sample_keys 从 raw/pre-head visual fixture 构造 `FeatureBatch`，再由
+  `LoadedFeatureScaler` 使用显式 loaded scaler JSON state 转为 head-ready
+  `float32 FeatureBatch`，串到 P16a `LoadedTorchMLPRouterHeadAdapter` 与
+  `EvaluationInputAdapter`；P16d 不执行 scaler fit、不读取 checkpoint、不接真实 ViT、
+  不做 pseudo image、不迁移正式入口、不访问 `/data2`；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. P16c 已完成 precomputed embedding -> `FeatureBatch` 边界；后续 real Visual provider
-   应继续按 fake encoder、scaler boundary 和 online ViT provider 分步推进，不直接迁移正式入口。
-2. scaler boundary design/smoke 应单独验证 loaded scaler transform -> head-ready float32
-   `FeatureBatch`，并禁止 provider 或 RouterHead adapter silent fit。
-3. 后续正式 Visual entrypoint 迁移应在 Runtime 中加载 checkpoint/scaler、准备 head-ready
+1. P16c/P16d 已完成 precomputed head-ready provider 与 loaded scaler transform 边界；后续
+   real Visual provider 应继续按 fake encoder 和 online ViT provider 分步推进，不直接迁移正式入口。
+2. 后续正式 Visual entrypoint 迁移应在 Runtime 中加载 checkpoint/scaler、准备 head-ready
    features，再把已加载 module 交给 P16a adapter；legacy `VisualMLPRouter` 的 import/signature
    和 checkpoint state_dict 适配仍需单独处理。
-4. online ViT provider audit/smoke 应单独处理 pseudo image + frozen ViT + batching +
+3. online ViT provider audit/smoke 应单独处理 pseudo image + frozen ViT + batching +
    device/dtype/resource policy。
-5. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
+4. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
-6. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
+5. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
    不承载 provider 内部逻辑；Bash launcher 另行分层，不能混入 P12 small CLI。
-7. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
+6. 以 legacy `96_48_S` full-scale 结果作为 reference baseline；canonical pipeline 后续需要
    重跑，不能把旧 schema 作为新 contract 的强兼容来源。
 
 ## 6. 当前阶段明确不做

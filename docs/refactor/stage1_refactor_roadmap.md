@@ -3021,13 +3021,61 @@ rg -n "/data2|torch.load|ViTModel|AutoImageProcessor|VisualMLPRouter|train_visua
 
 后续连接：
 
-1. scaler boundary smoke 可单独验证 loaded scaler transform -> head-ready float32
-   `FeatureBatch`，并禁止 provider 或 RouterHead adapter silent fit。
+1. P16d 可单独实现 loaded scaler transform -> head-ready float32 `FeatureBatch`，并禁止
+   provider 或 RouterHead adapter silent fit。
 2. fake encoder provider / online ViT provider audit 应单独处理 pseudo image、frozen ViT、
    batching、device/dtype 和资源策略。
 3. legacy checkpoint/signature audit 应单独处理 `VisualMLPRouter` import、constructor、
    state_dict、DataParallel key 和 device。
 4. 正式 Visual entrypoint 迁移仍需在 Runtime 中加载 checkpoint/scaler/encoder，再把
+   head-ready `FeatureBatch` 交给 P16a adapter。
+
+### P16d：loaded Visual FeatureScaler boundary smoke
+
+P16d 已新增 loaded Visual FeatureScaler transform 边界，见
+`docs/refactor/stage1_visual_feature_scaler.md`。
+
+新增内容：
+
+- `time_router/features/visual_scaler.py`：
+  `LoadedFeatureScaler` 只使用调用方显式传入或显式 JSON 路径读取的 scaler state，
+  将 raw/pre-head `FeatureBatch.features` 执行 `(raw - mean) / scale`，输出新的
+  head-ready `float32 FeatureBatch`。
+- `time_router/features/__init__.py` 导出 `LoadedFeatureScaler`。
+- `tests/fixtures/stage1_visual_scaler_small/` 保存 P13b 四个 sample_key 的
+  raw visual feature CSV 和固定 `scaler_state.json`；CSV 行顺序故意不同于 manifest。
+- `tests/smoke/stage1_visual_feature_scaler_smoke.py` 串联
+  `P13b ordered sample_keys -> raw FeatureBatch -> LoadedFeatureScaler ->
+  LoadedTorchMLPRouterHeadAdapter -> EvaluationInputAdapter`。
+
+P16d 明确不做：
+
+- 不执行 scaler fit 或根据 batch silent 估计 mean/std。
+- 不读取真实 checkpoint，不调用 `torch.load`。
+- 不实现真实 ViT provider，不构造 pseudo image。
+- 不读取 prediction/oracle/expert error。
+- 不把 `run_dir` 传入 scaler/provider/head。
+- 不迁移或修改 `train_visual_router_online_streaming.py`。
+- 不修改 TimeFuse 正式入口、small entrypoint 或 Visual small entrypoint。
+- 不访问 `/data2`，不新增 Bash launcher，不启动训练、pressure 或 full-scale。
+
+P16d 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router/features/visual_scaler.py tests/smoke/stage1_visual_feature_scaler_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_scaler_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_precomputed_feature_provider_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py
+```
+
+后续连接：
+
+1. fake encoder provider / online ViT provider audit 应单独处理 pseudo image、frozen ViT、
+   batching、device/dtype 和资源策略。
+2. legacy checkpoint/signature audit 应单独处理 `VisualMLPRouter` import、constructor、
+   state_dict、DataParallel key 和 device。
+3. 正式 Visual entrypoint 迁移仍需在 Runtime 中加载 checkpoint/scaler/encoder，再把
    head-ready `FeatureBatch` 交给 P16a adapter。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
