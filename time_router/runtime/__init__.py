@@ -32,15 +32,25 @@ from time_router.runtime.visual_eval_checkpoint_guard import (
     is_data2_path,
     is_fixture_or_tempfile_checkpoint,
 )
+from time_router.runtime.visual_eval_feature_guard import (
+    VisualEvalPathPolicy,
+    authorize_visual_eval_feature_path,
+    authorize_visual_eval_scaler_path,
+    is_fixture_or_tempfile_visual_eval_artifact,
+)
 
 __all__ = [
     "CANONICAL_RUN_SUBDIRS",
     "CheckpointPathPolicy",
+    "VisualEvalPathPolicy",
     "authorize_visual_eval_checkpoint_path",
+    "authorize_visual_eval_feature_path",
+    "authorize_visual_eval_scaler_path",
     "create_run_dir",
     "extract_router_state_dict",
     "is_data2_path",
     "is_fixture_or_tempfile_checkpoint",
+    "is_fixture_or_tempfile_visual_eval_artifact",
     "load_checkpoint_payload",
     "load_router_state_dict",
     "strip_dataparallel_prefix",

@@ -45,6 +45,8 @@ from time_router.models import LoadedTorchMLPRouterHeadAdapter  # noqa: E402
 from time_router.protocols import ExpertBatch, FeatureBatch, RouterOutput, SampleManifest, SampleManifestRow  # noqa: E402
 from time_router.runtime import (  # noqa: E402
     authorize_visual_eval_checkpoint_path,
+    authorize_visual_eval_feature_path,
+    authorize_visual_eval_scaler_path,
     create_run_dir,
     extract_router_state_dict,
     is_data2_path,
@@ -250,15 +252,29 @@ def build_feature_batch(args: argparse.Namespace, ordered_sample_keys: Sequence[
     if str(args.feature_source) != "precomputed":
         raise ValueError(f"P17a thin slice 只支持 precomputed feature_source：actual={args.feature_source}")
     visual_features_csv = Path(args.visual_features_csv)
-    assert_not_data2(visual_features_csv, role="visual_features_csv")
+    feature_policy = authorize_visual_eval_feature_path(
+        visual_features_csv,
+        repo_root=REPO_ROOT,
+        allow_external_feature_path=bool(args.allow_external_feature_path),
+        path_label=str(args.feature_path_label or ""),
+    )
     if not visual_features_csv.is_file():
         raise FileNotFoundError(f"visual_features_csv 不存在：{visual_features_csv}")
 
     provider = VisualPrecomputedFeatureProvider(feature_source_path=visual_features_csv)
     feature_batch = provider.load_batch(ordered_sample_keys)
+    assert_precomputed_feature_contract(
+        feature_batch=feature_batch,
+        ordered_sample_keys=ordered_sample_keys,
+        provider=provider,
+    )
     metadata: dict[str, object] = {
         "feature_source": "precomputed",
         "feature_provider": "VisualPrecomputedFeatureProvider",
+        "feature_path_policy": feature_policy.path_policy,
+        "feature_path_guard": feature_policy.policy_name,
+        "feature_path_label": feature_policy.path_label,
+        "allow_external_feature_path": feature_policy.allow_external_path,
         "visual_features_csv": {
             "reference_type": "file",
             "path": str(visual_features_csv),
@@ -270,14 +286,30 @@ def build_feature_batch(args: argparse.Namespace, ordered_sample_keys: Sequence[
 
     if args.scaler_state_json:
         scaler_state_json = Path(args.scaler_state_json)
-        assert_not_data2(scaler_state_json, role="scaler_state_json")
+        scaler_policy = authorize_visual_eval_scaler_path(
+            scaler_state_json,
+            repo_root=REPO_ROOT,
+            allow_external_scaler_path=bool(args.allow_external_scaler_path),
+            path_label=str(args.scaler_path_label or ""),
+        )
         if not scaler_state_json.is_file():
             raise FileNotFoundError(f"scaler_state_json 不存在：{scaler_state_json}")
+        before_sample_keys = feature_batch.sample_keys
+        before_shape = tuple(feature_batch.features.shape)
         scaler = LoadedFeatureScaler.from_json(scaler_state_json)
         feature_batch = scaler.transform(feature_batch)
+        assert_scaled_feature_contract(
+            feature_batch=feature_batch,
+            expected_sample_keys=before_sample_keys,
+            expected_shape=before_shape,
+        )
         metadata["scaler"] = {
             "scaler_enabled": True,
             "scaler_name": "LoadedFeatureScaler",
+            "scaler_path_policy": scaler_policy.path_policy,
+            "scaler_path_guard": scaler_policy.policy_name,
+            "scaler_path_label": scaler_policy.path_label,
+            "allow_external_scaler_path": scaler_policy.allow_external_path,
             "scaler_state_json": {
                 "reference_type": "file",
                 "path": str(scaler_state_json),
@@ -289,9 +321,63 @@ def build_feature_batch(args: argparse.Namespace, ordered_sample_keys: Sequence[
     else:
         metadata["scaler"] = {
             "scaler_enabled": False,
+            "scaler_path_policy": "not_provided",
+            "scaler_path_guard": "not_applicable",
+            "scaler_path_label": str(args.scaler_path_label or ""),
+            "allow_external_scaler_path": bool(args.allow_external_scaler_path),
             "fit_performed": False,
         }
     return feature_batch, metadata
+
+
+def assert_precomputed_feature_contract(
+    *,
+    feature_batch: FeatureBatch,
+    ordered_sample_keys: Sequence[str],
+    provider: VisualPrecomputedFeatureProvider,
+) -> None:
+    """
+    函数功能：
+        对 P17c external feature CSV 读取后的 FeatureBatch 做轻量 contract 检查。
+
+    关键约束：
+        provider 只接收显式 feature CSV 和 ordered sample_keys；不接收 run_dir。
+    """
+    ordered_keys = tuple(str(sample_key) for sample_key in ordered_sample_keys)
+    if getattr(provider, "received_run_dir", False):
+        raise AssertionError("VisualPrecomputedFeatureProvider 不应接收 run_dir")
+    if feature_batch.sample_keys != ordered_keys:
+        raise AssertionError("FeatureBatch sample_key 未保持 manifest ordered sample_keys")
+    features = np.asarray(feature_batch.features)
+    if features.ndim != 2 or features.shape[0] != len(ordered_keys):
+        raise AssertionError(f"FeatureBatch features shape 异常：actual={features.shape}")
+    if features.shape[1] <= 0:
+        raise AssertionError("FeatureBatch feature dim 必须大于 0")
+    if features.dtype != np.float32:
+        raise AssertionError(f"FeatureBatch feature dtype 必须为 float32：actual={features.dtype}")
+    if not np.isfinite(features).all():
+        raise AssertionError("FeatureBatch features 包含 NaN 或 Inf")
+
+
+def assert_scaled_feature_contract(
+    *,
+    feature_batch: FeatureBatch,
+    expected_sample_keys: Sequence[str],
+    expected_shape: Sequence[int],
+) -> None:
+    """
+    函数功能：
+        对显式 scaler JSON transform 后的 FeatureBatch 做轻量 contract 检查。
+    """
+    if feature_batch.sample_keys != tuple(str(sample_key) for sample_key in expected_sample_keys):
+        raise AssertionError("LoadedFeatureScaler transform 后 sample_key 顺序发生变化")
+    features = np.asarray(feature_batch.features)
+    if tuple(features.shape) != tuple(int(dim) for dim in expected_shape):
+        raise AssertionError(f"LoadedFeatureScaler transform 后 shape 变化：actual={features.shape} expected={tuple(expected_shape)}")
+    if features.dtype != np.float32:
+        raise AssertionError(f"LoadedFeatureScaler transform 后 dtype 必须为 float32：actual={features.dtype}")
+    if not np.isfinite(features).all():
+        raise AssertionError("LoadedFeatureScaler transform 后 features 包含 NaN 或 Inf")
 
 
 def build_router_output(
@@ -522,6 +608,9 @@ def write_runtime_artifacts(
             "entrypoint": ENTRYPOINT_NAME,
             "feature_source": feature_metadata["feature_source"],
             "feature_provider": feature_metadata["feature_provider"],
+            "feature_path_policy": feature_metadata["feature_path_policy"],
+            "feature_path_label": feature_metadata["feature_path_label"],
+            "allow_external_feature_path": feature_metadata["allow_external_feature_path"],
             "feature_schema": dict(feature_batch.feature_schema),
             "loaded_legacy_mlp": True,
             "scaler_enabled": bool(scaler_metadata["scaler_enabled"]),
@@ -537,6 +626,10 @@ def write_runtime_artifacts(
             "checkpoint_path_label": head_metadata["checkpoint_path_label"],
             "allow_real_checkpoint": head_metadata["allow_real_checkpoint"],
             "allow_external_checkpoint_path": head_metadata["allow_external_checkpoint_path"],
+            "scaler_path_policy": scaler_metadata["scaler_path_policy"],
+            "scaler_path_label": scaler_metadata["scaler_path_label"],
+            "allow_external_scaler_path": scaler_metadata["allow_external_scaler_path"],
+            "scaler_fit_performed": scaler_metadata["fit_performed"],
             "scaler": scaler_metadata,
             "feature_lineage": dict(feature_metadata),
             "head_lineage": dict(head_metadata),
@@ -602,13 +695,11 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
         ("output_dir", output_dir),
         ("sample_manifest_csv", Path(args.sample_manifest_csv)),
         ("expert_predictions_json", Path(args.expert_predictions_json)),
-        ("visual_features_csv", Path(args.visual_features_csv)),
     ):
         assert_not_data2(path, role=role)
     for role, path in (
         ("sample_manifest_csv", Path(args.sample_manifest_csv)),
         ("expert_predictions_json", Path(args.expert_predictions_json)),
-        ("visual_features_csv", Path(args.visual_features_csv)),
     ):
         if not path.is_file():
             raise FileNotFoundError(f"{role} 不存在：{path}")
@@ -684,12 +775,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--feature-source", default="precomputed", choices=("precomputed",), help="Visual feature source；P17a 只支持 precomputed。")
     parser.add_argument("--strict-checkpoint-load", action="store_true", help="对 checkpoint state_dict 执行 strict load。")
     parser.add_argument("--allow-real-checkpoint", action="store_true", help="显式允许非 fixture/tempfile checkpoint；默认 false。")
+    parser.add_argument("--allow-external-feature-path", action="store_true", help="显式允许非 fixture/tempfile precomputed feature CSV。")
+    parser.add_argument("--allow-external-scaler-path", action="store_true", help="显式允许非 fixture/tempfile scaler state JSON。")
     parser.add_argument(
         "--allow-external-checkpoint-path",
         action="store_true",
         help="/data2 checkpoint path 的额外显式授权；必须与 --allow-real-checkpoint 一起使用。",
     )
     parser.add_argument("--checkpoint-path-label", default="", help="可选脱敏路径来源说明，写入 metadata，不参与读取。")
+    parser.add_argument("--feature-path-label", default="", help="可选 feature path 脱敏来源说明，写入 metadata，不参与读取。")
+    parser.add_argument("--scaler-path-label", default="", help="可选 scaler path 脱敏来源说明，写入 metadata，不参与读取。")
     return parser.parse_args(argv)
 
 
