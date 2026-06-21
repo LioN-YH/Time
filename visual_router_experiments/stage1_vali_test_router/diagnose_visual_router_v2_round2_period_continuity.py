@@ -81,7 +81,9 @@ DEFAULT_VISUAL_CHECKPOINT = DATA2_RUN_OUTPUT_ROOT / "2026-06-16_stage1_96_48_s_s
 DEFAULT_OUTPUT_DIR = DATA2_RUN_OUTPUT_ROOT / "2026-06-22_visual_router_v2_round2_period_continuity"
 DEFAULT_SUMMARY_COPY_DIR = REPO_ROOT / "experiment_summaries" / "visual_router_v2_round2" / "period_continuity"
 SCRIPT_VERSION = "visual_router_v2_round2d_period_continuity_v1"
+DEFAULT_RESULT_PREFIX = "round2_period_continuity"
 DEFAULT_LAYOUTS = ("current_rgb_3view", "top3fold_period_layout")
+DEFAULT_COMPARE_LAYOUTS = ("current_rgb_3view", "top3fold_period_layout")
 DEFAULT_SAMPLE_SETS = ("round2_selection_small", "round2_diagnostic_balanced_small")
 PERTURBATION_SPACE = "pre_revin_history_x"
 RAW_COLUMNS = [
@@ -181,6 +183,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config-path", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--summary-copy-dir", type=Path, default=DEFAULT_SUMMARY_COPY_DIR)
+    parser.add_argument("--result-prefix", default=DEFAULT_RESULT_PREFIX)
+    parser.add_argument("--compare-with-existing", type=Path, default=None)
+    parser.add_argument("--append-to-existing", type=Path, default=None)
     parser.add_argument("--sample-sets", nargs="+", default=list(DEFAULT_SAMPLE_SETS))
     parser.add_argument("--max-samples-per-set", type=int, default=512)
     parser.add_argument("--layouts", default=",".join(DEFAULT_LAYOUTS))
@@ -640,12 +645,80 @@ def mean_summary(frame: pd.DataFrame, group_cols: Sequence[str], metrics: Sequen
     return counts.merge(grouped, on=list(group_cols), how="left")
 
 
-def write_required_csvs(output_dir: Path, raw: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+def output_name(prefix: str, suffix: str) -> str:
+    """函数功能：按实验前缀生成稳定输出文件名。"""
+    legacy_names = {
+        "selection_stability.csv": "round2_period_selection_stability.csv",
+        "image_continuity.csv": "round2_period_image_continuity.csv",
+        "embedding_continuity.csv": "round2_period_embedding_continuity.csv",
+        "router_weight_continuity.csv": "round2_period_router_weight_continuity.csv",
+        "fused_prediction_continuity.csv": "round2_period_fused_prediction_continuity.csv",
+        "stratified_summary.csv": "round2_period_stratified_summary.csv",
+        "high_change_examples.csv": "round2_period_high_change_examples.csv",
+    }
+    if str(prefix) == DEFAULT_RESULT_PREFIX and suffix in legacy_names:
+        return legacy_names[suffix]
+    return f"{str(prefix).rstrip('_')}_{suffix}"
+
+
+def add_raw_source(frame: pd.DataFrame, source: str) -> pd.DataFrame:
+    """函数功能：为合并对照表添加轻量来源标记，避免误读为同一批新增诊断。"""
+    result = frame.copy()
+    if "source_result" not in result.columns:
+        result.insert(0, "source_result", source)
+    return result
+
+
+def load_existing_raw_for_comparison(path: Optional[Path], source: str) -> pd.DataFrame:
+    """
+    函数功能：
+        读取已有 Round2d raw results 作为 addendum 对照，不改变新增诊断 raw 文件。
+    """
+    if path is None:
+        return pd.DataFrame(columns=["source_result", *RAW_COLUMNS])
+    raw_path = Path(path)
+    if not raw_path.exists():
+        raise FileNotFoundError(f"对照 raw results 不存在：{raw_path}")
+    frame = pd.read_csv(raw_path)
+    missing = [column for column in RAW_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError(f"对照 raw results 缺少字段：{missing}")
+    return add_raw_source(frame[RAW_COLUMNS], source)
+
+
+def build_layout_comparison(raw: pd.DataFrame) -> pd.DataFrame:
+    """函数功能：生成跨 layout 的核心连续性指标 comparison。"""
+    if raw.empty:
+        return pd.DataFrame()
+    group_cols = [col for col in ["source_result", "layout"] if col in raw.columns]
+    comparison = raw.groupby(group_cols, dropna=False).agg(
+        row_count=("sample_key", "size"),
+        top1_period_changed_ratio=("top1_period_changed", "mean"),
+        top3_jaccard_mean=("top3_jaccard", "mean"),
+        image_cosine_distance_mean=("image_cosine_distance", "mean"),
+        image_l2_mean=("image_l2", "mean"),
+        cls_embedding_cosine_distance_mean=("cls_embedding_cosine_distance", "mean"),
+        mean_patch_embedding_cosine_distance_mean=("mean_patch_embedding_cosine_distance", "mean"),
+        router_weight_js_divergence_mean=("router_weight_js_divergence", "mean"),
+        router_weight_l1_mean=("router_weight_l1", "mean"),
+        selected_model_flip_rate=("selected_model_flipped", "mean"),
+        soft_fused_abs_change_mean=("soft_fused_abs_change", "mean"),
+        soft_fused_mae_change_mean=("soft_fused_mae_change", "mean"),
+    ).reset_index()
+    return comparison.sort_values(
+        [col for col in ["router_weight_js_divergence_mean", "selected_model_flip_rate"] if col in comparison.columns],
+        ascending=True,
+        kind="mergesort",
+    )
+
+
+def write_required_csvs(output_dir: Path, raw: pd.DataFrame, *, prefix: str = DEFAULT_RESULT_PREFIX, comparison_raw: Optional[pd.DataFrame] = None) -> Dict[str, pd.DataFrame]:
     """函数功能：从 raw rows 派生验收要求的多个 CSV。"""
     output_dir.mkdir(parents=True, exist_ok=True)
     if raw.empty:
         raw = pd.DataFrame(columns=RAW_COLUMNS)
-    raw.to_csv(output_dir / "round2_period_continuity_raw_results.csv", index=False)
+    raw.to_csv(output_dir / output_name(prefix, "raw_results.csv"), index=False)
+    compare_base = comparison_raw if comparison_raw is not None else raw
     base_groups = ["layout", "seed", "sample_set", "perturbation_sigma"]
     outputs: Dict[str, pd.DataFrame] = {}
     outputs["period_selection"] = mean_summary(raw, base_groups, ["top1_period_changed", "top3_jaccard", "top1_period_bucket_flipped", "period_score_margin", "perturbed_period_score_margin"])
@@ -655,19 +728,22 @@ def write_required_csvs(output_dir: Path, raw: pd.DataFrame) -> Dict[str, pd.Dat
     outputs["fused"] = mean_summary(raw, base_groups, ["soft_fused_abs_change", "soft_fused_mae_change", "regret_change"])
     strat_frames: List[pd.DataFrame] = []
     for col in ["oracle_model", "season_strength_cat", "forecastability_cat", "error_gap_quantile", "top1_period_bucket"]:
-        part = mean_summary(raw, ["layout", "sample_set", "perturbation_sigma", col], ["top1_period_changed", "image_cosine_distance", "mean_patch_embedding_cosine_distance", "router_weight_js_divergence", "selected_model_flipped", "soft_fused_abs_change"])
+        strata_groups = [group_col for group_col in ["source_result", "layout", "sample_set", "perturbation_sigma", col] if group_col in compare_base.columns]
+        part = mean_summary(compare_base, strata_groups, ["top1_period_changed", "image_cosine_distance", "mean_patch_embedding_cosine_distance", "router_weight_js_divergence", "selected_model_flipped", "soft_fused_abs_change"])
         if not part.empty:
             part["stratum_column"] = col
             part = part.rename(columns={col: "stratum_value"})
             strat_frames.append(part)
     outputs["stratified"] = pd.concat(strat_frames, ignore_index=True) if strat_frames else pd.DataFrame()
+    outputs["layout_comparison"] = build_layout_comparison(compare_base)
     file_map = {
-        "period_selection": "round2_period_selection_stability.csv",
-        "image": "round2_period_image_continuity.csv",
-        "embedding": "round2_period_embedding_continuity.csv",
-        "router": "round2_period_router_weight_continuity.csv",
-        "fused": "round2_period_fused_prediction_continuity.csv",
-        "stratified": "round2_period_stratified_summary.csv",
+        "period_selection": output_name(prefix, "selection_stability.csv"),
+        "image": output_name(prefix, "image_continuity.csv"),
+        "embedding": output_name(prefix, "embedding_continuity.csv"),
+        "router": output_name(prefix, "router_weight_continuity.csv"),
+        "fused": output_name(prefix, "fused_prediction_continuity.csv"),
+        "stratified": output_name(prefix, "stratified_summary.csv"),
+        "layout_comparison": output_name(prefix, "layout_comparison.csv"),
     }
     for key, name in file_map.items():
         outputs[key].to_csv(output_dir / name, index=False)
@@ -714,8 +790,145 @@ def verdict_from_raw(raw: pd.DataFrame) -> Dict[str, object]:
     }
 
 
-def write_summary(output_dir: Path, raw: pd.DataFrame, derived: Mapping[str, pd.DataFrame], metadata: Mapping[str, object]) -> None:
+def addendum_verdict_from_raw(raw: pd.DataFrame) -> Dict[str, object]:
+    """函数功能：生成 spatial_panel_3view addendum 的七项验收回答。"""
+    if raw.empty:
+        return {"status": "empty"}
+    grouped = raw.groupby("layout", dropna=False).agg(
+        top1_changed=("top1_period_changed", "mean"),
+        top3_jaccard=("top3_jaccard", "mean"),
+        image_cos=("image_cosine_distance", "mean"),
+        mean_patch_cos=("mean_patch_embedding_cosine_distance", "mean"),
+        cls_cos=("cls_embedding_cosine_distance", "mean"),
+        weight_js=("router_weight_js_divergence", "mean"),
+        weight_l1=("router_weight_l1", "mean"),
+        selected_flip=("selected_model_flipped", "mean"),
+        fused_abs=("soft_fused_abs_change", "mean"),
+    )
+    rows = grouped.reset_index().to_dict(orient="records")
+    by_layout = {str(row["layout"]): row for row in rows}
+    spatial = by_layout.get("spatial_panel_3view", {})
+    current = by_layout.get("current_rgb_3view", {})
+    top3 = by_layout.get("top3fold_period_layout", {})
+
+    def leq(left: Mapping[str, object], right: Mapping[str, object], keys: Sequence[str]) -> bool:
+        return bool(left and right and all(float(left[key]) <= float(right[key]) for key in keys if key in left and key in right))
+
+    spatial_affected = bool(spatial and (float(spatial["top1_changed"]) > 0.05 or float(spatial["weight_js"]) > 1e-3 or float(spatial["selected_flip"]) > 0.01))
+    spatial_lower_than_current = leq(spatial, current, ["image_cos", "mean_patch_cos", "weight_js"])
+    spatial_stronger_than_top3 = leq(spatial, top3, ["image_cos", "mean_patch_cos", "weight_js", "selected_flip"])
+    spatial_weaker_than_top3 = leq(top3, spatial, ["image_cos", "mean_patch_cos", "weight_js", "selected_flip"])
+    panel_source = {}
+    if spatial:
+        spatial_raw = raw[raw["layout"].astype(str) == "spatial_panel_3view"].copy()
+        changed = spatial_raw[spatial_raw["top1_period_changed"].astype(bool)]
+        unchanged = spatial_raw[~spatial_raw["top1_period_changed"].astype(bool)]
+        if not changed.empty and not unchanged.empty:
+            panel_source = {
+                "changed_image_cos_mean": float(changed["image_cosine_distance"].mean()),
+                "unchanged_image_cos_mean": float(unchanged["image_cosine_distance"].mean()),
+                "changed_weight_js_mean": float(changed["router_weight_js_divergence"].mean()),
+                "unchanged_weight_js_mean": float(unchanged["router_weight_js_divergence"].mean()),
+                "changed_selected_flip_rate": float(changed["selected_model_flipped"].mean()),
+                "unchanged_selected_flip_rate": float(unchanged["selected_model_flipped"].mean()),
+            }
+    fold_panel_high_change_source = bool(
+        panel_source
+        and (
+            panel_source["changed_image_cos_mean"] > panel_source["unchanged_image_cos_mean"]
+            or panel_source["changed_weight_js_mean"] > panel_source["unchanged_weight_js_mean"]
+            or panel_source["changed_selected_flip_rate"] > panel_source["unchanged_selected_flip_rate"]
+        )
+    )
+    enter_65k = bool(spatial and float(spatial["selected_flip"]) < 0.10 and float(spatial["weight_js"]) < 0.05)
+    need_soft_before_65k = bool(spatial_affected and not enter_65k)
+    return {
+        "status": "ok",
+        "layout_means": rows,
+        "spatial_affected_by_hard_top1_period_fold": spatial_affected,
+        "spatial_lowers_propagation_vs_current": spatial_lower_than_current,
+        "spatial_more_continuous_than_top3fold": spatial_stronger_than_top3,
+        "spatial_less_continuous_than_top3fold": spatial_weaker_than_top3,
+        "spatial_fold_panel_high_change_source": fold_panel_high_change_source,
+        "spatial_fold_panel_amplification": panel_source,
+        "spatial_enter_65k_recommended": enter_65k,
+        "must_implement_period_soft_mixture_before_65k": need_soft_before_65k,
+        "recommended_65k_layouts": ["spatial_panel_3view", "current_rgb_3view", "top3fold_period_layout"],
+    }
+
+
+def write_addendum_summary(output_dir: Path, raw: pd.DataFrame, derived: Mapping[str, pd.DataFrame], metadata: Mapping[str, object], *, prefix: str) -> None:
+    """函数功能：写出 Round2d addendum 中文摘要，并逐项回答 spatial panel 问题。"""
+    verdict = addendum_verdict_from_raw(raw)
+    layout_table = pd.DataFrame(verdict.get("layout_means", []))
+    strata = derived.get("stratified", pd.DataFrame())
+    risky = pd.DataFrame()
+    if not strata.empty and "router_weight_js_divergence_mean" in strata.columns:
+        risky = strata.sort_values(["selected_model_flipped_mean", "router_weight_js_divergence_mean"], ascending=False, kind="mergesort").head(12)
+    continuity_vs_top3 = "更强" if verdict.get("spatial_more_continuous_than_top3fold") else ("更弱" if verdict.get("spatial_less_continuous_than_top3fold") else "接近或证据不足")
+    lines = [
+        "# Visual Router V2 Round2d addendum: spatial_panel_3view period continuity diagnostic",
+        "",
+        f"生成时间：{now_cst()}",
+        "",
+        "## 结论",
+    ]
+    if verdict.get("status") != "ok":
+        lines.append("- 诊断结果为空，无法形成结论。")
+    else:
+        by_layout = {str(row["layout"]): row for row in verdict.get("layout_means", [])}
+        spatial = by_layout.get("spatial_panel_3view", {})
+        current = by_layout.get("current_rgb_3view", {})
+        top3 = by_layout.get("top3fold_period_layout", {})
+        vs_current_note = "证据不足"
+        if spatial and current:
+            vs_current_note = (
+                "部分降低：image_cos、CLS/mean-patch embedding 与 selected flip 低于 current，"
+                "但 router weight JS/L1 未降低，因此不是完整阻断 router 侧不连续传播"
+            )
+        vs_top3_note = continuity_vs_top3
+        if spatial and top3:
+            vs_top3_note = (
+                "整体弱于 top3fold 的 image/embedding/router 连续性，但 selected flip 低于 top3fold"
+            )
+        lines.extend(
+            [
+                f"1. `spatial_panel_3view` 是否也受 hard top1 period fold 扰动影响：{'是' if verdict['spatial_affected_by_hard_top1_period_fold'] else '否'}。",
+                f"2. 相比 `current_rgb_3view`，spatial panel 是否降低 image / embedding / router weight 的不连续传播：{vs_current_note}。",
+                f"3. 相比 `top3fold_period_layout`，spatial panel 的连续性：{vs_top3_note}。",
+                f"4. spatial panel 的 fold panel 是否成为高变化来源：{'是' if verdict['spatial_fold_panel_high_change_source'] else '否/证据不足'}；changed/unchanged 对照={json.dumps(verdict.get('spatial_fold_panel_amplification', {}), ensure_ascii=False)}。",
+                f"5. `spatial_panel_3view` 作为 Round2c best layout 是否仍应进入 65k expanded validation：{'应进入' if verdict['spatial_enter_65k_recommended'] else '暂缓'}。",
+                f"6. 是否需要在 65k 前实现 `period_soft_mixture`：{'需要先实现' if verdict['must_implement_period_soft_mixture_before_65k'] else '不作为前置硬门槛'}。",
+                "7. 65k expanded validation 推荐 layout 保持：`spatial_panel_3view`、`current_rgb_3view`、`top3fold_period_layout`。",
+            ]
+        )
+    lines.extend(["", "## Layout Comparison", ""])
+    lines.append(frame_to_markdown(layout_table) if not layout_table.empty else "无。")
+    lines.extend(["", "## High-Risk Strata", ""])
+    lines.append(frame_to_markdown(risky) if not risky.empty else "无明显高风险 strata 或分层表为空。")
+    lines.extend(
+        [
+            "",
+            "## Metadata",
+            "",
+            "```json",
+            json.dumps(dict(metadata), indent=2, ensure_ascii=False, default=str),
+            "```",
+            "",
+            "## 下一步推荐",
+            "",
+            "- 直接进入 65k expanded validation，候选保持 `spatial_panel_3view`、`current_rgb_3view`、`top3fold_period_layout`。",
+            "- `period_soft_mixture` 作为后续表达改进单独 smoke，不阻塞本轮 65k。",
+        ]
+    )
+    (output_dir / output_name(prefix, "summary.md")).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_summary(output_dir: Path, raw: pd.DataFrame, derived: Mapping[str, pd.DataFrame], metadata: Mapping[str, object], *, prefix: str = DEFAULT_RESULT_PREFIX) -> None:
     """函数功能：写出中文 Markdown 结论，逐项回答 Round2d 诊断问题。"""
+    if str(metadata.get("round2_stage")) == "period_continuity_addendum":
+        write_addendum_summary(output_dir, raw, derived, metadata, prefix=prefix)
+        return
     verdict = verdict_from_raw(raw)
     layout_table = pd.DataFrame(verdict.get("layout_means", []))
     strata = derived.get("stratified", pd.DataFrame())
@@ -811,12 +1024,13 @@ def write_summary(output_dir: Path, raw: pd.DataFrame, derived: Mapping[str, pd.
             "- panelized top3fold 和 period tokens 更适合作为后续表达增强，不应阻塞当前 65k 除非本诊断显示 hard fold 极不稳定。",
         ]
     )
-    (output_dir / "round2_period_continuity_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output_dir / output_name(prefix, "summary.md")).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def aggregate(args: argparse.Namespace) -> None:
     """函数功能：聚合所有单任务输出并写出统一 Round2d 产物。"""
     output_dir = Path(args.output_dir)
+    prefix = str(args.result_prefix)
     layouts = [str(args.layout)] if args.layout else parse_csv(args.layouts)
     seeds = [int(args.seed)] if args.seed is not None else parse_int_list(args.seeds)
     sample_sets = [str(value) for value in args.sample_sets]
@@ -838,13 +1052,18 @@ def aggregate(args: argparse.Namespace) -> None:
     if missing:
         raise FileNotFoundError("缺少单任务输出：" + "; ".join(missing[:20]))
     raw = pd.concat(raw_frames, ignore_index=True) if raw_frames else pd.DataFrame(columns=RAW_COLUMNS)
-    derived = write_required_csvs(output_dir, raw)
+    compare_path = Path(args.compare_with_existing) if args.compare_with_existing else (Path(args.append_to_existing) if args.append_to_existing else None)
+    existing_raw = load_existing_raw_for_comparison(compare_path, "existing_round2d")
+    diagnosed_source = "addendum_diagnosed" if prefix != DEFAULT_RESULT_PREFIX else "diagnosed"
+    comparison_raw = pd.concat([existing_raw, add_raw_source(raw, diagnosed_source)], ignore_index=True) if not existing_raw.empty else add_raw_source(raw, diagnosed_source)
+    derived = write_required_csvs(output_dir, raw, prefix=prefix, comparison_raw=comparison_raw)
     high = pd.concat(high_frames, ignore_index=True) if high_frames else pd.DataFrame(columns=RAW_COLUMNS + ["high_change_score"])
     if not high.empty:
         sort_cols = [col for col in ["high_change_score", "router_weight_js_divergence", "image_cosine_distance"] if col in high.columns]
         high = high.sort_values(sort_cols, ascending=False, kind="mergesort").head(1000)
-    high.to_csv(output_dir / "round2_period_high_change_examples.csv", index=False)
-    verdict = verdict_from_raw(raw)
+    high.to_csv(output_dir / output_name(prefix, "high_change_examples.csv"), index=False)
+    verdict_input = comparison_raw if prefix != DEFAULT_RESULT_PREFIX else raw
+    verdict = addendum_verdict_from_raw(verdict_input) if prefix != DEFAULT_RESULT_PREFIX else verdict_from_raw(raw)
     launcher_devices: List[str] = []
     launcher_path = output_dir / "launcher_metadata.json"
     if launcher_path.exists():
@@ -857,7 +1076,7 @@ def aggregate(args: argparse.Namespace) -> None:
         "status": "completed",
         "script_version": SCRIPT_VERSION,
         "generated_at": now_cst(),
-        "round2_stage": "period_continuity_diagnostic",
+        "round2_stage": "period_continuity_addendum" if prefix != DEFAULT_RESULT_PREFIX else "period_continuity_diagnostic",
         "trained_new_model": False,
         "built_feature_cache": False,
         "ran_vit_for_embedding_diagnostic": True,
@@ -865,6 +1084,8 @@ def aggregate(args: argparse.Namespace) -> None:
         "used_test_small_for_selection": False,
         "loaded_116m_prediction_manifest_to_memory": False,
         "layouts_diagnosed": layouts,
+        "compared_against_existing": list(DEFAULT_COMPARE_LAYOUTS) if compare_path else [],
+        "compare_with_existing_raw_results": str(compare_path) if compare_path else None,
         "seeds": seeds,
         "sample_sets": sample_sets,
         "sample_manifest": str(args.sample_manifest),
@@ -878,30 +1099,35 @@ def aggregate(args: argparse.Namespace) -> None:
         "single_task_output_isolated": True,
         "period_soft_mixture_implemented": False,
         "next_step_recommendation": (
-            "direct_65k_with_top3fold"
-            if verdict.get("top3fold_enter_65k_recommended")
-            else "implement_period_soft_mixture_or_defer_period_layouts_before_65k"
+            "direct_65k_with_spatial_current_top3fold"
+            if prefix != DEFAULT_RESULT_PREFIX and verdict.get("spatial_enter_65k_recommended")
+            else (
+                "direct_65k_with_top3fold"
+                if verdict.get("top3fold_enter_65k_recommended")
+                else "implement_period_soft_mixture_or_defer_period_layouts_before_65k"
+            )
         ),
     }
-    write_json(output_dir / "round2_period_continuity_metadata.json", metadata)
-    write_summary(output_dir, raw, derived, metadata)
-    copy_summary_outputs(output_dir, Path(args.summary_copy_dir))
+    write_json(output_dir / output_name(prefix, "metadata.json"), metadata)
+    write_summary(output_dir, verdict_input, derived, metadata, prefix=prefix)
+    copy_summary_outputs(output_dir, Path(args.summary_copy_dir), prefix=prefix)
 
 
-def copy_summary_outputs(output_dir: Path, summary_dir: Path) -> None:
+def copy_summary_outputs(output_dir: Path, summary_dir: Path, *, prefix: str = DEFAULT_RESULT_PREFIX) -> None:
     """函数功能：复制轻量 CSV/JSON/Markdown 到 repo summary 目录。"""
     summary_dir.mkdir(parents=True, exist_ok=True)
     names = [
-        "round2_period_continuity_raw_results.csv",
-        "round2_period_selection_stability.csv",
-        "round2_period_image_continuity.csv",
-        "round2_period_embedding_continuity.csv",
-        "round2_period_router_weight_continuity.csv",
-        "round2_period_fused_prediction_continuity.csv",
-        "round2_period_stratified_summary.csv",
-        "round2_period_high_change_examples.csv",
-        "round2_period_continuity_metadata.json",
-        "round2_period_continuity_summary.md",
+        output_name(prefix, "raw_results.csv"),
+        output_name(prefix, "selection_stability.csv"),
+        output_name(prefix, "image_continuity.csv"),
+        output_name(prefix, "embedding_continuity.csv"),
+        output_name(prefix, "router_weight_continuity.csv"),
+        output_name(prefix, "fused_prediction_continuity.csv"),
+        output_name(prefix, "layout_comparison.csv"),
+        output_name(prefix, "stratified_summary.csv"),
+        output_name(prefix, "high_change_examples.csv"),
+        output_name(prefix, "metadata.json"),
+        output_name(prefix, "summary.md"),
     ]
     for name in names:
         src = output_dir / name
