@@ -3187,11 +3187,50 @@ rg -n "VisualMLPRouter|state_dict|DataParallel|torch.load|checkpoint|scaler|Load
 
 后续连接：
 
-1. P16h 可做 legacy `VisualMLPRouter` loaded-module smoke，使用 in-memory fake
-   `state_dict` 或 tiny checkpoint fixture，不读取 `/data2` 真实 checkpoint。
-2. P16h 可覆盖 strict loading、missing/unexpected keys 和可选 `module.` 前缀兼容策略。
+1. P16h 已完成 legacy `VisualMLPRouter` loaded-module smoke，使用 in-memory fake
+   `state_dict` 覆盖 normal key 与 `module.` 前缀 key 清洗，不读取 `/data2` 真实 checkpoint。
+2. P16h 覆盖 strict loading 和 P16a adapter 消费边界；真实 checkpoint payload discovery、
+   `map_location`、strict load 错误上报和 scaler loading 仍未实现。
 3. 正式 Visual entrypoint migration 仍需在 Runtime 中加载 checkpoint/scaler/encoder，再把
    head-ready `FeatureBatch` 交给 P16a adapter。
+
+### P16h：legacy VisualMLPRouter loaded-module smoke
+
+P16h 已完成 legacy `VisualMLPRouter` loaded-module smoke，见
+`docs/refactor/stage1_visual_legacy_mlp_loaded_module_smoke.md`。
+
+本次新增 `tests/smoke/stage1_visual_legacy_mlp_loaded_module_smoke.py`，覆盖：
+
+- import legacy `VisualMLPRouter` 定义，只实例化，不调用正式训练入口。
+- 使用 P13b ordered sample_keys、P16c `VisualPrecomputedFeatureProvider` head-ready fixture
+  和 P13b `expert_predictions.json` 构造内存 `FeatureBatch` / `ExpertBatch`。
+- 构造 normal state_dict 和 DataParallel 风格 `module.` 前缀 state_dict，并在 smoke-local
+  helper 中清洗后 strict load 到 legacy module。
+- 验证 legacy module forward 输出二维 logits，shape 为 `[num_samples, num_experts]`。
+- 将已加载 module 交给 P16a `LoadedTorchMLPRouterHeadAdapter`，验证 `RouterOutput`、
+  sample_key 保序、model_columns 对齐、finite softmax weights 和 row sum。
+- 调用 `EvaluationInputAdapter` 生成 hard/raw-soft MAE/MSE 与 per-sample rows。
+
+P16h 明确不做：
+
+- 不实现 checkpoint loader。
+- 不读取真实 checkpoint。
+- 不调用 `torch.load`。
+- 不处理真实 scaler。
+- 不访问 `/data2`。
+- 不启动 ViT。
+- 不调用 `train_visual_router_online_streaming.py`。
+- 不修改 `scripts/run_stage1_visual_small.py`。
+- 不迁移正式训练/evaluation 入口。
+
+P16h 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall tests/smoke/stage1_visual_legacy_mlp_loaded_module_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_loaded_module_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_chain_protocol_smoke.py
+```
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
