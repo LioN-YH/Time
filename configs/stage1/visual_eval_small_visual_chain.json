@@ -1,0 +1,27 @@
+{
+  "config_name": "96_48_S",
+  "split_name": "test",
+  "sample_manifest_csv": "tests/fixtures/stage1_real_derived_small/sample_manifest.csv",
+  "expert_predictions_json": "tests/fixtures/stage1_real_derived_small/expert_predictions.json",
+  "router_checkpoint_payload": {
+    "mode": "auto-tempfile",
+    "input_dim": 4,
+    "hidden_dim": 7,
+    "dropout": 0.0,
+    "payload_name": "p21a_visual_eval_small_visual_chain_tempfile_checkpoint"
+  },
+  "feature_source": "visual-chain-dryrun",
+  "visual_features_csv": null,
+  "raw_window_json": "tests/fixtures/stage1_visual_feature_chain_dryrun/raw_windows.json",
+  "scaler_state_json": null,
+  "visual_chain_mode": "dryrun",
+  "vit_provider_mode": "injected-fake",
+  "manual_real_vit": false,
+  "strict_checkpoint_load": true,
+  "safety": {
+    "allow_data2": false,
+    "training_started": false,
+    "full_scale_run": false,
+    "loads_real_vit": false
+  }
+}

@@ -3607,6 +3607,33 @@ P20a 明确不做：
 - 不删除 precomputed feature path，不修改 TimeFuse small entrypoint。
 - 不要求与 legacy Visual Router 数值对齐。
 
+### P21a：Visual canonical eval small launcher/config pack
+
+P21a 已新增 Visual canonical eval small launcher/config pack，见
+`docs/refactor/stage1_visual_eval_small_launcher.md`。
+
+完成内容：
+
+- 新增 `configs/stage1/visual_eval_small_precomputed.json` 和
+  `configs/stage1/visual_eval_small_visual_chain.json`，只记录 small fixture 路径与安全默认值。
+- 新增 `scripts/run_stage1_visual_eval_small.py`，读取 JSON config，做 `/data2`、
+  `training_started`、`full_scale_run` 和 manual real ViT safety guard，在 `/tmp` 生成
+  tiny legacy `VisualMLPRouter` checkpoint payload，再调用
+  `scripts/run_stage1_visual_eval_canonical.py`。
+- launcher 支持 `--mode precomputed`、`--mode visual-chain`、`--mode both`、
+  `--dry-print-command`、`--python-executable`、`--allow-real-checkpoint` 和
+  `--allow-real-vit`。
+- 新增 P21a smoke 覆盖 precomputed / visual-chain / both 正向路径、dry-print 不创建
+  run_dir，以及 `/data2` path、`training_started=true`、`full_scale_run=true` 负例。
+
+P21a 明确不做：
+
+- 不复制 evaluation 逻辑，不修改 P20a canonical eval entrypoint 默认行为。
+- 不启动训练或 full-scale，不迁移 `train_visual_router_online_streaming.py`。
+- 不新增 Bash launcher，不自动搜索 `/data2`。
+- 不默认读取真实 checkpoint、真实 ViT 或 HuggingFace 模型。
+- 不把 config、run_dir、path 或 allow flags 下沉到 provider/head adapter。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

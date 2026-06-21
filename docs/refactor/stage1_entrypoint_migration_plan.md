@@ -490,6 +490,13 @@ prediction artifact 写出和 launcher 接手信息。
   metadata/status schema、input refs、evaluation summary schema、prediction rows schema、
   `model_columns`、`split` 列和 `sample_key` 顺序；本步不比较 metrics 数值优劣，
   loaded path 仍只使用 P16c small precomputed fixture 和 tempfile tiny checkpoint payload；
+- P21a 已完成 Visual canonical eval small launcher/config pack，见
+  `docs/refactor/stage1_visual_eval_small_launcher.md`；新增
+  `scripts/run_stage1_visual_eval_small.py` 和两份 `configs/stage1/visual_eval_small_*.json`，
+  将 P17/P20a 已跑通的 precomputed 与 visual-chain-dryrun small canonical eval 包装为
+  `--mode precomputed/visual-chain/both`，launcher 只做 config 读取、安全校验、`/tmp`
+  tiny checkpoint 生成和 canonical entrypoint 调用，不复制 evaluation 逻辑、不访问 `/data2`、
+  不默认加载真实 ViT/transformers、不启动训练或 full-scale；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
