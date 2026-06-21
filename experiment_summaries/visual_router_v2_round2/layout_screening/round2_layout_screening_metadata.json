@@ -1,0 +1,666 @@
+{
+  "status": "completed",
+  "round2_stage": "layout_feature_cache_and_fixed_film_screening",
+  "generated_at": "2026-06-22 00:08:49 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round2_layout_film.py",
+  "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+  "commit_hash": "7680f16270862caf4b96521c6bf26928739e466d",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening",
+  "summary_copy_dir": "/home/shiyuhong/Time-visual-router-v2/experiment_summaries/visual_router_v2_round2/layout_screening",
+  "inputs": {
+    "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+    "feature_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening",
+    "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+    "prediction_manifest_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv",
+    "prediction_index": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/prediction_index_round2c_35k.sqlite"
+  },
+  "layouts": [
+    "current_rgb_3view",
+    "spatial_panel_3view",
+    "line_only",
+    "line_difference_band",
+    "fft_absolute_energy",
+    "top3fold_period_layout"
+  ],
+  "layouts_screened": [
+    "current_rgb_3view",
+    "spatial_panel_3view",
+    "line_only",
+    "line_difference_band",
+    "fft_absolute_energy",
+    "top3fold_period_layout"
+  ],
+  "deferred_layouts": [
+    "period_soft_mixture",
+    "independent_view_encoder"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "backend_style": "film_mean_patch_aux",
+  "backend_fixed_to": "film_mean_patch_aux_style",
+  "trained_model": true,
+  "built_feature_cache": true,
+  "ran_vit": true,
+  "saved_pseudo_image_tensor": false,
+  "used_test_small_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "layout_registry_used": true,
+  "changed_router_head": false,
+  "changed_loss": false,
+  "changed_selection_rule": false,
+  "changed_sample_split": false,
+  "devices_requested": "cuda:0,cuda:1,cuda:2,cuda:3",
+  "devices_used": [
+    "cuda:0",
+    "cuda:1",
+    "cuda:2",
+    "cuda:3"
+  ],
+  "parallel_backend": "process_per_layout_and_seed",
+  "single_task_output_isolated": true,
+  "feature_cache_parallel_used": true,
+  "training_parallel_used": true,
+  "recommended_expanded_layouts": [
+    "spatial_panel_3view",
+    "current_rgb_3view",
+    "top3fold_period_layout"
+  ],
+  "next_step_recommendation": "Run 65k expanded validation for recommended layouts after period continuity diagnostic.",
+  "constraints": {
+    "only_variable_is_layout": true,
+    "base_visual_input": "mean_patch_embedding",
+    "condition_input": "revin_aux",
+    "used_film": true,
+    "used_concat_aux": false,
+    "searched_head_loss_film_dim_dropout_calibration": false,
+    "round2_selection_small_used_for_selection": true,
+    "round2_diagnostic_balanced_small_used_for_selection": false,
+    "round2_test_small_used_for_selection": false,
+    "parallel_launcher_used": true,
+    "parallel_backend": "process_per_layout_and_seed",
+    "devices_requested": "cuda:0,cuda:1,cuda:2,cuda:3",
+    "devices_used": [
+      "cuda:0",
+      "cuda:1",
+      "cuda:2",
+      "cuda:3"
+    ],
+    "single_task_output_isolated": true,
+    "feature_cache_parallel_used": true,
+    "training_parallel_used": true
+  },
+  "best_layout": {
+    "best_layout": "spatial_panel_3view",
+    "backend_style": "film_mean_patch_aux",
+    "selection_basis": "round2_selection_small raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+    "selected_from_sample_set": "round2_selection_small",
+    "round2_diagnostic_balanced_small_used_for_selection": false,
+    "round2_test_small_used_for_selection": false,
+    "best_row": {
+      "sample_set": "round2_selection_small",
+      "variant": "spatial_panel_3view",
+      "method": "spatial_panel_3view_raw_soft_fusion",
+      "seed_count": 3,
+      "sample_count_per_seed": 5000,
+      "MAE_mean": 0.31038456742547255,
+      "MAE_std": 0.008198538862867238,
+      "MSE_mean": 3.3291987709968374,
+      "MSE_std": 0.5733501875184446,
+      "regret_to_oracle_mean": 0.04693483320141364,
+      "regret_to_oracle_std": 0.008198538862867219,
+      "oracle_label_accuracy_mean": 0.5379999999999999,
+      "oracle_label_accuracy_std": 0.14223515739788103,
+      "weight_entropy_mean": 1.135331719422296,
+      "weight_entropy_std": 0.010910451488166995,
+      "normalized_weight_entropy_mean": 0.7054212460428205,
+      "normalized_weight_entropy_std": 0.0067790445499669415,
+      "mean_max_weight_mean": 0.5150047407438357,
+      "mean_max_weight_std": 0.014562566417641932
+    }
+  },
+  "task_metadata": [
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "current_rgb_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/current_rgb_3view_seed16/checkpoint_current_rgb_3view_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2940209043931358,
+        "final_train_loss": 0.27992309384708164,
+        "final_huber_loss": 0.2756720932224129,
+        "final_kl_loss": 0.4250999425030962,
+        "train_weight_entropy": 1.1086666584014893,
+        "train_normalized_weight_entropy": 0.6888533234596252,
+        "train_mean_max_weight": 0.5183294415473938
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "current_rgb_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/current_rgb_3view_seed17/checkpoint_current_rgb_3view_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.294374545729613,
+        "final_train_loss": 0.2780729334188413,
+        "final_huber_loss": 0.27372403499446335,
+        "final_kl_loss": 0.4348898677131798,
+        "train_weight_entropy": 1.137756109237671,
+        "train_normalized_weight_entropy": 0.7069275975227356,
+        "train_mean_max_weight": 0.49083319306373596
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "current_rgb_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:2",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/current_rgb_3view_seed18/checkpoint_current_rgb_3view_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29356163626984705,
+        "final_train_loss": 0.2786625793463067,
+        "final_huber_loss": 0.27435042944890037,
+        "final_kl_loss": 0.431214968992185,
+        "train_weight_entropy": 1.1743416786193848,
+        "train_normalized_weight_entropy": 0.7296594977378845,
+        "train_mean_max_weight": 0.47985711693763733
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:3",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/spatial_panel_3view_seed16/checkpoint_spatial_panel_3view_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.293425556413735,
+        "final_train_loss": 0.277852497523344,
+        "final_huber_loss": 0.27355752206301387,
+        "final_kl_loss": 0.4294974468176878,
+        "train_weight_entropy": 1.1374995708465576,
+        "train_normalized_weight_entropy": 0.7067682147026062,
+        "train_mean_max_weight": 0.5022781491279602
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/spatial_panel_3view_seed17/checkpoint_spatial_panel_3view_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29252632584752913,
+        "final_train_loss": 0.27505013440983206,
+        "final_huber_loss": 0.27095899193347256,
+        "final_kl_loss": 0.40911437853982174,
+        "train_weight_entropy": 1.1140851974487305,
+        "train_normalized_weight_entropy": 0.6922200322151184,
+        "train_mean_max_weight": 0.5288224816322327
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/spatial_panel_3view_seed18/checkpoint_spatial_panel_3view_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29196268697328204,
+        "final_train_loss": 0.2751543589785129,
+        "final_huber_loss": 0.27099292527271224,
+        "final_kl_loss": 0.4161434060410608,
+        "train_weight_entropy": 1.1253117322921753,
+        "train_normalized_weight_entropy": 0.6991955041885376,
+        "train_mean_max_weight": 0.5284885764122009
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "line_only",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:2",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/line_only_seed16/checkpoint_line_only_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2956340416700025,
+        "final_train_loss": 0.2815577580204493,
+        "final_huber_loss": 0.27704480497897427,
+        "final_kl_loss": 0.4512953463988968,
+        "train_weight_entropy": 1.1319680213928223,
+        "train_normalized_weight_entropy": 0.7033312916755676,
+        "train_mean_max_weight": 0.5069108605384827
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:04:43 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "line_only",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:3",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/line_only_seed17/checkpoint_line_only_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29532383457769323,
+        "final_train_loss": 0.2803732692440854,
+        "final_huber_loss": 0.27599195796477644,
+        "final_kl_loss": 0.43813116791882095,
+        "train_weight_entropy": 1.1474533081054688,
+        "train_normalized_weight_entropy": 0.7129527926445007,
+        "train_mean_max_weight": 0.49783822894096375
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:27 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "line_only",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/line_only_seed18/checkpoint_line_only_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2947625538593606,
+        "final_train_loss": 0.2810171380450454,
+        "final_huber_loss": 0.2766295460206044,
+        "final_kl_loss": 0.43875923865958105,
+        "train_weight_entropy": 1.1293683052062988,
+        "train_normalized_weight_entropy": 0.7017159461975098,
+        "train_mean_max_weight": 0.5054686665534973
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:24 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "line_difference_band",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/line_difference_band_seed16/checkpoint_line_difference_band_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2970334878073463,
+        "final_train_loss": 0.2820127529056766,
+        "final_huber_loss": 0.2776850752438171,
+        "final_kl_loss": 0.43276778353920464,
+        "train_weight_entropy": 1.1551682949066162,
+        "train_normalized_weight_entropy": 0.717746376991272,
+        "train_mean_max_weight": 0.4800843894481659
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:26 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "line_difference_band",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:2",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/line_difference_band_seed17/checkpoint_line_difference_band_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2961200800123094,
+        "final_train_loss": 0.28202315919761417,
+        "final_huber_loss": 0.277578643039812,
+        "final_kl_loss": 0.444451578055756,
+        "train_weight_entropy": 1.1710046529769897,
+        "train_normalized_weight_entropy": 0.7275860905647278,
+        "train_mean_max_weight": 0.48179423809051514
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:26 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "line_difference_band",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:3",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/line_difference_band_seed18/checkpoint_line_difference_band_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29686499849150455,
+        "final_train_loss": 0.2821255056541177,
+        "final_huber_loss": 0.2778766272188742,
+        "final_kl_loss": 0.4248879118056237,
+        "train_weight_entropy": 1.1487592458724976,
+        "train_normalized_weight_entropy": 0.7137642502784729,
+        "train_mean_max_weight": 0.5034916996955872
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:25 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "fft_absolute_energy",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/fft_absolute_energy_seed16/checkpoint_fft_absolute_energy_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29805093833917307,
+        "final_train_loss": 0.28443327168875104,
+        "final_huber_loss": 0.2799537149788458,
+        "final_kl_loss": 0.44795586904392964,
+        "train_weight_entropy": 1.1415823698043823,
+        "train_normalized_weight_entropy": 0.7093049883842468,
+        "train_mean_max_weight": 0.48461875319480896
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:27 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "fft_absolute_energy",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/fft_absolute_energy_seed17/checkpoint_fft_absolute_energy_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.295131807085834,
+        "final_train_loss": 0.28354888305633885,
+        "final_huber_loss": 0.27885939822166783,
+        "final_kl_loss": 0.4689484234852127,
+        "train_weight_entropy": 1.1496347188949585,
+        "train_normalized_weight_entropy": 0.7143082022666931,
+        "train_mean_max_weight": 0.48427197337150574
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:26 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "fft_absolute_energy",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:2",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/fft_absolute_energy_seed18/checkpoint_fft_absolute_energy_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29579606916331036,
+        "final_train_loss": 0.28345962660976604,
+        "final_huber_loss": 0.27896948592572274,
+        "final_kl_loss": 0.44901404841036735,
+        "train_weight_entropy": 1.1683179140090942,
+        "train_normalized_weight_entropy": 0.7259167432785034,
+        "train_mean_max_weight": 0.47590306401252747
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:06:26 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "top3fold_period_layout",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:3",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/top3fold_period_layout_seed16/checkpoint_top3fold_period_layout_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.29884022361115564,
+        "final_train_loss": 0.27955558933789215,
+        "final_huber_loss": 0.27527899002727074,
+        "final_kl_loss": 0.427659844295888,
+        "train_weight_entropy": 1.1432452201843262,
+        "train_normalized_weight_entropy": 0.7103381752967834,
+        "train_mean_max_weight": 0.49171319603919983
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:07:54 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "top3fold_period_layout",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/top3fold_period_layout_seed17/checkpoint_top3fold_period_layout_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2963880285432067,
+        "final_train_loss": 0.27730229647853705,
+        "final_huber_loss": 0.27288064511516424,
+        "final_kl_loss": 0.4421653441990478,
+        "train_weight_entropy": 1.1433863639831543,
+        "train_normalized_weight_entropy": 0.710425853729248,
+        "train_mean_max_weight": 0.4952582120895386
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 00:07:56 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "top3fold_period_layout",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening/tasks/top3fold_period_layout_seed18/checkpoint_top3fold_period_layout_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2957727954357485,
+        "final_train_loss": 0.2778463767299169,
+        "final_huber_loss": 0.2735380207813239,
+        "final_kl_loss": 0.4308355484582201,
+        "train_weight_entropy": 1.159664273262024,
+        "train_normalized_weight_entropy": 0.720539927482605,
+        "train_mean_max_weight": 0.49080488085746765
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "round2_test_small_used_for_selection": false,
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    }
+  ]
+}
