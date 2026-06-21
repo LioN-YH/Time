@@ -3,14 +3,13 @@
     `time_router` 特征适配器入口。
 
 说明：
-    当前暴露 smoke-only / 边界验证用 FeatureProvider adapter：TimeFuseFeatureCacheProvider
-    只把显式 feature CSV 中的 TimeFuse 结构特征包装为 FeatureBatch；
-    VisualMockFeatureProvider 只用内存 history window 和 deterministic encoder
-    stub 验证 Visual-style provider contract；VisualPrecomputedFeatureProvider
-    读取已预计算的 head-ready visual embedding fixture；LoadedFeatureScaler
-    只使用已加载 scaler state 做 raw/pre-head -> head-ready transform。
-    visual_chain 只暴露 P16f protocol skeleton，不实现真实 ViT 链路。它们都
-    不接正式训练入口。
+    当前长期 public boundary 只暴露 canonical 迁移链路需要的 FeatureProvider /
+    FeatureTransform contract：TimeFuseFeatureCacheProvider、VisualPrecomputedFeatureProvider、
+    LoadedFeatureScaler，以及 P16f Visual feature chain protocol skeleton。
+    VisualMockFeatureProvider 和 DeterministicVisualEncoderStub 仍作为 P14/P15
+    兼容属性导入，避免破坏既有 smoke 和 Visual small 默认路径；但它们是
+    smoke-only scaffold，不进入 __all__，后续 P18b/P18c 应迁到 tests/helpers
+    或专门 legacy smoke helper。
 """
 
 from time_router.features.timefuse_cache import TimeFuseFeatureCacheProvider
@@ -35,7 +34,6 @@ from time_router.features.visual_mock import DeterministicVisualEncoderStub, Vis
 from time_router.features.visual_precomputed import VisualPrecomputedFeatureProvider
 
 __all__ = [
-    "DeterministicVisualEncoderStub",
     "FeatureTransform",
     "LineageMetadata",
     "LoadedFeatureScaler",
@@ -52,6 +50,5 @@ __all__ = [
     "VisualEncoderProvider",
     "VisualFeatureChainSpec",
     "VisualInputBatch",
-    "VisualMockFeatureProvider",
     "VisualPrecomputedFeatureProvider",
 ]

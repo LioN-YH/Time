@@ -3469,6 +3469,56 @@ P17b 仍明确不做：
 - 不修改 P15c/P16j Visual small entrypoint 或 TimeFuse small entrypoint 默认行为。
 - 不把 checkpoint path、allow flag 或 run_dir 放入 FeatureProvider / RouterHead adapter。
 
+### P17c：Visual canonical eval guarded external feature/scaler dry-run path
+
+P17c 已新增受控 external feature/scaler dry-run path，见
+`docs/refactor/stage1_visual_eval_external_feature_guard.md`。
+
+完成内容：
+
+- 新增 `time_router/runtime/visual_eval_feature_guard.py`，只做 feature/scaler path policy。
+- 扩展 `scripts/run_stage1_visual_eval_canonical.py`，新增
+  `--allow-external-feature-path`、`--allow-external-scaler-path`、
+  `--feature-path-label` 和 `--scaler-path-label`。
+- 默认 fixture/tmp feature 和 scaler 行为保持不变；非 fixture/tmp 路径必须显式授权；
+  `/data2` path guard 只调用 helper，不创建或读取 `/data2` 文件。
+- metadata 记录 feature/scaler path policy、allow flags、`feature_source=precomputed`、
+  `scaler_fit_performed=false`、`loads_real_vit=false`、`training_started=false` 和
+  `formal_training_migration=false`。
+
+### P17d：Visual canonical eval real-artifact manual dry-run contract
+
+P17d 已新增 manual real-artifact dry-run contract smoke，见
+`docs/refactor/stage1_visual_eval_real_artifact_manual_dryrun.md`。
+
+完成内容：
+
+- 扩展 `scripts/run_stage1_visual_eval_canonical.py`，新增
+  `--manual-real-artifact-dryrun` metadata/stdout 口径。
+- smoke 默认只用仓库受控临时目录 synthetic real-artifact checkpoint、external feature CSV
+  和 external scaler JSON；真实 artifact 路径只能由环境变量显式传入，缺失时 skip。
+- 验证 manual dry-run metadata、finite metrics、prediction rows 保序、checkpoint input_dim
+  mismatch fail-fast 和 feature CSV 缺 sample_key fail-fast。
+- 不搜索 `/data2`，不启动 ViT/训练/full-scale，不修改正式 streaming 训练入口。
+
+### P18a：time_router public API cleanup audit
+
+P18a 已新增 public API cleanup audit，见
+`docs/refactor/stage1_time_router_public_api_cleanup_audit.md`。
+
+完成内容：
+
+- 审计 `time_router/protocols`、`runtime`、`features`、`models`、`evaluation`、
+  `experts`、P17 canonical eval 入口依赖和 tests/smoke 中的 helper/mock。
+- 将当前对象分为长期 canonical core、Stage 1 migration bridge 和 smoke-only scaffold。
+- 轻量收紧 `time_router.features.__all__`：`VisualMockFeatureProvider` 和
+  `DeterministicVisualEncoderStub` 保留兼容属性，但不再进入 public `__all__`。
+- 新增 `tests/smoke/stage1_time_router_public_api_boundary_smoke.py`，验证 canonical core
+  和 P17 bridge public imports、smoke-only mock 未泄露到 `__all__`、import 阶段不加载
+  `transformers`。
+- 明确后续 P18b/P18c：mock scaffold 可迁到 `tests/helpers`，P17 guard helper 可在
+  Runtime policy 成型后合并，`visual_chain.py` 等 ViT provider 迁移后再判断。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

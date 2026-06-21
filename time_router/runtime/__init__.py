@@ -7,6 +7,9 @@
     以及 P16i 显式 checkpoint path/payload 到 legacy VisualMLPRouter state_dict
     strict load 的最小边界。Provider、Head、Evaluator 不应从这里读取或推导
     run_dir，也不应接收 checkpoint path。
+    `visual_mlp_checkpoint`、`visual_eval_checkpoint_guard` 和
+    `visual_eval_feature_guard` 当前属于 Stage 1 P16/P17 migration bridge；
+    后续 Runtime config/checkpoint/artifact policy 成型后可再合并或下沉。
 """
 
 from time_router.runtime.artifact_writer import (
