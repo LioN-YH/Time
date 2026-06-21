@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "fixture_name": "stage1_visual_feature_chain_dryrun_raw_windows",
+    "window_length": 6,
+    "source": "repo_tiny_fixture",
+    "loads_real_vit": false
+  },
+  "windows": {
+    "96_48_S::ETTh1::item0::ch0::win0": [0.00, 0.10, 0.20, 0.30, 0.40, 0.50],
+    "96_48_S::ETTh1::item0::ch0::win1": [1.00, 1.10, 1.20, 1.30, 1.40, 1.50],
+    "96_48_S::ETTm2::item3::ch0::win0": [2.00, 2.10, 2.20, 2.30, 2.40, 2.50],
+    "96_48_S::weather::item8::ch0::win2": [3.00, 3.10, 3.20, 3.30, 3.40, 3.50]
+  }
+}

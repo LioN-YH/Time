@@ -5,7 +5,8 @@
 说明：
     当前长期 public boundary 只暴露 canonical 迁移链路需要的 FeatureProvider /
     FeatureTransform contract：TimeFuseFeatureCacheProvider、VisualPrecomputedFeatureProvider、
-    LoadedFeatureScaler，以及 P16f Visual feature chain protocol skeleton。
+    LoadedFeatureScaler、P16f Visual feature chain protocol skeleton，以及 P19a
+    VisualFeatureChainRunner dry-run 编排骨架。
     VisualMockFeatureProvider 和 DeterministicVisualEncoderStub 已在 P18b 迁到
     tests.helpers.visual_smoke_providers，不再从 feature package 入口导入。
 """
@@ -27,10 +28,16 @@ from time_router.features.visual_chain import (
     VisualFeatureChainSpec,
     VisualInputBatch,
 )
+from time_router.features.visual_chain_runner import (
+    CHAIN_LINEAGE,
+    VisualFeatureChainResult,
+    VisualFeatureChainRunner,
+)
 from time_router.features.visual_scaler import LoadedFeatureScaler
 from time_router.features.visual_precomputed import VisualPrecomputedFeatureProvider
 
 __all__ = [
+    "CHAIN_LINEAGE",
     "FeatureTransform",
     "LineageMetadata",
     "LoadedFeatureScaler",
@@ -45,6 +52,8 @@ __all__ = [
     "TimeFuseFeatureCacheProvider",
     "VisualEmbeddingBatch",
     "VisualEncoderProvider",
+    "VisualFeatureChainResult",
+    "VisualFeatureChainRunner",
     "VisualFeatureChainSpec",
     "VisualInputBatch",
     "VisualPrecomputedFeatureProvider",

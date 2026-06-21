@@ -3519,6 +3519,33 @@ P18a 已新增 public API cleanup audit，见
 - 明确后续 P18b/P18c：mock scaffold 可迁到 `tests/helpers`，P17 guard helper 可在
   Runtime policy 成型后合并，`visual_chain.py` 等 ViT provider 迁移后再判断。
 
+### P19a：VisualFeatureChain dry-run skeleton
+
+P19a 已新增 real Visual feature chain dry-run skeleton，见
+`docs/refactor/stage1_visual_feature_chain_dryrun_skeleton.md`。
+
+完成内容：
+
+- 新增 `time_router/features/visual_chain_runner.py`，提供 `VisualFeatureChainRunner`
+  和 `VisualFeatureChainResult`。
+- Runner 只组合 P16f 已定义的 visual_chain protocols，执行
+  `raw_window -> pre_image -> pseudo_image -> resize_policy -> encoder -> pooling_strategy -> optional feature_transform`。
+- Runner 每层校验 `sample_keys` 保序，并在最终 `FeatureBatch.feature_schema` / `extra`
+  记录 `chain_runner`、`raw_window_source`、`pseudo_image`、`resize_policy`、
+  `encoder=fake_no_transformers`、`pooling_strategy` 和 stage metadata lineage。
+- 新增 `tests/fixtures/stage1_visual_feature_chain_dryrun/` 的显式 raw window fixture。
+- 新增 P19a smoke，使用 smoke-local no-transformers fake encoder 跑通
+  `SampleManifest -> VisualFeatureChainRunner -> FeatureBatch`，并可接
+  `LoadedTorchMLPRouterHeadAdapter + EvaluationInputAdapter`。
+
+P19a 明确不做：
+
+- 不加载真实 ViT，不导入 transformers。
+- 不迁移 `train_visual_router_online_streaming.py`，不训练，不跑 full-scale，不新增 launcher。
+- 不访问 `/data2`，不自动搜索 raw window / feature / checkpoint。
+- 不把 fake encoder 暴露为 `time_router.features` public core。
+- 不删除 P17 precomputed feature path，不改变 P17 canonical eval entrypoint 默认行为。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
