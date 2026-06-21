@@ -1,0 +1,5 @@
+expanded_sample_set,small_sample_set,small_count,expanded_count,small_in_expanded_count,small_in_expanded_ratio,strict_subset,reason_if_not_strict_subset
+round2_train_expanded,round2_train_small,20000,30000,20000,1.0,True,
+round2_selection_expanded,round2_selection_small,5000,10000,5000,1.0,True,
+round2_diagnostic_balanced_expanded,round2_diagnostic_balanced_small,5000,10000,5000,1.0,True,
+round2_test_expanded,round2_test_small,5000,15000,5000,1.0,True,

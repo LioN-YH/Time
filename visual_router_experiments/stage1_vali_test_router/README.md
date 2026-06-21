@@ -66,6 +66,7 @@ TimeFuse-style fusor 是 baseline 支线，相关 reader、feature cache 和 GPU
 | `build_stage1_sample_manifest.py` | 生成 `96_48_S` 1k manifest-only 样本清单；用于中等规模实验和快速复现 |
 | `build_visual_router_v2_pilot_samples.py` | 从 full-scale oracle labels 与 TSF enrichment parquet 构建 Visual Router V2 固定 pilot sample keys；不读取 116M 行 merged prediction manifest，不训练模型；当前 v1 输出在 `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples/` |
 | `build_visual_router_v2_round2_small_samples.py` | 构建 Visual Router V2 Round2 view layout small screening 固定样本、layout candidates 和 top3fold reuse audit；不训练、不跑 ViT、不生成 feature cache |
+| `build_visual_router_v2_round2_expanded_samples.py` | 构建 Visual Router V2 Round2e-a 65k expanded validation 固定样本；先保留 Round2a small sets 为 strict subset，再用 oracle labels/TSF enrichment 稳定哈希补齐；不训练、不跑 ViT、不生成 feature cache、不读取 116M prediction manifest |
 | `smoke_visual_router_v2_round2_layout_imageization.py` | Round2b layout registry / GPU tensor imageization smoke；只读取少量历史 x，验证六个默认 layout 的 shape、dtype、range、finite、padding/period metadata 和 latency，不训练 router、不运行 ViT、不保存大规模 pseudo image tensor |
 | `summarize_visual_router_v2_round1_global.py` | Visual Router V2 Round 1 全局轻量归档脚本；只读仓库内既有 summary/CSV/JSON，生成 `experiment_summaries/visual_router_v2_round1/global_summary/`，不读取 checkpoint、SQLite、逐样本 prediction、feature shard 或大规模 manifest |
 | `train_visual_router_online.py` | 适合 120/1k 规模；在线生成 ViT embedding 后在运行内暂存全部 embedding，再复用 MLP router 训练和评估逻辑 |

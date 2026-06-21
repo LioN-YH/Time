@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 03:16:13 CST",
+  "elapsed_sec": 386.863,
+  "script_version": "visual_router_v2_round2e_a_expanded_sample_builder_v1",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples",
+  "validation_status": "passed",
+  "sample_counts": {
+    "round2_train_expanded": 30000,
+    "round2_selection_expanded": 10000,
+    "round2_diagnostic_balanced_expanded": 10000,
+    "round2_test_expanded": 15000
+  },
+  "strict_small_subset": true,
+  "trained_model": false,
+  "built_feature_cache": false,
+  "ran_vit": false,
+  "saved_pseudo_image_tensor": false,
+  "loaded_116m_prediction_manifest_to_memory": false
+}

@@ -1,0 +1,220 @@
+{
+  "status": "completed",
+  "script_version": "visual_router_v2_round2e_a_expanded_sample_builder_v1",
+  "generated_at": "2026-06-22 03:16:13 CST",
+  "elapsed_sec": 386.862,
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/build_visual_router_v2_round2_expanded_samples.py",
+  "round2_stage": "expanded_sample_builder",
+  "trained_model": false,
+  "built_feature_cache": false,
+  "ran_vit": false,
+  "saved_pseudo_image_tensor": false,
+  "used_test_expanded_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+  "tsf_enrichment_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/tsf_enrichment_full_scale_2026-06-16/sample_tsf_enrichment.parquet",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples",
+  "light_summary_dir": "experiment_summaries/visual_router_v2_round2/expanded_samples",
+  "sample_source": {
+    "round2_train_expanded": "Round2 train small strict subset + vali metric=mae oracle labels stable-hash fillers",
+    "round2_selection_expanded": "Round2 selection small strict subset + disjoint vali metric=mae oracle labels stable-hash fillers",
+    "round2_diagnostic_balanced_expanded": "Round2 diagnostic small strict subset + disjoint vali oracle_model balanced fillers",
+    "round2_test_expanded": "Round2 test small strict subset + test metric=mae oracle labels stable-hash fillers; frozen validation only"
+  },
+  "sample_counts": {
+    "round2_train_expanded": 30000,
+    "round2_selection_expanded": 10000,
+    "round2_diagnostic_balanced_expanded": 10000,
+    "round2_test_expanded": 15000
+  },
+  "sample_set_boundaries": {
+    "round2_train_expanded_and_round2_selection_expanded_disjoint": true,
+    "round2_diagnostic_balanced_expanded_used_for_selection": false,
+    "round2_test_expanded_split": "test",
+    "round2_test_expanded_used_for_training_tuning_or_selection": false,
+    "all_sets_cross_disjoint": true,
+    "small_sets_preserved_before_hash_fill": true
+  },
+  "hash_seed_or_sampling_rule": {
+    "seed": 20260622,
+    "main_fillers": "先保留各自 small set，再从排除全部 small sample_key 的 oracle labels 中按 seed+sample_key 稳定哈希补齐；train 取 vali filler 前段，selection 取后段，test 从 test filler 补齐。",
+    "diagnostic_seed": 20270625,
+    "diagnostic_fillers": "先保留 diagnostic small，再排除 expanded train/selection/test 和 diagnostic small，按 oracle_model 分桶稳定哈希补齐。",
+    "error_gap_quantile": "基于 metric=mae oracle 行的稳定哈希 reservoir 估计五分位边界。"
+  },
+  "oracle_balance_rule": {
+    "sample_set": "round2_diagnostic_balanced_expanded",
+    "models": [
+      "DLinear",
+      "PatchTST",
+      "CrossFormer",
+      "ES",
+      "NaiveForecaster"
+    ],
+    "per_model_target": 2000,
+    "small_diagnostic_expert_counts": {
+      "ES": 1000,
+      "DLinear": 1000,
+      "NaiveForecaster": 1000,
+      "CrossFormer": 1000,
+      "PatchTST": 1000
+    },
+    "filler_needed_by_model": {
+      "DLinear": 1000,
+      "PatchTST": 1000,
+      "CrossFormer": 1000,
+      "ES": 1000,
+      "NaiveForecaster": 1000
+    },
+    "final_expert_counts": {
+      "CrossFormer": 2000,
+      "DLinear": 2000,
+      "ES": 2000,
+      "NaiveForecaster": 2000,
+      "PatchTST": 2000
+    },
+    "selection_usage": "diagnostic_only_not_for_layout_selection"
+  },
+  "small_sample_source": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+  "small_to_expanded_overlap": {
+    "round2_train_expanded": {
+      "small_sample_set": "round2_train_small",
+      "small_count": 20000,
+      "expanded_count": 30000,
+      "small_in_expanded_count": 20000,
+      "small_in_expanded_ratio": 1.0,
+      "strict_subset": true,
+      "reason_if_not_strict_subset": ""
+    },
+    "round2_selection_expanded": {
+      "small_sample_set": "round2_selection_small",
+      "small_count": 5000,
+      "expanded_count": 10000,
+      "small_in_expanded_count": 5000,
+      "small_in_expanded_ratio": 1.0,
+      "strict_subset": true,
+      "reason_if_not_strict_subset": ""
+    },
+    "round2_diagnostic_balanced_expanded": {
+      "small_sample_set": "round2_diagnostic_balanced_small",
+      "small_count": 5000,
+      "expanded_count": 10000,
+      "small_in_expanded_count": 5000,
+      "small_in_expanded_ratio": 1.0,
+      "strict_subset": true,
+      "reason_if_not_strict_subset": ""
+    },
+    "round2_test_expanded": {
+      "small_sample_set": "round2_test_small",
+      "small_count": 5000,
+      "expanded_count": 15000,
+      "small_in_expanded_count": 5000,
+      "small_in_expanded_ratio": 1.0,
+      "strict_subset": true,
+      "reason_if_not_strict_subset": ""
+    }
+  },
+  "strict_small_subset": true,
+  "recommended_layouts_for_round2e_b": [
+    "spatial_panel_3view",
+    "current_rgb_3view",
+    "top3fold_period_layout"
+  ],
+  "next_step_recommendation": "round2e_b_65k_layout_validation",
+  "round2e_b_backend_recommendation": "continue fixed film_mean_patch_aux style backend",
+  "round2e_b_parallel_recommendation": "continue process-level multi-GPU parallelism for layout feature cache and layout×seed training/eval",
+  "gap_quantile_boundaries": [
+    0.0,
+    0.00992226004600534,
+    0.046840059757232655,
+    0.1312074184417725
+  ],
+  "oracle_scan_counters": {
+    "gap_pass": {
+      "mae_rows_seen": 23275170,
+      "vali_rows_seen": 9350520,
+      "test_rows_seen": 13924650
+    },
+    "main_filler_pass": {
+      "mae_rows_seen": 23275170,
+      "vali_candidate_rows": 9320520,
+      "test_candidate_rows": 13919650
+    },
+    "diagnostic_filler_pass": {
+      "mae_rows_seen": 23275170,
+      "vali_candidate_rows": 9305520
+    }
+  },
+  "validation": {
+    "status": "passed",
+    "generated_at": "2026-06-22 03:16:13 CST",
+    "per_set_counts": {
+      "round2_train_expanded": 30000,
+      "round2_selection_expanded": 10000,
+      "round2_diagnostic_balanced_expanded": 10000,
+      "round2_test_expanded": 15000
+    },
+    "target_counts": {
+      "round2_train_expanded": 30000,
+      "round2_selection_expanded": 10000,
+      "round2_diagnostic_balanced_expanded": 10000,
+      "round2_test_expanded": 15000
+    },
+    "per_set_duplicate_counts": {
+      "round2_train_expanded": 0,
+      "round2_selection_expanded": 0,
+      "round2_diagnostic_balanced_expanded": 0,
+      "round2_test_expanded": 0
+    },
+    "cross_set_duplicate_count": 0,
+    "split_values": {
+      "round2_train_expanded": [
+        "vali"
+      ],
+      "round2_selection_expanded": [
+        "vali"
+      ],
+      "round2_diagnostic_balanced_expanded": [
+        "vali"
+      ],
+      "round2_test_expanded": [
+        "test"
+      ]
+    },
+    "round2_train_selection_intersection_count": 0,
+    "order_index_contiguous_from_zero": {
+      "round2_train_expanded": true,
+      "round2_selection_expanded": true,
+      "round2_diagnostic_balanced_expanded": true,
+      "round2_test_expanded": true
+    },
+    "diagnostic_expert_counts": {
+      "CrossFormer": 2000,
+      "DLinear": 2000,
+      "ES": 2000,
+      "NaiveForecaster": 2000,
+      "PatchTST": 2000
+    }
+  },
+  "output_files": {
+    "round2_train_expanded_sample_keys": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_train_expanded_sample_keys.csv",
+    "round2_selection_expanded_sample_keys": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_selection_expanded_sample_keys.csv",
+    "round2_diagnostic_balanced_expanded_sample_keys": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_diagnostic_balanced_expanded_sample_keys.csv",
+    "round2_test_expanded_sample_keys": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_test_expanded_sample_keys.csv",
+    "round2_expanded_sample_manifest": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_sample_manifest.csv",
+    "round2_expanded_overlap_with_small": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_overlap_with_small.csv",
+    "round2_expanded_coverage_summary": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_coverage_summary.csv",
+    "round2_expanded_validation_summary": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_validation_summary.csv",
+    "round2_expanded_sample_metadata": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_sample_metadata.json",
+    "round2_expanded_sample_summary": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_sample_summary.md",
+    "status": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/status.json"
+  },
+  "light_summary_files": {
+    "round2_expanded_overlap_with_small.csv": "experiment_summaries/visual_router_v2_round2/expanded_samples/round2_expanded_overlap_with_small.csv",
+    "round2_expanded_coverage_summary.csv": "experiment_summaries/visual_router_v2_round2/expanded_samples/round2_expanded_coverage_summary.csv",
+    "round2_expanded_validation_summary.csv": "experiment_summaries/visual_router_v2_round2/expanded_samples/round2_expanded_validation_summary.csv",
+    "round2_expanded_sample_metadata.json": "experiment_summaries/visual_router_v2_round2/expanded_samples/round2_expanded_sample_metadata.json",
+    "round2_expanded_sample_summary.md": "experiment_summaries/visual_router_v2_round2/expanded_samples/round2_expanded_sample_summary.md",
+    "status.json": "experiment_summaries/visual_router_v2_round2/expanded_samples/status.json"
+  }
+}
