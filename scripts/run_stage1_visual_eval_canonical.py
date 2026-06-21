@@ -453,6 +453,11 @@ def build_router_output(
 def build_evaluation_summary_payload(result: EvaluationInputAdapterResult) -> dict[str, object]:
     """函数功能：把 evaluator 内存 summary 包装成 Runtime writer 当前支持的最小 schema。"""
     summary = dict(result.summary)
+    metric_names = ("hard_mae", "hard_mse", "raw_soft_mae", "raw_soft_mse", "mean_entropy", "mean_max_weight")
+    for metric_name in metric_names:
+        metric_value = float(summary[metric_name])
+        if not np.isfinite(metric_value):
+            raise AssertionError(f"evaluation metric 必须为 finite：{metric_name}={metric_value}")
     return {
         "evaluation_schema_version": "stage1_evaluation_summary_v1",
         "sample_count": int(summary["num_samples"]),
@@ -606,6 +611,7 @@ def write_runtime_artifacts(
         },
         "visual_router": {
             "entrypoint": ENTRYPOINT_NAME,
+            "manual_real_artifact_dryrun": bool(args.manual_real_artifact_dryrun),
             "feature_source": feature_metadata["feature_source"],
             "feature_provider": feature_metadata["feature_provider"],
             "feature_path_policy": feature_metadata["feature_path_policy"],
@@ -743,7 +749,12 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
                 "entrypoint": ENTRYPOINT_NAME,
                 "sample_count": len(ordered_sample_keys),
                 "split_counts": manifest.split_counts(),
+                "manual_real_artifact_dryrun": bool(args.manual_real_artifact_dryrun),
                 "feature_source": str(args.feature_source),
+                "allow_real_checkpoint": bool(args.allow_real_checkpoint),
+                "allow_external_checkpoint_path": bool(args.allow_external_checkpoint_path),
+                "allow_external_feature_path": bool(args.allow_external_feature_path),
+                "allow_external_scaler_path": bool(args.allow_external_scaler_path),
                 "loaded_legacy_mlp": True,
                 "scaler_enabled": bool(dict(feature_metadata["scaler"])["scaler_enabled"]),
                 "loads_real_checkpoint": bool(head_metadata["loads_real_checkpoint"]),
@@ -785,6 +796,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--checkpoint-path-label", default="", help="可选脱敏路径来源说明，写入 metadata，不参与读取。")
     parser.add_argument("--feature-path-label", default="", help="可选 feature path 脱敏来源说明，写入 metadata，不参与读取。")
     parser.add_argument("--scaler-path-label", default="", help="可选 scaler path 脱敏来源说明，写入 metadata，不参与读取。")
+    parser.add_argument(
+        "--manual-real-artifact-dryrun",
+        action="store_true",
+        help="显式标记本次为用户提供真实 artifact 的 manual evaluation-only dry-run；默认 false。",
+    )
     return parser.parse_args(argv)
 
 
