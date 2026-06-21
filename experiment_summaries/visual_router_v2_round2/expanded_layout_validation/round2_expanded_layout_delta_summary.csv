@@ -1,0 +1,10 @@
+delta_name,sample_set,method_kind,left_variant,right_variant,left_MAE_mean,right_MAE_mean,delta_MAE_mean,left_MSE_mean,right_MSE_mean,delta_MSE_mean,status
+spatial_panel_3view - current_rgb_3view,round2_selection_expanded,raw_soft_fusion,spatial_panel_3view,current_rgb_3view,0.30723307552229984,0.3096530055860751,-0.0024199300637752774,2.043913664347326,2.121374726102091,-0.0774610617547653,ok
+line_only - current_rgb_3view,,,,,,,,,,,missing_reference
+line_difference_band - line_only,,,,,,,,,,,missing_reference
+line_difference_band - current_rgb_3view,,,,,,,,,,,missing_reference
+fft_absolute_energy - current_rgb_3view,,,,,,,,,,,missing_reference
+top3fold_period_layout - current_rgb_3view,round2_selection_expanded,raw_soft_fusion,top3fold_period_layout,current_rgb_3view,0.3127089604911493,0.3096530055860751,0.0030559549050742096,2.3634477111449783,2.121374726102091,0.2420729850428871,ok
+top3fold_period_layout - fft_absolute_energy,,,,,,,,,,,missing_reference
+spatial_panel_3view - film_mean_patch_aux,round2_selection_expanded,raw_soft_fusion,spatial_panel_3view,film_mean_patch_aux,0.30723307552229984,0.3003931976794061,0.006839877842893749,2.043913664347326,1.28987162021779,0.7540420441295359,ok
+spatial_panel_3view - Round0 TimeFuse,round2_selection_expanded,raw_soft_fusion,spatial_panel_3view,Round0 TimeFuse,0.30723307552229984,0.3175300871360582,-0.010297011613758345,2.043913664347326,1.370166538406871,0.6737471259404548,ok

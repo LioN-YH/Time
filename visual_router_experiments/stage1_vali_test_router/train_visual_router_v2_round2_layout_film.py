@@ -115,6 +115,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction-manifest-path", type=Path, default=DEFAULT_PREDICTION_MANIFEST)
     parser.add_argument("--layouts", default=",".join(DEFAULT_ROUND2_LAYOUTS))
     parser.add_argument("--layout", default=None)
+    parser.add_argument("--artifact-prefix", default="round2_layout", help="聚合产物文件名前缀；expanded validation 使用 round2_expanded_layout。")
+    parser.add_argument("--train-sample-set", default="round2_train_small")
+    parser.add_argument("--selection-sample-set", default="round2_selection_small")
+    parser.add_argument("--diagnostic-sample-set", default="round2_diagnostic_balanced_small")
+    parser.add_argument("--test-sample-set", default="round2_test_small")
+    parser.add_argument("--experiment-label", default="Round2c")
+    parser.add_argument("--summary-title", default="Visual Router V2 Round2c Layout Screening Summary")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--seeds", default="16,17,18")
     parser.add_argument("--epochs", type=int, default=3)
@@ -153,6 +160,26 @@ def task_dir(output_dir: Path, layout: str, seed: int) -> Path:
     return Path(output_dir) / "tasks" / f"{layout}_seed{int(seed)}"
 
 
+def sample_sets_from_args(args: argparse.Namespace) -> Tuple[str, str, str, str]:
+    """函数功能：返回本轮训练、选择、诊断和 frozen test 的 sample_set 名称。"""
+    return (
+        str(args.train_sample_set),
+        str(args.selection_sample_set),
+        str(args.diagnostic_sample_set),
+        str(args.test_sample_set),
+    )
+
+
+def eval_sample_sets_from_args(args: argparse.Namespace) -> Tuple[str, str, str]:
+    """函数功能：返回本轮需要评估但不用于训练的 sample_set 名称。"""
+    return (str(args.selection_sample_set), str(args.diagnostic_sample_set), str(args.test_sample_set))
+
+
+def artifact_path(args: argparse.Namespace, suffix: str) -> Path:
+    """函数功能：按 artifact prefix 生成统一汇总产物路径。"""
+    return Path(args.output_dir) / f"{args.artifact_prefix}_{suffix}"
+
+
 def read_round2_sample_set(sample_manifest: Path, sample_set: str, *, max_samples: int | None = None) -> pd.DataFrame:
     """函数功能：按 order_index 读取 Round2 small sample_set。"""
     frame = pd.read_csv(sample_manifest)
@@ -170,13 +197,13 @@ def read_round2_sample_set(sample_manifest: Path, sample_set: str, *, max_sample
 
 
 def read_all_sample_frames(args: argparse.Namespace) -> Dict[str, pd.DataFrame]:
-    """函数功能：读取训练、选择、诊断、test_small 四个 Round2 sample set。"""
-    return {name: read_round2_sample_set(args.sample_manifest, name, max_samples=args.max_samples_per_set) for name in ROUND2_SAMPLE_SETS}
+    """函数功能：读取训练、选择、诊断、frozen test 四个 Round2 sample set。"""
+    return {name: read_round2_sample_set(args.sample_manifest, name, max_samples=args.max_samples_per_set) for name in sample_sets_from_args(args)}
 
 
 def prediction_index_path(output_dir: Path) -> Path:
-    """函数功能：返回 Round2c 共用 prediction subset SQLite 路径。"""
-    return Path(output_dir) / "prediction_index_round2c_35k.sqlite"
+    """函数功能：返回本轮共用 prediction subset SQLite 路径。"""
+    return Path(output_dir) / "prediction_index_round2_layout_subset.sqlite"
 
 
 def ensure_round2_prediction_index(args: argparse.Namespace, sample_keys: Sequence[str]) -> SQLitePredictionIndex:
@@ -261,10 +288,10 @@ def load_layout_features(
 
 
 def run_build_index_only(args: argparse.Namespace) -> None:
-    """函数功能：单进程预构建 Round2c 35k prediction SQLite index。"""
+    """函数功能：单进程预构建本轮 sample subset prediction SQLite index。"""
     frames = read_all_sample_frames(args)
     keys: List[str] = []
-    for name in ROUND2_SAMPLE_SETS:
+    for name in sample_sets_from_args(args):
         keys.extend(frames[name]["sample_key"].astype(str).tolist())
     index = ensure_round2_prediction_index(args, keys)
     index.close()
@@ -286,20 +313,22 @@ def run_single(args: argparse.Namespace) -> None:
     write_json(out_dir / "status.json", {"status": "started", "layout_name": layout_name, "seed": seed, "updated_at": display_time()})
     frames = read_all_sample_frames(args)
     all_keys: List[str] = []
-    for name in ROUND2_SAMPLE_SETS:
+    train_set, selection_set, diagnostic_set, test_set = sample_sets_from_args(args)
+    eval_sets = eval_sample_sets_from_args(args)
+    for name in sample_sets_from_args(args):
         all_keys.extend(frames[name]["sample_key"].astype(str).tolist())
     log_stage(f"读取 oracle labels 子集：layout={layout_name} seed={seed}")
     labels_all = load_oracle_subset(args.oracle_labels_path, all_keys, batch_rows=args.parquet_batch_rows)
-    labels_by_set = {name: labels_all[labels_all["sample_key"].isin(frames[name]["sample_key"].astype(str))].copy() for name in EVAL_SAMPLE_SETS}
+    labels_by_set = {name: labels_all[labels_all["sample_key"].isin(frames[name]["sample_key"].astype(str))].copy() for name in eval_sets}
     prediction_index = ensure_round2_prediction_index(args, all_keys)
     device = resolve_device(args.device)
-    feature_manifest_path = Path(args.feature_dir) / "round2_layout_feature_manifest.csv"
+    feature_manifest_path = Path(args.feature_dir) / f"{args.artifact_prefix}_feature_manifest.csv"
     try:
         log_stage(f"读取 Round2 layout features：layout={layout_name}")
         train_visual, train_aux = load_layout_features(
             feature_manifest_path=feature_manifest_path,
-            sample_df=frames["round2_train_small"],
-            sample_set="round2_train_small",
+            sample_df=frames[train_set],
+            sample_set=train_set,
             layout_name=layout_name,
         )
         visual_scaler = StandardScaler()
@@ -310,7 +339,7 @@ def run_single(args: argparse.Namespace) -> None:
         router, train_meta = train_film_router(
             train_visual_scaled=train_visual_scaled,
             train_aux_scaled=train_aux_scaled,
-            train_sample_keys=frames["round2_train_small"]["sample_key"].astype(str).tolist(),
+            train_sample_keys=frames[train_set]["sample_key"].astype(str).tolist(),
             prediction_index=prediction_index,
             seed=seed,
             device=device,
@@ -354,7 +383,7 @@ def run_single(args: argparse.Namespace) -> None:
             checkpoint_path,
         )
         method_frames: List[pd.DataFrame] = []
-        for sample_set in EVAL_SAMPLE_SETS:
+        for sample_set in eval_sets:
             visual_features, aux_features = load_layout_features(
                 feature_manifest_path=feature_manifest_path,
                 sample_df=frames[sample_set],
@@ -399,7 +428,11 @@ def run_single(args: argparse.Namespace) -> None:
                     "condition_input": "revin_aux",
                     "used_film": True,
                     "used_concat_aux": False,
-                    "round2_test_small_used_for_selection": False,
+                    "frozen_test_used_for_selection": False,
+                    "train_sample_set": train_set,
+                    "selection_sample_set": selection_set,
+                    "diagnostic_sample_set": diagnostic_set,
+                    "test_sample_set": test_set,
                     "trained_vit": False,
                     "saved_pseudo_image_tensor": False,
                     "single_task_output_isolated": True,
@@ -470,7 +503,7 @@ def normalize_round0_reference(path: Path, sample_set: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def choose_best_layout(selection_summary: pd.DataFrame) -> Dict[str, object]:
+def choose_best_layout(selection_summary: pd.DataFrame, *, selection_sample_set: str, diagnostic_sample_set: str, test_sample_set: str) -> Dict[str, object]:
     """函数功能：按用户指定 selection/tie-breaker 选择 best layout。"""
     soft = selection_summary[selection_summary["method"].astype(str).str.endswith("_raw_soft_fusion")].copy()
     if soft.empty:
@@ -484,21 +517,21 @@ def choose_best_layout(selection_summary: pd.DataFrame) -> Dict[str, object]:
     return {
         "best_layout": str(best["variant"]),
         "backend_style": "film_mean_patch_aux",
-        "selection_basis": "round2_selection_small raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
-        "selected_from_sample_set": "round2_selection_small",
-        "round2_diagnostic_balanced_small_used_for_selection": False,
-        "round2_test_small_used_for_selection": False,
+        "selection_basis": f"{selection_sample_set} raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+        "selected_from_sample_set": str(selection_sample_set),
+        f"{diagnostic_sample_set}_used_for_selection": False,
+        f"{test_sample_set}_used_for_selection": False,
         "best_row": {key: (float(value) if isinstance(value, (float, np.floating)) else int(value) if isinstance(value, (int, np.integer)) else value) for key, value in best.items()},
     }
 
 
-def build_delta_summary(comparison: pd.DataFrame) -> pd.DataFrame:
+def build_delta_summary(comparison: pd.DataFrame, *, selection_sample_set: str, layout_stage: str) -> pd.DataFrame:
     """函数功能：生成用户指定的 layout delta summary。"""
     selection_soft = comparison[
-        (comparison["sample_set"].astype(str) == "round2_selection_small")
+        (comparison["sample_set"].astype(str) == str(selection_sample_set))
         & (comparison["method_kind"].astype(str) == "raw_soft_fusion")
     ].set_index("variant")
-    layout_only = selection_soft[selection_soft["stage"].astype(str) == "Round2c"] if "stage" in selection_soft.columns else selection_soft
+    layout_only = selection_soft[selection_soft["stage"].astype(str) == str(layout_stage)] if "stage" in selection_soft.columns else selection_soft
     best_layout_name = ""
     if not layout_only.empty:
         best_layout_name = str(layout_only.sort_values(["MAE_mean", "MAE_std"], kind="mergesort").index[0])
@@ -523,7 +556,7 @@ def build_delta_summary(comparison: pd.DataFrame) -> pd.DataFrame:
         rows.append(
             {
                 "delta_name": f"{left} - {right}",
-                "sample_set": "round2_selection_small",
+                "sample_set": str(selection_sample_set),
                 "method_kind": "raw_soft_fusion",
                 "left_variant": left,
                 "right_variant": right,
@@ -593,7 +626,8 @@ def recommend_expanded_layouts(selection_summary: pd.DataFrame, test_summary: pd
 
 def _latency_assessment(output_dir: Path) -> str:
     """函数功能：基于 feature latency 粗略判断 layout 是否过慢。"""
-    path = Path(output_dir) / "round2_layout_feature_latency.csv"
+    candidates = sorted(Path(output_dir).glob("*_feature_latency.csv"))
+    path = candidates[0] if candidates else Path(output_dir) / "round2_layout_feature_latency.csv"
     if not path.exists():
         return "feature latency 文件不存在，暂无法判断。"
     latency = pd.read_csv(path)
@@ -636,16 +670,25 @@ def _strata_help_text(stratified: pd.DataFrame, sample_set: str, stratum_column:
     return "；".join(improved) if improved else f"未发现 layout 在 {', '.join(values)} 上相对 `{baseline}` 改善 MAE。"
 
 
-def _mse_tail_text(selection_summary: pd.DataFrame, test_summary: pd.DataFrame) -> str:
-    """函数功能：描述哪些 layout 在 selection/test_small 上降低 MSE。"""
+def _mse_tail_text(selection_summary: pd.DataFrame, test_summary: pd.DataFrame, *, test_label: str) -> str:
+    """函数功能：描述哪些 layout 在 selection/frozen test 上降低 MSE。"""
     selection = _raw_soft_rows(selection_summary).sort_values("MSE_mean", kind="mergesort")
     test = _raw_soft_rows(test_summary).sort_values("MSE_mean", kind="mergesort")
     if selection.empty or test.empty:
         return "缺少 raw-soft MSE summary。"
     return (
         f"selection MSE 最低：`{selection.iloc[0]['variant']}`={float(selection.iloc[0]['MSE_mean']):.6f}；"
-        f"test_small MSE 最低：`{test.iloc[0]['variant']}`={float(test.iloc[0]['MSE_mean']):.6f}。"
+        f"{test_label} MSE 最低：`{test.iloc[0]['variant']}`={float(test.iloc[0]['MSE_mean']):.6f}。"
     )
+
+
+def _seed_stability_text(selection_summary: pd.DataFrame) -> str:
+    """函数功能：按 selection raw-soft MAE std 描述 seed stability。"""
+    rows = _raw_soft_rows(selection_summary).sort_values(["MAE_std", "MSE_std", "MAE_mean"], kind="mergesort")
+    if rows.empty:
+        return "缺少 raw-soft seed stability summary。"
+    row = rows.iloc[0]
+    return f"`{row['variant']}` 最稳定，selection MAE_std={float(row['MAE_std']):.6f}，MSE_std={float(row['MSE_std']):.6f}。"
 
 
 def write_summary_md(
@@ -660,17 +703,25 @@ def write_summary_md(
     best_layout: Mapping[str, object],
     metadata: Mapping[str, object],
 ) -> None:
-    """函数功能：写中文 screening summary。"""
+    """函数功能：写中文 screening/expanded validation summary。"""
     selection_best = _best_layout_from_summary(selection_summary)
     test_best = _best_layout_from_summary(test_summary)
-    recommended = list(metadata.get("recommended_expanded_layouts", []))
     consistency = "一致" if selection_best["layout"] == test_best["layout"] else "不一致"
-    seasonality_text = _strata_help_text(diagnostic_summary if "stratum_column" in diagnostic_summary.columns else stratified, "round2_diagnostic_balanced_small", "season_strength_cat", ["strong"])
-    patch_text = _strata_help_text(stratified, "round2_diagnostic_balanced_small", "oracle_model", ["CrossFormer", "PatchTST"])
-    mse_text = _mse_tail_text(selection_summary, test_summary)
+    selection_set = str(metadata["selection_sample_set"])
+    diagnostic_set = str(metadata["diagnostic_sample_set"])
+    test_set = str(metadata["test_sample_set"])
+    summary_title = str(metadata.get("summary_title", "Visual Router V2 Round2 Layout Summary"))
+    seasonality_text = _strata_help_text(stratified, diagnostic_set, "season_strength_cat", ["strong"])
+    patch_text = _strata_help_text(stratified, diagnostic_set, "oracle_model", ["CrossFormer", "PatchTST"])
+    mse_text = _mse_tail_text(selection_summary, test_summary, test_label=test_set)
+    stability_text = _seed_stability_text(selection_summary)
     latency_text = _latency_assessment(output_dir)
+    spatial_delta = _metric_delta(selection_summary, "spatial_panel_3view", "current_rgb_3view")
+    top3_delta = _metric_delta(selection_summary, "top3fold_period_layout", "current_rgb_3view")
+    stable_35k = "稳定" if selection_best["layout"] == "spatial_panel_3view" or test_best["layout"] == "spatial_panel_3view" else "不稳定"
+    next_step = "建议升级 `spatial_panel_3view` 为 Round2 主线，并扩大到 P0/P2a 规模。" if best_layout["best_layout"] == "spatial_panel_3view" else "不建议直接升级 `spatial_panel_3view`，应优先复查 period_soft_mixture / period tokens 或扩大候选诊断。"
     lines = [
-        "# Visual Router V2 Round2c Layout Screening Summary",
+        f"# {summary_title}",
         "",
         f"生成时间：{metadata['generated_at']}",
         "",
@@ -678,25 +729,21 @@ def write_summary_md(
         "",
         f"- best_layout：`{best_layout['best_layout']}`",
         f"- 后端固定：`film_mean_patch_aux`，即 `mean_patch_embedding -> visual hidden`，`revin_aux -> FiLM gamma/beta`。",
-        "- 选择口径只使用 `round2_selection_small` raw-soft MAE mean；`round2_diagnostic_balanced_small` 只诊断，`round2_test_small` 只做 frozen screening。",
-        f"- 推荐进入 65k expanded validation：{', '.join(f'`{x}`' for x in recommended) if recommended else '暂无'}。",
+        f"- 选择口径只使用 `{selection_set}` raw-soft MAE mean；`{diagnostic_set}` 只诊断，`{test_set}` 只做 frozen validation。",
+        f"- 下一步建议：{next_step}",
         "",
         "## 必答问题",
         "",
-        f"1. `round2_selection_small` 最好 layout：`{selection_best['layout']}`，raw-soft MAE={selection_best['MAE_mean']:.6f}，MSE={selection_best['MSE_mean']:.6f}。",
-        f"2. `round2_test_small` frozen screening 最好 layout：`{test_best['layout']}`，raw-soft MAE={test_best['MAE_mean']:.6f}，MSE={test_best['MSE_mean']:.6f}。",
-        f"3. selection best 与 test_small best 是否一致：{consistency}。",
-        f"4. `spatial_panel_3view` 是否优于 `current_rgb_3view`：{_metric_delta(selection_summary, 'spatial_panel_3view', 'current_rgb_3view')}",
-        f"5. `line_only` 是否接近复杂 layout：见 selection 表；`line_only` 相比 `current_rgb_3view` 为 {_metric_delta(selection_summary, 'line_only', 'current_rgb_3view')}",
-        f"6. `line_difference_band` 相比 `line_only` 是否有增益：{_metric_delta(selection_summary, 'line_difference_band', 'line_only')}",
-        f"7. `fft_absolute_energy` 是否对 seasonality / PatchTST strata 有帮助：seasonality={seasonality_text}；CrossFormer/PatchTST={patch_text}",
-        f"8. `top3fold_period_layout` 是否优于 current top1 period fold / FFT energy baseline：vs current={_metric_delta(selection_summary, 'top3fold_period_layout', 'current_rgb_3view')} vs FFT={_metric_delta(selection_summary, 'top3fold_period_layout', 'fft_absolute_energy')}",
-        f"9. 改善 CrossFormer / PatchTST strata 的 layout：{patch_text}",
-        f"10. 降低 MSE tail 的 layout：{mse_text}",
-        f"11. latency 过高、不适合后续主线的 layout：{latency_text}",
-        f"12. 是否建议进入 65k expanded validation：{'建议' if recommended else '暂不建议'}。",
-        f"13. 建议进入 65k 的 2-3 个 layout：{', '.join(f'`{x}`' for x in recommended) if recommended else '暂无'}。",
-        "14. 是否需要先做 period continuity diagnostic：需要。`top3fold_period_layout` 与 current top1 fold 都依赖 hard FFT period selection，进入 65k 前应检查轻微扰动下 pseudo image、ViT embedding、router weight 和 selected model flip 的连续性。",
+        f"1. 65k selection best：`{selection_best['layout']}`，raw-soft MAE={selection_best['MAE_mean']:.6f}，MSE={selection_best['MSE_mean']:.6f}。",
+        f"2. 65k test_expanded best：`{test_best['layout']}`，raw-soft MAE={test_best['MAE_mean']:.6f}，MSE={test_best['MSE_mean']:.6f}。",
+        f"3. selection best 与 test best 是否一致：{consistency}。",
+        f"4. `spatial_panel_3view` 是否仍优于 `current_rgb_3view`：{spatial_delta}",
+        f"5. `top3fold_period_layout` 的 continuity / diagnostic 优势是否转化为 expanded 性能：{top3_delta} diagnostic CrossFormer/PatchTST={patch_text}；seasonality={seasonality_text}。",
+        f"6. 35k 结论是否在 65k 上稳定：{stable_35k}。35k screening 结论为 `spatial_panel_3view` 是 selection/test_small best，本轮以 65k selection/test 是否继续支持该 layout 判定。",
+        f"7. seed stability / MSE tail / CrossFormer / PatchTST strata：seed stability={stability_text} MSE tail={mse_text} CrossFormer/PatchTST={patch_text}",
+        f"8. 是否建议把 `spatial_panel_3view` 升级为 Round2 主线：{'建议' if best_layout['best_layout'] == 'spatial_panel_3view' else '暂不建议'}。",
+        f"9. 下一步：{next_step}",
+        f"10. latency 检查：{latency_text}",
         "",
         "## Selection",
         "",
@@ -706,7 +753,7 @@ def write_summary_md(
         "",
         frame_to_markdown(diagnostic_summary, float_digits=6),
         "",
-        "## Test Small Frozen Screening",
+        "## Frozen Test",
         "",
         frame_to_markdown(test_summary, float_digits=6),
         "",
@@ -718,31 +765,21 @@ def write_summary_md(
         "",
         frame_to_markdown(comparison, float_digits=6),
     ]
-    (output_dir / "round2_layout_screening_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output_dir / f"{metadata['artifact_prefix']}_validation_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def copy_light_summaries(output_dir: Path, summary_dir: Path) -> None:
+def copy_light_summaries(output_dir: Path, summary_dir: Path, names: Sequence[str]) -> None:
     """函数功能：复制轻量 summary 到仓库 experiment_summaries。"""
     summary_dir.mkdir(parents=True, exist_ok=True)
-    for name in [
-        "round2_layout_variant_seed_results.csv",
-        "round2_layout_selection_comparison.csv",
-        "round2_layout_diagnostic_summary.csv",
-        "round2_layout_test_small_summary.csv",
-        "round2_layout_selected_model_counts.csv",
-        "round2_layout_stratified_summary.csv",
-        "round2_layout_delta_summary.csv",
-        "round2_layout_best_layout.json",
-        "round2_layout_screening_metadata.json",
-        "round2_layout_screening_summary.md",
-    ]:
+    for name in names:
         shutil.copy2(output_dir / name, summary_dir / name)
 
 
 def aggregate(args: argparse.Namespace) -> None:
-    """函数功能：汇总 layout × seed 单任务输出，生成 Round2c screening 统一产物。"""
+    """函数功能：汇总 layout × seed 单任务输出，生成 layout validation 统一产物。"""
     layouts = [str(args.layout)] if args.layout else parse_csv(args.layouts)
     seeds = parse_seed_list(args.seeds)
+    train_set, selection_set, diagnostic_set, test_set = sample_sets_from_args(args)
     method_frames: List[pd.DataFrame] = []
     seed_frames: List[pd.DataFrame] = []
     task_meta: List[Mapping[str, object]] = []
@@ -758,61 +795,74 @@ def aggregate(args: argparse.Namespace) -> None:
                 seed_frames.append(pd.read_csv(out_dir / "seed_results.csv"))
                 task_meta.append(json.loads((out_dir / "task_metadata.json").read_text(encoding="utf-8")))
     if missing:
-        raise FileNotFoundError("Round2c task 输出不完整：" + "; ".join(missing[:20]))
+        raise FileNotFoundError("layout validation task 输出不完整：" + "; ".join(missing[:20]))
     method_rows = pd.concat(method_frames, ignore_index=True)
     seed_results = pd.concat(seed_frames, ignore_index=True)
-    selection_summary = summarize_mean_std(seed_results, sample_set="round2_selection_small")
-    diagnostic_summary = summarize_mean_std(seed_results, sample_set="round2_diagnostic_balanced_small")
-    test_summary = summarize_mean_std(seed_results, sample_set="round2_test_small")
+    selection_summary = summarize_mean_std(seed_results, sample_set=selection_set)
+    diagnostic_summary = summarize_mean_std(seed_results, sample_set=diagnostic_set)
+    test_summary = summarize_mean_std(seed_results, sample_set=test_set)
     selected_counts = selected_model_counts_with_variant(method_rows)
     stratified = build_film_stratified_summary(method_rows)
-    best_layout = choose_best_layout(selection_summary)
+    best_layout = choose_best_layout(selection_summary, selection_sample_set=selection_set, diagnostic_sample_set=diagnostic_set, test_sample_set=test_set)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    seed_results.to_csv(output_dir / "round2_layout_variant_seed_results.csv", index=False)
-    selection_summary.to_csv(output_dir / "round2_layout_selection_layout_only.csv", index=False)
-    diagnostic_summary.to_csv(output_dir / "round2_layout_diagnostic_summary.csv", index=False)
-    test_summary.to_csv(output_dir / "round2_layout_test_small_summary.csv", index=False)
-    selected_counts.to_csv(output_dir / "round2_layout_selected_model_counts.csv", index=False)
-    stratified.to_csv(output_dir / "round2_layout_stratified_summary.csv", index=False)
-    write_json(output_dir / "round2_layout_best_layout.json", best_layout)
+    prefix = str(args.artifact_prefix)
+    seed_results_path = artifact_path(args, "variant_seed_results.csv")
+    selection_layout_only_path = artifact_path(args, "selection_layout_only.csv")
+    selection_comparison_path = artifact_path(args, "selection_comparison.csv")
+    diagnostic_path = artifact_path(args, "diagnostic_summary.csv")
+    test_path = artifact_path(args, "test_summary.csv")
+    selected_counts_path = artifact_path(args, "selected_model_counts.csv")
+    stratified_path = artifact_path(args, "stratified_summary.csv")
+    delta_path = artifact_path(args, "delta_summary.csv")
+    best_path = artifact_path(args, "best_layout.json")
+    metadata_path = artifact_path(args, "validation_metadata.json")
+    summary_path = artifact_path(args, "validation_summary.md")
+    seed_results.to_csv(seed_results_path, index=False)
+    selection_summary.to_csv(selection_layout_only_path, index=False)
+    diagnostic_summary.to_csv(diagnostic_path, index=False)
+    test_summary.to_csv(test_path, index=False)
+    selected_counts.to_csv(selected_counts_path, index=False)
+    stratified.to_csv(stratified_path, index=False)
+    write_json(best_path, best_layout)
 
     comparison_frames = [
-        normalize_comparison_frame(selection_summary, stage="Round2c", source_path=output_dir / "round2_layout_selection_layout_only.csv"),
-        normalize_comparison_frame(diagnostic_summary, stage="Round2c", source_path=output_dir / "round2_layout_diagnostic_summary.csv"),
-        normalize_comparison_frame(test_summary, stage="Round2c", source_path=output_dir / "round2_layout_test_small_summary.csv"),
+        normalize_comparison_frame(selection_summary, stage=str(args.experiment_label), source_path=selection_layout_only_path),
+        normalize_comparison_frame(diagnostic_summary, stage=str(args.experiment_label), source_path=diagnostic_path),
+        normalize_comparison_frame(test_summary, stage=str(args.experiment_label), source_path=test_path),
     ]
     for path, stage, sample_set in [
-        (DATA2_RUN_OUTPUT_ROOT / "2026-06-21_visual_router_v2_round1_film" / "round1_film_selection_comparison.csv", "Round1 reference", "round2_selection_small"),
-        (DATA2_RUN_OUTPUT_ROOT / "2026-06-20_visual_router_v2_round1_visual_pooling" / "visual_pooling_selection_comparison.csv", "Round1 reference", "round2_selection_small"),
+        (DATA2_RUN_OUTPUT_ROOT / "2026-06-21_visual_router_v2_round1_film" / "round1_film_selection_comparison.csv", "Round1 reference", selection_set),
+        (DATA2_RUN_OUTPUT_ROOT / "2026-06-20_visual_router_v2_round1_visual_pooling" / "visual_pooling_selection_comparison.csv", "Round1 reference", selection_set),
     ]:
         ref = comparison_from_reference(path, stage=stage, sample_set=sample_set)
         if not ref.empty:
             comparison_frames.append(ref[ref["variant"].astype(str).isin(["film_mean_patch_aux", "visual_cls_mean_concat"])].copy())
-    round0_ref = normalize_round0_reference(Path(args.round0_dir) / "round0_selection_comparison.csv", "round2_selection_small")
+    round0_ref = normalize_round0_reference(Path(args.round0_dir) / "round0_selection_comparison.csv", selection_set)
     if not round0_ref.empty:
         comparison_frames.append(round0_ref)
     comparison = pd.concat(comparison_frames, ignore_index=True)
     comparison = comparison.sort_values(["sample_set", "method_kind", "MAE_mean", "stage", "variant"], kind="mergesort").reset_index(drop=True)
     # 目标文件要求 comparison 本身包含 Round2 layouts 与 Round1/Round0/oracle/global references；
     # 因此 required 文件名写 reference-inclusive 版本，同时保留 layout-only 副本。
-    comparison.to_csv(output_dir / "round2_layout_selection_comparison.csv", index=False)
-    comparison.to_csv(output_dir / "round2_layout_selection_comparison_with_references.csv", index=False)
-    delta_summary = build_delta_summary(comparison)
-    delta_summary.to_csv(output_dir / "round2_layout_delta_summary.csv", index=False)
+    comparison.to_csv(selection_comparison_path, index=False)
+    comparison.to_csv(artifact_path(args, "selection_comparison_with_references.csv"), index=False)
+    delta_summary = build_delta_summary(comparison, selection_sample_set=selection_set, layout_stage=str(args.experiment_label))
+    delta_summary.to_csv(delta_path, index=False)
 
     devices_used = sorted({str(meta.get("device", "")) for meta in task_meta if str(meta.get("device", "")).strip()})
-    recommended_layouts = recommend_expanded_layouts(selection_summary, test_summary, limit=3)
     next_step = (
-        "Run 65k expanded validation for recommended layouts after period continuity diagnostic."
-        if recommended_layouts
-        else "Do not enter 65k until Round2c produces a stable selection signal."
+        "Upgrade spatial_panel_3view to Round2 mainline and expand to P0/P2a scale."
+        if str(best_layout["best_layout"]) == "spatial_panel_3view"
+        else "Continue period_soft_mixture / period tokens diagnostics before promoting the mainline."
     )
     metadata = {
         "status": "completed",
-        "round2_stage": "layout_feature_cache_and_fixed_film_screening",
+        "round2_stage": "expanded_layout_validation" if "expanded" in prefix else "layout_feature_cache_and_fixed_film_screening",
         "generated_at": display_time(),
+        "artifact_prefix": prefix,
+        "summary_title": str(args.summary_title),
         "script": str(Path(__file__).resolve()),
         "script_version": SCRIPT_VERSION,
         "commit_hash": git_commit_hash(),
@@ -829,13 +879,17 @@ def aggregate(args: argparse.Namespace) -> None:
         "layouts_screened": layouts,
         "deferred_layouts": list(DEFERRED_ROUND2_LAYOUTS),
         "seeds": seeds,
+        "train_sample_set": train_set,
+        "selection_sample_set": selection_set,
+        "diagnostic_sample_set": diagnostic_set,
+        "test_sample_set": test_set,
         "backend_style": "film_mean_patch_aux",
         "backend_fixed_to": "film_mean_patch_aux_style",
         "trained_model": True,
         "built_feature_cache": True,
         "ran_vit": True,
         "saved_pseudo_image_tensor": False,
-        "used_test_small_for_selection": False,
+        "used_frozen_test_for_selection": False,
         "loaded_116m_prediction_manifest_to_memory": False,
         "layout_registry_used": True,
         "changed_router_head": False,
@@ -848,7 +902,6 @@ def aggregate(args: argparse.Namespace) -> None:
         "single_task_output_isolated": True,
         "feature_cache_parallel_used": bool(args.parallel_launcher_used),
         "training_parallel_used": bool(args.parallel_launcher_used),
-        "recommended_expanded_layouts": recommended_layouts,
         "next_step_recommendation": next_step,
         "constraints": {
             "only_variable_is_layout": True,
@@ -857,9 +910,9 @@ def aggregate(args: argparse.Namespace) -> None:
             "used_film": True,
             "used_concat_aux": False,
             "searched_head_loss_film_dim_dropout_calibration": False,
-            "round2_selection_small_used_for_selection": True,
-            "round2_diagnostic_balanced_small_used_for_selection": False,
-            "round2_test_small_used_for_selection": False,
+            f"{selection_set}_used_for_selection": True,
+            f"{diagnostic_set}_used_for_selection": False,
+            f"{test_set}_used_for_selection": False,
             "parallel_launcher_used": bool(args.parallel_launcher_used),
             "parallel_backend": "process_per_layout_and_seed",
             "devices_requested": str(args.devices_requested),
@@ -871,7 +924,7 @@ def aggregate(args: argparse.Namespace) -> None:
         "best_layout": best_layout,
         "task_metadata": task_meta,
     }
-    write_json(output_dir / "round2_layout_screening_metadata.json", metadata)
+    write_json(metadata_path, metadata)
     write_summary_md(
         output_dir=output_dir,
         selection_summary=selection_summary,
@@ -883,9 +936,24 @@ def aggregate(args: argparse.Namespace) -> None:
         best_layout=best_layout,
         metadata=metadata,
     )
-    copy_light_summaries(output_dir, args.summary_copy_dir)
+    copy_light_summaries(
+        output_dir,
+        args.summary_copy_dir,
+        [
+            seed_results_path.name,
+            selection_comparison_path.name,
+            diagnostic_path.name,
+            test_path.name,
+            selected_counts_path.name,
+            stratified_path.name,
+            delta_path.name,
+            best_path.name,
+            metadata_path.name,
+            summary_path.name,
+        ],
+    )
     write_json(output_dir / "status.json", {"status": "completed", "best_layout": best_layout, "updated_at": display_time()})
-    log_stage(f"Round2c layout screening aggregation outputs written to {output_dir}")
+    log_stage(f"layout validation aggregation outputs written to {output_dir}")
 
 
 def run_serial(args: argparse.Namespace) -> None:

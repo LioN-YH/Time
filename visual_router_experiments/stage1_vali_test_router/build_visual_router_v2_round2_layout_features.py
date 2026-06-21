@@ -19,7 +19,6 @@ import os
 import shutil
 import sys
 import time
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -103,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--layouts", default=",".join(DEFAULT_ROUND2_LAYOUTS))
     parser.add_argument("--layout", default=None, help="单 layout worker 模式；launcher 会使用该参数。")
     parser.add_argument("--sample-sets", default=",".join(ROUND2_SAMPLE_SETS))
+    parser.add_argument("--artifact-prefix", default="round2_layout", help="聚合产物文件名前缀；expanded validation 使用 round2_expanded_layout。")
     parser.add_argument("--shard-size", type=int, default=2000)
     parser.add_argument("--embedding-batch-size", type=int, default=16)
     parser.add_argument("--max-samples-per-set", type=int, default=None, help="仅用于 smoke。")
@@ -158,6 +158,7 @@ class Round2HistoryWindowLoader:
     def __init__(self, data_config) -> None:
         self.data_config = data_config
         self._datasets_by_split: Dict[str, Dict[str, object]] = {}
+        self._item_rows_cache: Dict[Tuple[str, str, int], np.ndarray] = {}
 
     def _load_split(self, split: str) -> Dict[str, object]:
         if split not in self._datasets_by_split:
@@ -175,6 +176,33 @@ class Round2HistoryWindowLoader:
             self._datasets_by_split[str(split)] = mapping
         return self._datasets_by_split[str(split)]
 
+    def _item_rows(self, *, split: str, dataset_name: str, dataset: object, item_id: int) -> np.ndarray:
+        """
+        函数功能：
+            直接从 Quito dataset 的 `id_mask` 定位 item 对应的行，避免对大 dataset
+            做 deepcopy + select_user_data。
+
+        约束：
+            Round2 expanded manifest 中的 `channel_id` 是该 item 内的通道序号；
+            Quito 在 `Features.S` 下把 `(item, channel)` 展平成 data 的第一维，
+            `id_mask[:,0,0]` 保留每一行对应的 item_id。
+        """
+        cache_key = (str(split), str(dataset_name), int(item_id))
+        if cache_key in self._item_rows_cache:
+            return self._item_rows_cache[cache_key]
+        id_mask = getattr(dataset, "id_mask", None)
+        data = getattr(dataset, "data", None)
+        if id_mask is None or data is None:
+            raise ValueError(f"Quito dataset 缺少 id_mask/data，无法定位 item_id={item_id}: split={split} dataset={dataset_name}")
+        id_values = np.asarray(id_mask)[:, 0, 0]
+        rows = np.flatnonzero(id_values == int(item_id)).astype(np.int64)
+        if rows.size == 0:
+            raise ValueError(f"Quito dataset 中找不到 item_id={item_id}: split={split} dataset={dataset_name}")
+        if int(rows.max()) >= int(np.asarray(data).shape[0]):
+            raise ValueError(f"item rows 越界：item_id={item_id} rows={rows[:5].tolist()}")
+        self._item_rows_cache[cache_key] = rows
+        return rows
+
     def load_shard_x(self, shard_df: pd.DataFrame) -> np.ndarray:
         """函数功能：返回与 shard_df 行顺序一致的 `[N,L,C]` 历史窗口数组。"""
         seq_len = int(self.data_config.seq_len)
@@ -185,9 +213,9 @@ class Round2HistoryWindowLoader:
             split_datasets = self._load_split(str(split))
             if str(dataset_name) not in split_datasets:
                 raise ValueError(f"Quito 数据集中找不到 dataset_name={dataset_name} split={split}")
-            item_dataset = deepcopy(split_datasets[str(dataset_name)])
-            item_dataset.select_user_data(int(item_id))
-            channel_count = int(item_dataset.data.shape[0])
+            dataset = split_datasets[str(dataset_name)]
+            item_rows = self._item_rows(split=str(split), dataset_name=str(dataset_name), dataset=dataset, item_id=int(item_id))
+            channel_count = int(item_rows.size)
             for row in group.itertuples(index=False):
                 key = PredictionCacheKey(
                     config_name=str(row.config_name),
@@ -203,7 +231,8 @@ class Round2HistoryWindowLoader:
                     raise ValueError(f"channel_id 越界：sample_key={row.sample_key}")
                 start = int(row.window_index)
                 stop = start + seq_len
-                x_window = item_dataset.data[int(row.channel_id), start:stop, :]
+                data_row = int(item_rows[int(row.channel_id)])
+                x_window = dataset.data[data_row, start:stop, :]
                 if x_window.shape[0] != seq_len:
                     raise ValueError(f"历史窗口长度不完整：sample_key={row.sample_key} shape={x_window.shape}")
                 windows[int(row.row_pos)] = np.asarray(x_window, dtype=np.float32)
@@ -586,12 +615,13 @@ def aggregate(args: argparse.Namespace) -> None:
     manifest_df["_layout_rank"] = manifest_df["layout_name"].map(layout_rank)
     manifest_df["_set_rank"] = manifest_df["sample_set"].map(set_rank)
     manifest_df = manifest_df.sort_values(["_layout_rank", "_set_rank", "start_order_index"], kind="mergesort").drop(columns=["_layout_rank", "_set_rank"]).reset_index(drop=True)
-    manifest_df.to_csv(output_dir / "round2_layout_feature_manifest.csv", index=False)
+    artifact_prefix = str(args.artifact_prefix)
+    manifest_df.to_csv(output_dir / f"{artifact_prefix}_feature_manifest.csv", index=False)
     size_df = manifest_df[["layout_name", "sample_set", "shard_id", "shard_path", "sample_count", "file_size_mb"]].copy()
     size_df["cumulative_size_mb"] = size_df["file_size_mb"].cumsum()
-    size_df.to_csv(output_dir / "round2_layout_feature_cache_size_summary.csv", index=False)
+    size_df.to_csv(output_dir / f"{artifact_prefix}_feature_cache_size_summary.csv", index=False)
     if latency_frames:
-        pd.concat(latency_frames, ignore_index=True).to_csv(output_dir / "round2_layout_feature_latency.csv", index=False)
+        pd.concat(latency_frames, ignore_index=True).to_csv(output_dir / f"{artifact_prefix}_feature_latency.csv", index=False)
     metadata = {
         "status": "completed",
         "generated_at": now_cst(),
@@ -617,7 +647,7 @@ def aggregate(args: argparse.Namespace) -> None:
             "trained_router_or_encoder": False,
         },
     }
-    atomic_write_json(output_dir / "round2_layout_feature_metadata.json", metadata)
+    atomic_write_json(output_dir / f"{artifact_prefix}_feature_metadata.json", metadata)
     lines = [
         "# Visual Router V2 Round2c Layout Feature Cache Summary",
         "",
@@ -632,7 +662,7 @@ def aggregate(args: argparse.Namespace) -> None:
         "",
         "本步骤只从历史窗口 x 生成 layout pseudo image，并通过 frozen ViT 提取 CLS 与 mean_patch embedding；未保存大规模 pseudo image tensor，未读取专家 prediction 或 oracle label 作为图像化输入。",
     ]
-    (output_dir / "round2_layout_feature_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output_dir / f"{artifact_prefix}_feature_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -640,6 +670,11 @@ def main() -> None:
     args = parse_args()
     if args.aggregate_only:
         aggregate(args)
+        return
+    if args.layout:
+        # 并行 launcher 的 worker 模式只允许写 layout 独立目录；
+        # 统一 manifest/latency/metadata 必须由单独 aggregate step 写，避免多进程写冲突。
+        run_layout_worker(args, str(args.layout))
         return
     layouts = [str(args.layout)] if args.layout else parse_csv(args.layouts)
     for layout_name in layouts:
