@@ -408,14 +408,23 @@ prediction artifact 写出和 launcher 接手信息。
   `SampleManifest / ordered sample_keys -> real VisualFeatureProvider / FeatureBatch ->
   LoadedTorchMLPRouterHeadAdapter / RouterOutput -> EvaluationInputAdapter / Evaluator ->
   Runtime artifact writer`，其中 scaler/checkpoint/ViT/device/cache/run_dir 均有显式边界；
+- P16c 已完成 precomputed/head-ready Visual FeatureProvider minimal smoke，见
+  `docs/refactor/stage1_visual_precomputed_feature_provider.md`；新增
+  `time_router/features/visual_precomputed.py`、
+  `tests/fixtures/stage1_visual_precomputed_small/` 和
+  `tests/smoke/stage1_visual_precomputed_feature_provider_smoke.py`，用 P13b manifest 的
+  ordered sample_keys 读取打乱行顺序的 head-ready embedding fixture，输出
+  `FeatureBatch(features=(4, 8), dtype=float32)`，并串到 P16a
+  `LoadedTorchMLPRouterHeadAdapter` 与 `EvaluationInputAdapter`；P16c 不接真实 ViT、不做
+  pseudo image、不处理 scaler、不读取 checkpoint、不迁移正式入口、不访问 `/data2`；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. 后续 real Visual feature provider minimal smoke 应先用 tiny fixture、fake encoder 或
-   precomputed embedding 验证 `FeatureBatch` 边界，不直接迁移正式入口。
+1. P16c 已完成 precomputed embedding -> `FeatureBatch` 边界；后续 real Visual provider
+   应继续按 fake encoder、scaler boundary 和 online ViT provider 分步推进，不直接迁移正式入口。
 2. scaler boundary design/smoke 应单独验证 loaded scaler transform -> head-ready float32
    `FeatureBatch`，并禁止 provider 或 RouterHead adapter silent fit。
 3. 后续正式 Visual entrypoint 迁移应在 Runtime 中加载 checkpoint/scaler、准备 head-ready
