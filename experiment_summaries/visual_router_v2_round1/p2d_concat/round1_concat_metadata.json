@@ -1,0 +1,221 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-21 11:44:38 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round1_concat.py",
+  "script_version": "visual_router_v2_round1_concat_p2d_v1",
+  "commit_hash": "253c55183b1316fd32796ba097f00097cbb987bb",
+  "inputs": {
+    "sample_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples",
+    "round0_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round0",
+    "feature_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features",
+    "feature_manifest_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features/round1_feature_manifest.csv",
+    "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+    "prediction_manifest_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv",
+    "p2b_visual_pooling_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_visual_pooling",
+    "p2c_aux_only_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_aux_only",
+    "p2probe_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_feature_probe"
+  },
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat",
+  "variants": [
+    "mean_patch_plus_aux",
+    "cls_mean_concat_plus_aux"
+  ],
+  "feature_groups": {
+    "mean_patch_plus_aux": [
+      "mean_patch_embedding",
+      "revin_aux"
+    ],
+    "cls_mean_concat_plus_aux": [
+      "cls_embedding",
+      "mean_patch_embedding",
+      "revin_aux"
+    ]
+  },
+  "aux_feature_columns": [
+    "mean",
+    "log_std",
+    "min",
+    "max",
+    "range",
+    "clip_ratio"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "sample_counts": {
+    "pilot_train": 150000,
+    "pilot_selection": 30000,
+    "diagnostic_balanced": 20000
+  },
+  "hyperparameters": {
+    "epochs": 3,
+    "batch_size": 256,
+    "eval_batch_size": 512,
+    "hidden_dim": 64,
+    "dropout": 0.0,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "huber_beta": 0.1,
+    "kl_tau": 0.1,
+    "lambda_kl": 0.01,
+    "metric": "mae",
+    "device": "cuda",
+    "max_samples_per_set": null
+  },
+  "constraints": {
+    "visual_only": false,
+    "used_revin_aux": true,
+    "used_visual_aux_concat": true,
+    "used_film": false,
+    "used_gating": false,
+    "used_attention": false,
+    "used_aux_dropout_branch_adapter": false,
+    "trained_vit": false,
+    "regenerated_p2a_features": false,
+    "modified_p2a_builder_or_schema": false,
+    "saved_pseudo_image_tensor": false,
+    "used_full_17_dim_timefuse_feature": false,
+    "scaler_fit_sample_set": "pilot_train",
+    "best_variant_selection_sample_set": "pilot_selection",
+    "diagnostic_balanced_used_for_selection": false,
+    "pilot_test_used": false,
+    "pilot_test_used_for_selection": false
+  },
+  "train_metadata": [
+    {
+      "variant": "mean_patch_plus_aux",
+      "seed": 16,
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/checkpoint_mean_patch_plus_aux_seed16.pt",
+      "initial_train_loss": 0.28189273702406636,
+      "final_train_loss": 0.27029296501504685,
+      "final_huber_loss": 0.2658555473077012,
+      "final_kl_loss": 0.4437417356939446,
+      "train_weight_entropy": 1.136735200881958,
+      "train_normalized_weight_entropy": 0.7062932848930359,
+      "train_mean_max_weight": 0.5017891526222229
+    },
+    {
+      "variant": "mean_patch_plus_aux",
+      "seed": 17,
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/checkpoint_mean_patch_plus_aux_seed17.pt",
+      "initial_train_loss": 0.28191186103702814,
+      "final_train_loss": 0.2695220336318016,
+      "final_huber_loss": 0.2652173748958233,
+      "final_kl_loss": 0.4304659315241888,
+      "train_weight_entropy": 1.1142427921295166,
+      "train_normalized_weight_entropy": 0.6923179626464844,
+      "train_mean_max_weight": 0.5194138288497925
+    },
+    {
+      "variant": "mean_patch_plus_aux",
+      "seed": 18,
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/checkpoint_mean_patch_plus_aux_seed18.pt",
+      "initial_train_loss": 0.2821106954188477,
+      "final_train_loss": 0.26999932756399536,
+      "final_huber_loss": 0.2656703966927203,
+      "final_kl_loss": 0.4328931015200989,
+      "train_weight_entropy": 1.1024969816207886,
+      "train_normalized_weight_entropy": 0.685019850730896,
+      "train_mean_max_weight": 0.5195325016975403
+    },
+    {
+      "variant": "cls_mean_concat_plus_aux",
+      "seed": 16,
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/checkpoint_cls_mean_concat_plus_aux_seed16.pt",
+      "initial_train_loss": 0.2822125492801845,
+      "final_train_loss": 0.2699442467439297,
+      "final_huber_loss": 0.2654557275894152,
+      "final_kl_loss": 0.4488519014148582,
+      "train_weight_entropy": 1.129381537437439,
+      "train_normalized_weight_entropy": 0.7017241716384888,
+      "train_mean_max_weight": 0.5146394968032837
+    },
+    {
+      "variant": "cls_mean_concat_plus_aux",
+      "seed": 17,
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/checkpoint_cls_mean_concat_plus_aux_seed17.pt",
+      "initial_train_loss": 0.2823184306253345,
+      "final_train_loss": 0.26912644411414965,
+      "final_huber_loss": 0.26486660087474784,
+      "final_kl_loss": 0.4259843283647563,
+      "train_weight_entropy": 1.0953599214553833,
+      "train_normalized_weight_entropy": 0.6805853843688965,
+      "train_mean_max_weight": 0.5228465795516968
+    },
+    {
+      "variant": "cls_mean_concat_plus_aux",
+      "seed": 18,
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/checkpoint_cls_mean_concat_plus_aux_seed18.pt",
+      "initial_train_loss": 0.2809849850350273,
+      "final_train_loss": 0.2698304918388051,
+      "final_huber_loss": 0.2653965082388282,
+      "final_kl_loss": 0.44339836869426963,
+      "train_weight_entropy": 1.1129543781280518,
+      "train_normalized_weight_entropy": 0.6915174126625061,
+      "train_mean_max_weight": 0.5101560354232788
+    }
+  ],
+  "best_variant": {
+    "best_variant": "cls_mean_concat_plus_aux",
+    "selection_basis": "pilot_selection raw_soft_fusion MAE_mean; tie-breakers MAE_std, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+    "selected_from_sample_set": "pilot_selection",
+    "diagnostic_balanced_used_for_selection": false,
+    "pilot_test_used_for_selection": false,
+    "best_row": {
+      "sample_set": "pilot_selection",
+      "variant": "cls_mean_concat_plus_aux",
+      "method": "cls_mean_concat_plus_aux_raw_soft_fusion",
+      "seed_count": 3,
+      "sample_count_per_seed": 30000,
+      "MAE_mean": 0.30060530132309454,
+      "MAE_std": 0.0012871844977341014,
+      "MSE_mean": 1.2054006292747939,
+      "MSE_std": 0.05804645580123445,
+      "regret_to_oracle_mean": 0.03387409769103593,
+      "regret_to_oracle_std": 0.0012871844977341178,
+      "oracle_label_accuracy_mean": 0.4679111111111111,
+      "oracle_label_accuracy_std": 0.14655791548938116,
+      "weight_entropy_mean": 1.1181368419219009,
+      "weight_entropy_std": 0.01679310031814131,
+      "normalized_weight_entropy_mean": 0.6947374665111022,
+      "normalized_weight_entropy_std": 0.010434139118792398,
+      "mean_max_weight_mean": 0.5131478660404682,
+      "mean_max_weight_std": 0.006964428890328073
+    }
+  },
+  "round1_best_variant": {
+    "best_variant": "cls_mean_concat_plus_aux",
+    "best_stage": "P2d",
+    "selection_basis": "pilot_selection raw-soft MAE_mean lowest; tie-breakers diagnostic raw-soft MAE_mean, seed std, regret, entropy stability",
+    "pilot_test_used_for_selection": false,
+    "best_row": {
+      "stage": "P2d",
+      "sample_set": "pilot_selection",
+      "variant": "cls_mean_concat_plus_aux",
+      "method": "cls_mean_concat_plus_aux_raw_soft_fusion",
+      "method_kind": "raw_soft_fusion",
+      "seed_count": 3,
+      "sample_count": 30000,
+      "MAE_mean": 0.30060530132309454,
+      "MAE_std": 0.0012871844977341014,
+      "MSE_mean": 1.2054006292747939,
+      "MSE_std": 0.05804645580123445,
+      "regret_to_oracle_mean": 0.03387409769103593,
+      "regret_to_oracle_std": 0.0012871844977341178,
+      "oracle_label_accuracy_mean": 0.4679111111111111,
+      "oracle_label_accuracy_std": 0.14655791548938116,
+      "weight_entropy_mean": 1.1181368419219009,
+      "weight_entropy_std": 0.01679310031814131,
+      "normalized_weight_entropy_mean": 0.6947374665111022,
+      "normalized_weight_entropy_std": 0.010434139118792398,
+      "mean_max_weight_mean": 0.5131478660404682,
+      "mean_max_weight_std": 0.006964428890328073,
+      "source_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/round1_concat_selection_comparison.csv",
+      "diagnostic_MAE_mean": 0.3465144493432412
+    }
+  },
+  "regenerated_lightweight_summaries_at": "2026-06-21 11:50:25 CST",
+  "stratified_summary_schema": "single_column strata plus tsf_cell joint strata"
+}
