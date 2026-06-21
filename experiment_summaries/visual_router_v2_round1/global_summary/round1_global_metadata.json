@@ -1,0 +1,71 @@
+{
+  "summary_only": true,
+  "trained_new_model": false,
+  "evaluated_new_model": false,
+  "used_pilot_test_for_selection": false,
+  "read_checkpoint": false,
+  "read_prediction_csv_sample_level": false,
+  "read_sqlite_prediction_index": false,
+  "read_feature_shard": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "generated_at": "2026-06-21 18:43:50 CST",
+  "script": "visual_router_experiments/stage1_vali_test_router/summarize_visual_router_v2_round1_global.py",
+  "source_commits": {
+    "P0": "97602b8 Add visual router v2 pilot sample builder",
+    "P1": "2f2115c Add visual router v2 round0 evaluator",
+    "P2a": "1966649 Add visual router v2 round1 feature cache builder",
+    "P2probe": "998ed29 Add visual router round1 feature probe",
+    "P2b": "0c83f0a Add P2b visual pooling ablation",
+    "P2c": "342fb96 Add P2c RevIN aux-only ablation",
+    "P2d": "5b21c82 Add P2d visual aux concat round1 summary",
+    "P2d_final_test": "eb5b1be Add visual router round1 final test eval",
+    "P2d_final_test_extension": "39f0e76 Add round1 final test extension eval",
+    "P2e_FiLM": "500bef0 Add round1 P2e FiLM ablation",
+    "P2e_FiLM_final_test_extension": "448a423 Add P2e FiLM final test extension"
+  },
+  "source_summary_dirs": [
+    "experiment_summaries/visual_router_v2_round1/p2probe",
+    "experiment_summaries/visual_router_v2_round1/p2b_visual_pooling",
+    "experiment_summaries/visual_router_v2_round1/p2c_aux_only",
+    "experiment_summaries/visual_router_v2_round1/p2d_concat",
+    "experiment_summaries/visual_router_v2_round1/p2d_final_test",
+    "experiment_summaries/visual_router_v2_round1/p2d_final_test_extension",
+    "experiment_summaries/visual_router_v2_round1/p2e_film",
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension"
+  ],
+  "generated_files": [
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_comparison.csv",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_selection_diagnostic.csv",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_final_test.csv",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_delta_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_selected_model_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_strata_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_recommendation.md",
+    "experiment_summaries/visual_router_v2_round1/global_summary/round1_global_metadata.json"
+  ],
+  "recommended_main_variant": "film_mean_patch_aux",
+  "recommended_control_variant": "film_cls_mean_concat_aux",
+  "recommended_visual_only_baseline": "visual_cls_mean_concat",
+  "row_counts": {
+    "round1_global_comparison.csv": 42,
+    "round1_global_selection_diagnostic.csv": 32,
+    "round1_global_final_test.csv": 10,
+    "round1_global_delta_summary.csv": 121,
+    "round1_global_selected_model_summary.csv": 40,
+    "round1_global_strata_summary.csv": 272
+  },
+  "input_files": [
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension/round1_film_final_test_extension_comparison.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension/round1_film_final_test_extension_variant_seed_results.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension/round1_film_final_test_extension_selected_model_counts.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension/round1_film_final_test_extension_stratified_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/p2b_visual_pooling/visual_pooling_selection_comparison.csv",
+    "experiment_summaries/visual_router_v2_round1/p2c_aux_only/aux_only_selection_comparison.csv",
+    "experiment_summaries/visual_router_v2_round1/p2d_concat/round1_concat_selection_comparison.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film/round1_film_selection_comparison.csv",
+    "experiment_summaries/visual_router_v2_round1/p2b_visual_pooling/visual_pooling_diagnostic_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/p2c_aux_only/aux_only_diagnostic_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/p2d_concat/round1_concat_diagnostic_summary.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film/round1_film_diagnostic_summary.csv"
+  ]
+}

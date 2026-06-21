@@ -1,0 +1,41 @@
+sample_set,variant,selected_model,seed_count,sample_count,ratio_mean,ratio_std,ratio_min,ratio_max,ratio_range,seed_ratio_status,interpretation_note
+pilot_test,cls_mean_concat_plus_aux,PatchTST,3,78497,0.34887555555555555,0.02601366250717177,0.3195866666666667,0.3692933333333333,0.04970666666666662,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,cls_mean_concat_plus_aux,DLinear,3,63384,0.2817066666666666,0.14048716952092102,0.1195466666666666,0.3666266666666666,0.24708,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,cls_mean_concat_plus_aux,ES,3,45225,0.20099999999999996,0.18902411039629605,0.0730933333333333,0.41812,0.3450266666666667,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,cls_mean_concat_plus_aux,NaiveForecaster,3,26850,0.1193333333333333,0.016706890128859318,0.10108,0.1338666666666666,0.0327866666666666,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,cls_mean_concat_plus_aux,CrossFormer,3,11044,0.0490844444444444,0.007745167190888477,0.0416666666666666,0.05712,0.015453333333333395,stable_or_expected,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,film_cls_mean_concat_aux,PatchTST,3,94593,0.4204133333333333,0.1346650382739831,0.3394666666666667,0.5758666666666666,0.23639999999999994,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,film_cls_mean_concat_aux,ES,3,49972,0.22209777777777776,0.1209799589157612,0.1393733333333333,0.3609466666666667,0.2215733333333334,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,film_cls_mean_concat_aux,CrossFormer,3,32643,0.14508,0.1424357583068397,0.0607866666666666,0.3095333333333333,0.24874666666666673,needs_review,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,film_cls_mean_concat_aux,DLinear,3,24981,0.11102666666666662,0.008391021656773644,0.1014533333333333,0.1171066666666666,0.015653333333333297,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,film_cls_mean_concat_aux,NaiveForecaster,3,22811,0.10138222222222217,0.022024896350704086,0.0771333333333333,0.1201466666666666,0.04301333333333329,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,film_mean_patch_aux,PatchTST,3,77478,0.3443466666666666,0.014889083249146002,0.3272666666666666,0.3545866666666666,0.02732000000000001,stable_or_expected,film_mean_patch_aux hard top-1 主要集中在 PatchTST/ES/DLinear 一侧
+pilot_test,film_mean_patch_aux,ES,3,61900,0.2751111111111111,0.1515306263628773,0.1002266666666666,0.36736,0.26713333333333344,needs_review,film_mean_patch_aux hard top-1 主要集中在 PatchTST/ES/DLinear 一侧
+pilot_test,film_mean_patch_aux,DLinear,3,48548,0.21576888888888887,0.1551738422019114,0.12344,0.39492,0.27148,needs_review,film_mean_patch_aux hard top-1 主要集中在 PatchTST/ES/DLinear 一侧
+pilot_test,film_mean_patch_aux,NaiveForecaster,3,27492,0.12218666666666662,0.009427119272491334,0.1128133333333333,0.1316666666666666,0.018853333333333305,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,film_mean_patch_aux,CrossFormer,3,9582,0.042586666666666634,0.023090065203699887,0.0270533333333333,0.06912,0.0420666666666667,stable_or_expected,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,mean_patch_plus_aux,PatchTST,3,74456,0.3309155555555556,0.014847337708728672,0.3151466666666667,0.3446266666666667,0.029480000000000006,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,mean_patch_plus_aux,ES,3,47564,0.21139555555555553,0.14896030930468743,0.10444,0.3815333333333333,0.2770933333333333,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,mean_patch_plus_aux,NaiveForecaster,3,47146,0.20953777777777774,0.15568042727663955,0.1070266666666666,0.38868,0.2816533333333334,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,mean_patch_plus_aux,CrossFormer,3,30848,0.13710222222222215,0.1484804420092399,0.0274266666666666,0.3060666666666666,0.27864,needs_review,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,mean_patch_plus_aux,DLinear,3,24986,0.11104888888888882,0.013890712058115704,0.0960933333333333,0.1235466666666666,0.027453333333333302,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_original_visual,ES,1,25533,0.34044,,0.34044,0.34044,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_original_visual,DLinear,1,23638,0.3151733333333333,,0.3151733333333333,0.3151733333333333,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_original_visual,NaiveForecaster,1,19586,0.2611466666666667,,0.2611466666666667,0.2611466666666667,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_original_visual,PatchTST,1,4510,0.0601333333333333,,0.0601333333333333,0.0601333333333333,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_original_visual,CrossFormer,1,1733,0.0231066666666666,,0.0231066666666666,0.0231066666666666,0.0,stable_or_expected,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,round0_timefuse,PatchTST,1,31049,0.4139866666666666,,0.4139866666666666,0.4139866666666666,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_timefuse,ES,1,27603,0.36804,,0.36804,0.36804,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_timefuse,DLinear,1,8294,0.1105866666666666,,0.1105866666666666,0.1105866666666666,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_timefuse,NaiveForecaster,1,5614,0.0748533333333333,,0.0748533333333333,0.0748533333333333,0.0,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,round0_timefuse,CrossFormer,1,2440,0.0325333333333333,,0.0325333333333333,0.0325333333333333,0.0,stable_or_expected,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,visual_cls_mean_concat,PatchTST,3,72140,0.3206222222222222,0.02427677567217354,0.2946933333333333,0.3428133333333333,0.048119999999999996,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_cls_mean_concat,ES,3,62086,0.2759377777777778,0.14867426726958552,0.10432,0.36556,0.26124,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_cls_mean_concat,CrossFormer,3,36300,0.16133333333333327,0.19550553274353474,0.0460666666666666,0.3870666666666666,0.341,needs_review,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,visual_cls_mean_concat,DLinear,3,27440,0.1219555555555555,0.020451222547899255,0.1019066666666666,0.1427866666666666,0.040879999999999986,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_cls_mean_concat,NaiveForecaster,3,27034,0.12015111111111106,0.024253920950672744,0.0927466666666666,0.1388533333333333,0.0461066666666667,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_mean_patch_only,PatchTST,3,98051,0.43578222222222224,0.1610105091578164,0.3217866666666666,0.6199733333333334,0.29818666666666677,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_mean_patch_only,NaiveForecaster,3,44545,0.19797777777777778,0.16259157957332276,0.08164,0.38376,0.30212,needs_review,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_mean_patch_only,CrossFormer,3,29738,0.1321688888888888,0.15748600069471194,0.0219866666666666,0.3125466666666666,0.29056,needs_review,CrossFormer hard selected ratio 偏低，后续 calibration/strata repair 应继续关注
+pilot_test,visual_mean_patch_only,ES,3,27070,0.12031111111111108,0.016514754794604906,0.1051466666666666,0.1379066666666666,0.03276,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择
+pilot_test,visual_mean_patch_only,DLinear,3,25596,0.11375999999999993,0.016936886766266507,0.0985066666666666,0.1319866666666666,0.03348000000000001,stable_or_expected,用于解释 hard top-1 行为，不参与最终选择

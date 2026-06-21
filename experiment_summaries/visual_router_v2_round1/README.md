@@ -13,10 +13,12 @@
 | `p2d_final_test/` | `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_final_test/` 与 `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features_final_test_only/` | P2d best `cls_mean_concat_plus_aux` frozen pilot_test final eval 的 comparison、metadata、中文摘要，以及保留的 final_test_only pilot_test feature cache metadata/summary |
 | `p2d_final_test_extension/` | `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_final_test_extension/` | Round 1 frozen pilot_test eval extension，包含 P2d best、`mean_patch_plus_aux`、`visual_mean_patch_only`、`visual_cls_mean_concat` 与 Round0/global/oracle 的 comparison、delta summary、metadata 和中文摘要 |
 | `p2e_film/` | `/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/` | FiLM / aux modulation 两变体三 seed 的 selection/diagnostic 汇总、stratified summary、selected model counts、delta summary、best variant、metadata 和中文摘要；本轮未使用或评估 `pilot_test` |
+| `p2e_film_final_test_extension/` | `/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film_final_test_extension/` | P2e FiLM frozen pilot_test eval extension，包含 `film_mean_patch_aux`、`film_cls_mean_concat_aux` 与既有 baseline 的 comparison、delta、selected counts、strata、metadata 和中文摘要；只作 frozen final eval，不参与选择 |
+| `global_summary/` | 仓库内轻量汇总脚本生成 | Round 1 全局归档和最终路线建议，包含 selection/diagnostic/frozen final test 三类统一表、delta summary、selected_model summary、distilled strata summary、metadata 和 recommendation；结论推荐 `film_mean_patch_aux` 为当前主线 |
 | `round1_all_variant_comparison.csv` / `round1_all_variant_summary.md` | `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_concat/` | 合并 P1 Round0、P2b、P2c、P2d 的 Round 1 总表和中文总结 |
 
 ## 边界
 
 这里只保留适合代码仓库审阅的汇总 CSV、JSON 和 Markdown 文件；没有复制 checkpoint、prediction SQLite、逐样本 prediction CSV、运行 PID 或大规模缓存。
 
-P2probe、P2b、P2c、P2d 和 P2e 均遵守 Round 1 pilot 协议：训练/选择只使用 `pilot_train` 和 `pilot_selection`，`diagnostic_balanced` 仅用于诊断，不使用 `pilot_test` 做模型选择。`p2d_final_test/` 和 `p2d_final_test_extension/` 中的 `pilot_test` 结果只用于冻结后的 final evaluation 和解释性补测；其中记录的 final_test_only feature cache 可以复用，但不得用于模型、seed、epoch、variant 或超参数选择。
+P2probe、P2b、P2c、P2d 和 P2e 均遵守 Round 1 pilot 协议：训练/选择只使用 `pilot_train` 和 `pilot_selection`，`diagnostic_balanced` 仅用于诊断，不使用 `pilot_test` 做模型选择。`p2d_final_test/`、`p2d_final_test_extension/`、`p2e_film_final_test_extension/` 和 `global_summary/` 中的 `pilot_test` 结果只用于冻结后的 final evaluation 和解释性补测；其中记录的 final_test_only feature cache 可以复用，但不得用于模型、seed、epoch、variant 或超参数选择。

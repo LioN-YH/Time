@@ -65,6 +65,7 @@ TimeFuse-style fusor 是 baseline 支线，相关 reader、feature cache 和 GPU
 | --- | --- |
 | `build_stage1_sample_manifest.py` | 生成 `96_48_S` 1k manifest-only 样本清单；用于中等规模实验和快速复现 |
 | `build_visual_router_v2_pilot_samples.py` | 从 full-scale oracle labels 与 TSF enrichment parquet 构建 Visual Router V2 固定 pilot sample keys；不读取 116M 行 merged prediction manifest，不训练模型；当前 v1 输出在 `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples/` |
+| `summarize_visual_router_v2_round1_global.py` | Visual Router V2 Round 1 全局轻量归档脚本；只读仓库内既有 summary/CSV/JSON，生成 `experiment_summaries/visual_router_v2_round1/global_summary/`，不读取 checkpoint、SQLite、逐样本 prediction、feature shard 或大规模 manifest |
 | `train_visual_router_online.py` | 适合 120/1k 规模；在线生成 ViT embedding 后在运行内暂存全部 embedding，再复用 MLP router 训练和评估逻辑 |
 | `train_visual_router.py` | 离线 embedding manifest 训练入口，也提供 online wrapper 复用的 MLP router、loss、hard/soft fusion 评估函数；当前正式路线不鼓励长期保存 ViT embedding `.npy` |
 
