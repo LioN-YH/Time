@@ -2858,11 +2858,57 @@ git diff --name-only
 rg -n "/data2|train_visual_router_online_streaming|train_timefuse_fusor_streaming|torch.load|ViTModel|AutoImageProcessor" tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py docs/refactor/stage1_branch_small_entrypoint_artifact_parity.md
 ```
 
+### P16a：formal Visual MLP RouterHead adapter boundary
+
+P16a 已新增正式 Visual MLP RouterHead adapter 的最小设计与 smoke，见
+`docs/refactor/stage1_visual_mlp_routerhead_adapter.md`。
+
+新增内容：
+
+- `time_router/models/visual_mlp_adapter.py`：
+  `LoadedTorchMLPRouterHeadAdapter` 包装 Runtime 已加载的 `torch.nn.Module`，只消费
+  head-ready `float32 FeatureBatch.features` 和显式 `model_columns`，在
+  `torch.inference_mode()` 下调用 `model(features)`，校验二维 logits shape 后按专家维
+  softmax，输出 `RouterOutput(logits, weights)`。
+- `time_router/models/__init__.py` 导出该 adapter。
+- `tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py` 使用 P13b ordered
+  sample_keys、P14b `VisualMockFeatureProvider`、P13b expert JSON 和内存小型 torch MLP
+  fixture，验证 `FeatureBatch -> LoadedTorchMLPRouterHeadAdapter -> RouterOutput ->
+  EvaluationInputAdapter` 的 sample/model 保序、shape、finite、softmax row sum、summary/rows
+  和 selected counts。
+
+P16a 明确不做：
+
+- 不读取真实 checkpoint，不调用 `torch.load`。
+- 不处理 scaler。
+- 不启动 ViT embedding。
+- 不访问 `/data2`。
+- 不导入 legacy `VisualMLPRouter`。
+- 不迁移或调用 `train_visual_router_online_streaming.py`。
+- 不修改 P15c visual small entrypoint，不把 P16a adapter 接入 P15c script-local rehearsal。
+- 不创建 canonical `run_dir`，不启动训练、pressure 或 full-scale。
+
+P16a 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall time_router/models/visual_mlp_adapter.py tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_provider_mock_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mock_protocol_eval_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_adapter_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_small_entrypoint_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
+git diff --name-only
+rg -n "/data2|torch.load|ViTModel|AutoImageProcessor|train_visual_router_online_streaming|VisualMLPRouter|checkpoint_path" time_router/models/visual_mlp_adapter.py tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py docs/refactor/stage1_visual_mlp_routerhead_adapter.md
+```
+
 后续连接：
 
-1. 正式 Visual RouterHead adapter design/smoke 可单独处理 checkpoint/scaler/device 边界。
-2. real Visual feature provider audit 可单独处理 history window、pseudo image、frozen ViT
+1. real Visual feature provider audit 可单独处理 history window、pseudo image、frozen ViT
    provider 和 Runtime resource policy。
+2. 正式 Visual entrypoint 迁移后续需要在 Runtime 中加载 checkpoint/scaler、处理
+   legacy `VisualMLPRouter` import/signature/state_dict，再把已加载 module 和 head-ready
+   `FeatureBatch` 交给 P16a adapter。
 3. TimeFuse formal streaming 入口接入 canonical artifact writer 仍需另起审计与 smoke。
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints

@@ -386,17 +386,26 @@ prediction artifact 写出和 launcher 接手信息。
   和有限指标字段；P15d 只锁定 schema parity，不比较 TimeFuse/Visual 指标优劣，不修改三个
   small CLI，不迁移正式训练入口，不访问 `/data2`，不读取真实 checkpoint，不启动 ViT 或
   full-scale；
+- P16a 已完成正式 Visual MLP RouterHead adapter 最小边界，见
+  `docs/refactor/stage1_visual_mlp_routerhead_adapter.md`；新增
+  `time_router/models/visual_mlp_adapter.py` 和
+  `tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py`，通过
+  `LoadedTorchMLPRouterHeadAdapter` 包装 Runtime 已加载的 `torch.nn.Module`，只消费
+  head-ready `float32 FeatureBatch.features` 与显式 `model_columns`，输出
+  `RouterOutput(logits, weights)` 并由 `EvaluationInputAdapter` 复算 summary/rows；P16a
+  不读取 checkpoint、不处理 scaler、不启动 ViT、不访问 `/data2`，不导入 legacy
+  `VisualMLPRouter` 或正式训练入口，也不把该 adapter 接入 P15c visual small entrypoint；
 - pressure / full-scale canonical scripts 尚未准备。
 
 ## 5. 下一阶段路线
 
 建议顺序：
 
-1. 后续可单独设计正式 Visual RouterHead adapter smoke，显式处理 checkpoint/scaler/device
-   边界；P15c 的 script-local smoke adapter 不提升为正式 adapter，P15d 的 parity smoke 也不代表
-   正式 Visual RouterHead 已迁移。
-2. 后续可单独审计 real Visual feature provider，把 history window、pseudo image、frozen ViT
+1. 后续可单独审计 real Visual feature provider，把 history window、pseudo image、frozen ViT
    provider 和 Runtime resource policy 分层处理。
+2. 后续正式 Visual entrypoint 迁移应在 Runtime 中加载 checkpoint/scaler、准备 head-ready
+   features，再把已加载 module 交给 P16a adapter；legacy `VisualMLPRouter` 的 import/signature
+   和 checkpoint state_dict 适配仍需单独处理。
 3. 后续仍需保持 Provider / Head / Evaluator 不知道 `run_dir`，且不把 Bash 语义下沉到
    `time_router`。
 4. 准备 pressure / full-scale 方案时，`scripts/` 仍只作为 thin entrypoint 或 launcher，
