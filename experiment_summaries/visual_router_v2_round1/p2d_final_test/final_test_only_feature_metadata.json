@@ -1,0 +1,84 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-21 14:59:29 CST",
+  "elapsed_sec": 8343.356153788976,
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/build_visual_router_v2_round1_features.py",
+  "script_version": "visual_router_v2_round1_feature_builder_v1",
+  "feature_schema_version": "visual_router_v2_round1_feature_cache_v1",
+  "p0_sample_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples",
+  "round0_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round0",
+  "visual_checkpoint": "/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/latest_96_48_S.pt",
+  "config_path": "/home/shiyuhong/Time/quito/outputs/default_baseline/dlinear/96_48_S/seed_16/EVALUATE/ver_0/config.yaml",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features_final_test_only",
+  "sample_sets": [
+    "pilot_test"
+  ],
+  "sample_counts": {
+    "pilot_test": 75000
+  },
+  "default_excludes_pilot_test": false,
+  "final_test_only_sets": [
+    "pilot_test"
+  ],
+  "max_samples_per_set": null,
+  "shard_size": 2000,
+  "embedding_batch_size": 16,
+  "device": "cuda",
+  "dtype": "torch.float16",
+  "local_files_only": true,
+  "overwrite": true,
+  "skipped_shards": 0,
+  "completed_shards": 38,
+  "total_cache_size_mb": 198.19227981567383,
+  "aux_feature_columns": [
+    "mean",
+    "log_std",
+    "min",
+    "max",
+    "range",
+    "clip_ratio"
+  ],
+  "visual_feature_columns": [
+    "cls_embedding",
+    "mean_patch_embedding"
+  ],
+  "embedding_metadata_from_checkpoint": {
+    "embedding_version": "visual_router_vit_embedding_v1_online_streaming",
+    "encoder_name": "google/vit-base-patch16-224",
+    "variant": "variant_a_3view",
+    "pooling": "cls",
+    "normalization_preset": "hf_vit_0_5",
+    "image_size": 224,
+    "norm_mode": "revin_aux",
+    "pixel_mode": "vision",
+    "clip": 5.0,
+    "period_selection": "fixed_candidates",
+    "period_candidates_arg": null,
+    "period_candidates": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      8,
+      10,
+      12,
+      16,
+      24,
+      32,
+      48,
+      64,
+      96
+    ],
+    "dtype_arg": "auto"
+  },
+  "feature_constraints": {
+    "mean_patch_excludes_cls": true,
+    "revin_aux_source": "history_x_only",
+    "fit_scaler": false,
+    "pseudo_image_tensor_saved": false,
+    "read_prediction_manifest": false,
+    "train_router_or_encoder": false,
+    "full_scale_embedding_cache": false
+  }
+}

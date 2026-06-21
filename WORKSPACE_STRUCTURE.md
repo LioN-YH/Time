@@ -1,6 +1,6 @@
 # 工作区结构说明
 
-更新日期：2026-06-21 15:30:19 CST
+更新日期：2026-06-21 15:45:00 CST
 
 本文档用于按层次说明 `/home/shiyuhong/Time` 工作区内主要目录、关键文件和生成物的功能。后续新增、删除或移动长期保留的文件/目录时，应同步更新本文档。
 
@@ -26,6 +26,7 @@
 ├── docs/
 ├── experiment_scripts/
 ├── experiment_logs/
+├── experiment_summaries/
 ├── time_router/
 ├── visual_router_experiments/
 ├── quito/
@@ -44,6 +45,7 @@
 | `EXTERNAL_OUTPUTS.md` | 外部大规模输出索引，当前记录 `/data2/syh/Time/` 下的大盘输出和临时 cache shard 策略 | 新增外部输出根目录或调整缓存策略时更新 |
 | `HANDOFF.md` | 上下文接近 65% 或长任务需要切换窗口时使用的交接模板，要求记录当前目标、已完成步骤、运行命令、失败点、关键路径、下一步命令和验证口径 | 触发 handoff 时用真实进展替换模板内容；完成继承后可按最新状态继续维护 |
 | `WORKSPACE_STRUCTURE.md` | 当前文件，按层级说明工作区结构、关键文件和输出口径 | 新增长期文件/目录后更新 |
+| `experiment_summaries/visual_router_v2_round1/` | Visual Router V2 Round 1 轻量汇总结果目录 | 保存适合随代码仓库远程审阅的 CSV/JSON/Markdown 汇总文件，不包含 checkpoint、SQLite、逐样本 prediction CSV 或大规模 cache；当前包含 P2probe、P2b visual pooling、P2c aux-only、P2d concat、P2d frozen final test 和 Round 1 总表，其中 `p2d_final_test/` 复制自 `/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_final_test/` 与 final_test_only feature cache 的 summary/metadata |
 | `docs/refactor/` | 重构前审计与迁移设计文档目录；当前包含 Stage 1 路线审计、目标架构、重构路线图、公共模块迁移候选、golden fixture、共享 PredictionBatchReader 说明、共享 OracleTsfReader 说明、evaluation package 边界复核、P4a JSON utils 边界说明、P4b path resolver 边界说明、P4c run metadata 边界说明、P4d run artifacts 边界复核、P4e checkpoint index 边界复核、P4 后 architecture pivot 决策、P5a canonical runtime contract、P5b canonical provider interface design、P5c/P10e protocol types skeleton、P5d provider adapter boundary review、P5e/P10h canonical entrypoint migration plan、P5f launcher architecture、P6a PredictionCacheExpertProvider、P6a.5 expert system boundary review、P6b EvaluationInput adapter、兼容 FusionEvaluator adapter、P7a/P7b/P7c TimeFuse adapter smoke 文档、P8a TimeFuse 正式入口 adapter 插入审计、P8c evaluation adapter pressure 验证、P8d TimeFuse baseline parity review、P9a Visual Router 正式入口 adapter 插入审计、P9b Visual Router evaluation adapter 旁路校验说明、P9c Visual Router evaluation adapter pressure 验证、P9d Visual Router ExpertBatch evaluation bridge、P9e Visual Router prediction cache provider gap audit、P9f Visual Router training ExpertBatch bypass、P10a shared prediction SQLite backend audit、P10b Prediction SQLite backend helper、P10c prediction array IO boundary consolidation、P10d/P10e/P10h canonical SampleManifest / supervision boundary、P10f Visual labels sample/supervision adapter、P10g TimeFuse feature/oracle sample/supervision adapter、P11a canonical run artifact schema、P11b canonical SampleManifest physical schema 和 P11c minimal Runtime artifact writer | 路线或迁移结论变化时更新；代码迁移应另写实验日志和验证结果 |
 | `docs/refactor/stage1_route_audit.md` | Stage 1 共享主干、Visual/TimeFuse 分支、废弃路线及 36 个 Python 文件标签审计 | 新增/归档 Stage 1 脚本或正式路线改变时同步复核 |
 | `docs/refactor/stage1_target_architecture.md` | Stage 1 未来目标架构设计，定义 `time_router/{data,io,features,models,evaluation,training}`、`scripts/`、`configs/`、`exp_scripts/` 和 `archive/` 边界，并明确共享主干与 Visual/TimeFuse 两个 FeatureProvider 分支；P6a.5 起补充 ExpertProvider / ExpertBatch 长期专家系统边界与 PredictionCacheExpertProvider adapter 实现边界 | 当前只作为设计文档；实现 package、迁移入口或归档旧代码时需另行验证并更新 |
