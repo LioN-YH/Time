@@ -1,0 +1,222 @@
+{
+  "layout_candidates": [
+    {
+      "layout_name": "current_rgb_3view",
+      "layout_family": "rgb_channel_mixed_multiview",
+      "input_source": "RevIN-normalized history x; line raster, top1 period fold, FFT power",
+      "pseudo_image_size": "224x224",
+      "channel_design": "3 semantic views packed into ViT RGB channels",
+      "panel_design": "no spatial panel; channel-packed baseline",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": false,
+      "uses_frequency_information": true,
+      "uses_period_folding": true,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium: channel mixing may encode dataset-specific view interactions",
+      "expected_helped_strata": [
+        "general baseline",
+        "season_strength_cat",
+        "PatchTST/CrossFormer strata"
+      ],
+      "expected_failure_modes": [
+        "RGB channel interference",
+        "view semantics not aligned with natural-image pretraining"
+      ],
+      "implementation_status": "existing_round1_baseline_via_variant_a_3view",
+      "estimated_single_layout_feature_cache_time": "1-1.5h per 35k samples on current P2a-like single-layout cache estimate",
+      "default_in_round2a": true,
+      "notes": "Round1 当前对照口径；用于锚定所有 Round2 layout 改动。"
+    },
+    {
+      "layout_name": "spatial_panel_3view",
+      "layout_family": "spatial_panel_multiview",
+      "input_source": "same three semantic views as current_rgb_3view",
+      "pseudo_image_size": "224x224",
+      "channel_design": "grayscale panels copied or lightly encoded into RGB-compatible tensor",
+      "panel_design": "three views arranged as horizontal or vertical spatial panels",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": false,
+      "uses_frequency_information": true,
+      "uses_period_folding": true,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium: panel position and reduced effective resolution may leak layout bias",
+      "expected_helped_strata": [
+        "mean_patch stability",
+        "PatchTST stratum",
+        "CrossFormer stratum"
+      ],
+      "expected_failure_modes": [
+        "per-view resolution loss",
+        "ViT positional bias to panel location"
+      ],
+      "implementation_status": "new_layout_candidate_to_implement_before_feature_cache",
+      "estimated_single_layout_feature_cache_time": "1-1.5h per 35k samples on current P2a-like single-layout cache estimate",
+      "default_in_round2a": true,
+      "notes": "核心问题是 view separation 是否优于 RGB channel mixing。"
+    },
+    {
+      "layout_name": "line_only",
+      "layout_family": "minimal_shape",
+      "input_source": "RevIN-normalized history x",
+      "pseudo_image_size": "224x224",
+      "channel_design": "single line raster replicated or encoded into ViT-compatible 3 channels",
+      "panel_design": "single full-canvas line plot",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": false,
+      "uses_frequency_information": false,
+      "uses_period_folding": false,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "low: minimal shape-only signal",
+      "expected_helped_strata": [
+        "forecastability_cat",
+        "shape-dominant datasets"
+      ],
+      "expected_failure_modes": [
+        "missing local volatility",
+        "missing frequency/seasonality information"
+      ],
+      "implementation_status": "new_layout_candidate_to_implement_before_feature_cache",
+      "estimated_single_layout_feature_cache_time": "1-1.5h per 35k samples on current P2a-like single-layout cache estimate",
+      "default_in_round2a": true,
+      "notes": "低 shortcut 风险、最可解释的 shape baseline。"
+    },
+    {
+      "layout_name": "line_difference_band",
+      "layout_family": "shape_plus_local_change",
+      "input_source": "RevIN-normalized history x and first-difference / rolling local-change signal",
+      "pseudo_image_size": "224x224",
+      "channel_design": "line view plus difference/volatility band in RGB-compatible channels or panels",
+      "panel_design": "line with auxiliary local-change band, exact packing to freeze in feature-cache step",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": true,
+      "uses_frequency_information": false,
+      "uses_period_folding": false,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium-low: local change can amplify noise but is not a direct dataset id",
+      "expected_helped_strata": [
+        "PatchTST stratum",
+        "CrossFormer stratum",
+        "high error_gap_quantile"
+      ],
+      "expected_failure_modes": [
+        "noise amplification",
+        "difference band dominates main shape"
+      ],
+      "implementation_status": "new_layout_candidate_to_implement_before_feature_cache",
+      "estimated_single_layout_feature_cache_time": "1-1.5h per 35k samples on current P2a-like single-layout cache estimate",
+      "default_in_round2a": true,
+      "notes": "用于测试局部变化、突变和 patch-level pattern 是否改善 routing。"
+    },
+    {
+      "layout_name": "fft_absolute_energy",
+      "layout_family": "frequency_energy",
+      "input_source": "FFT absolute or log energy computed from RevIN-normalized history x",
+      "pseudo_image_size": "224x224",
+      "channel_design": "frequency energy profile rendered as ViT-compatible image",
+      "panel_design": "frequency profile or heatmap; does not preserve phase",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": false,
+      "uses_frequency_information": true,
+      "uses_period_folding": false,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium-high: frequency distribution may encode dataset shortcut",
+      "expected_helped_strata": [
+        "season_strength_cat",
+        "periodic datasets",
+        "PatchTST stratum"
+      ],
+      "expected_failure_modes": [
+        "loss of time-local information",
+        "dataset frequency shortcut"
+      ],
+      "implementation_status": "partially_existing_fft_power_view_can_be_reused_or_refactored",
+      "estimated_single_layout_feature_cache_time": "1-1.5h per 35k samples on current P2a-like single-layout cache estimate",
+      "default_in_round2a": true,
+      "notes": "区别于 top3fold：这是频域统计图，不显式保留周期内局部形状。"
+    },
+    {
+      "layout_name": "top3fold_period_layout",
+      "layout_family": "period_aware_spatial_layout",
+      "input_source": "RevIN-normalized history x with FFT top-3 period candidates",
+      "pseudo_image_size": "224x224",
+      "channel_design": "top1/top2/top3 period-folded views in ViT-compatible tensor",
+      "panel_design": "period-aware folded spatial layout; current implementation uses channels",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": false,
+      "uses_frequency_information": true,
+      "uses_period_folding": true,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium-high: unstable period estimates or top-k period can become dataset shortcut",
+      "expected_helped_strata": [
+        "season_strength_cat",
+        "periodic datasets",
+        "PatchTST stratum",
+        "forecastability_cat"
+      ],
+      "expected_failure_modes": [
+        "period estimate instability",
+        "hard top-k period shortcut",
+        "weak non-periodic series"
+      ],
+      "implementation_status": "existing_imageize_top3fold_available_needs_round2_registry_adapter",
+      "estimated_single_layout_feature_cache_time": "1-1.5h per 35k samples on current P2a-like single-layout cache estimate",
+      "default_in_round2a": true,
+      "notes": "保留周期内局部形状，是 FFT energy 的互补 period-aware spatial layout。"
+    },
+    {
+      "layout_name": "period_soft_mixture",
+      "layout_family": "period_aware_soft_mixture",
+      "input_source": "multiple period candidates and their relative strengths",
+      "pseudo_image_size": "224x224",
+      "channel_design": "soft mixture of folded period views, exact weighting deferred",
+      "panel_design": "deferred; may mix or panelize multiple period candidates",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": false,
+      "uses_frequency_information": true,
+      "uses_period_folding": true,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium: soft weights reduce hard shortcut but still expose period spectrum",
+      "expected_helped_strata": [
+        "multi-period series",
+        "unstable seasonality",
+        "forecastability_cat"
+      ],
+      "expected_failure_modes": [
+        "mixture blur",
+        "extra hyperparameter coupling",
+        "hard to compare with first-round layouts"
+      ],
+      "implementation_status": "deferred_design_only",
+      "estimated_single_layout_feature_cache_time": "deferred; expected near top3fold unless multiple ViT passes are introduced",
+      "default_in_round2a": false,
+      "notes": "本步只记录，不纳入第一轮默认 feature cache screening。"
+    },
+    {
+      "layout_name": "independent_view_encoder",
+      "layout_family": "architecture_level_multiview_encoder",
+      "input_source": "multiple pseudo image views, each independently encoded by frozen ViT",
+      "pseudo_image_size": "224x224 per view",
+      "channel_design": "each view encoded separately, embeddings aggregated after ViT",
+      "panel_design": "no shared image panel; view separation happens at encoder level",
+      "uses_revin_normalized_shape": true,
+      "uses_difference_or_volatility": true,
+      "uses_frequency_information": true,
+      "uses_period_folding": true,
+      "uses_scale_statistics": false,
+      "shortcut_risk": "medium: cleaner view separation but changes architecture and compute budget",
+      "expected_helped_strata": [
+        "view interference cases",
+        "mean_patch stability",
+        "seasonal and local-change strata"
+      ],
+      "expected_failure_modes": [
+        "2-3x or view-count-times feature cache cost",
+        "architecture confounded with layout screening"
+      ],
+      "implementation_status": "deferred_architecture_candidate_only",
+      "estimated_single_layout_feature_cache_time": "not recommended first round; roughly 2-3x if each view passes ViT separately",
+      "default_in_round2a": false,
+      "notes": "这是架构级候选，不应与第一轮 layout screening 混跑。"
+    }
+  ]
+}

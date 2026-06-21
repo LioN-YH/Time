@@ -1,0 +1,255 @@
+{
+  "status": "completed",
+  "script_version": "visual_router_v2_round2_small_sample_builder_v1",
+  "generated_at": "2026-06-21 21:18:57 CST",
+  "elapsed_sec": 254.661,
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/build_visual_router_v2_round2_small_samples.py",
+  "round2_stage": "small_sample_builder",
+  "trained_model": false,
+  "built_feature_cache": false,
+  "ran_vit": false,
+  "saved_pseudo_image_tensor": false,
+  "used_pilot_test_for_selection": false,
+  "test_small_used_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+  "tsf_enrichment_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/tsf_enrichment_full_scale_2026-06-16/sample_tsf_enrichment.parquet",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples",
+  "light_summary_dir": "experiment_summaries/visual_router_v2_round2/small_samples",
+  "sample_source": {
+    "round2_train_small": "vali metric=mae oracle labels, stable hash natural distribution",
+    "round2_selection_small": "vali metric=mae oracle labels, disjoint stable hash natural distribution",
+    "round2_diagnostic_balanced_small": "vali metric=mae oracle labels, oracle_model balanced, excluded from selection",
+    "round2_test_small": "test metric=mae oracle labels, frozen screening only"
+  },
+  "sample_counts": {
+    "round2_train_small": 20000,
+    "round2_selection_small": 5000,
+    "round2_diagnostic_balanced_small": 5000,
+    "round2_test_small": 5000
+  },
+  "optional_expanded_plan": {
+    "round2_train_small": 30000,
+    "round2_selection_small": 10000,
+    "round2_diagnostic_balanced_small": 10000,
+    "round2_test_small": 15000,
+    "status": "recorded_only_not_built"
+  },
+  "sample_set_boundaries": {
+    "round2_train_small_and_round2_selection_small_disjoint": true,
+    "round2_diagnostic_balanced_small_used_for_selection": false,
+    "round2_test_small_split": "test",
+    "round2_test_small_used_for_training_tuning_or_selection": false,
+    "all_sets_cross_disjoint": true
+  },
+  "hash_seed_or_sampling_rule": {
+    "seed": 20260621,
+    "main_sets": "按 seed+sample_key 的 pandas stable hash score 取每个 split 的最小 N 个；train 和 selection 来自同一 vali 排序的相邻不重叠切片。",
+    "diagnostic_seed": 20270624,
+    "error_gap_quantile": "基于 metric=mae oracle 行的稳定哈希 reservoir 估计五分位边界。"
+  },
+  "oracle_balance_rule": {
+    "sample_set": "round2_diagnostic_balanced_small",
+    "models": [
+      "DLinear",
+      "PatchTST",
+      "CrossFormer",
+      "ES",
+      "NaiveForecaster"
+    ],
+    "per_model_target": 1000,
+    "final_size": 5000,
+    "selection_usage": "diagnostic_only_not_for_layout_selection"
+  },
+  "diagnostic_fields": [
+    "sample_key",
+    "dataset_name",
+    "group_name",
+    "oracle_model",
+    "error_gap_quantile",
+    "cluster",
+    "group_name",
+    "forecastability_cat",
+    "season_strength_cat",
+    "trend_strength_cat",
+    "cv_cat",
+    "missing_ratio_cat"
+  ],
+  "layout_candidates": [
+    "current_rgb_3view",
+    "spatial_panel_3view",
+    "line_only",
+    "line_difference_band",
+    "fft_absolute_energy",
+    "top3fold_period_layout",
+    "period_soft_mixture",
+    "independent_view_encoder"
+  ],
+  "default_layout_set": [
+    "current_rgb_3view",
+    "spatial_panel_3view",
+    "line_only",
+    "line_difference_band",
+    "fft_absolute_energy",
+    "top3fold_period_layout"
+  ],
+  "deferred_layout_set": [
+    "period_soft_mixture",
+    "independent_view_encoder"
+  ],
+  "top3fold_existing_implementation_found": true,
+  "top3fold_existing_paths": [
+    "visual_router_experiments/common/pseudo_imageization.py::select_fft_periods",
+    "visual_router_experiments/common/pseudo_imageization.py::imageize_top3fold",
+    "visual_router_experiments/common/vit_embedding_utils.py::make_pseudo_images"
+  ],
+  "round1_fixed_backend_for_future_screening": {
+    "variant": "film_mean_patch_aux",
+    "base_visual_input": "mean_patch_embedding",
+    "condition_input": "revin_aux",
+    "conditioning": "FiLM gamma/beta modulation of visual hidden representation",
+    "main_metrics": [
+      "raw-soft MAE",
+      "raw-soft MSE",
+      "raw-soft regret"
+    ],
+    "interpretation_metric": "oracle-label accuracy"
+  },
+  "time_estimates_for_protocol": {
+    "p2a_200k_feature_cache": "about 5h",
+    "p2d_p2e_75k_final_test_only_feature_cache_eval": "about 2.5h",
+    "round2_35k_single_layout_feature_cache": "about 1-1.5h",
+    "five_layouts_sequential": "about 5-8h",
+    "three_gpu_process_parallel_wall_time": "about 2-3h",
+    "independent_view_encoder": "deferred; may be 2-3x if each view separately passes ViT"
+  },
+  "gap_quantile_boundaries": [
+    0.0,
+    0.009948170185089172,
+    0.0467959672212601,
+    0.1304144322872162
+  ],
+  "oracle_scan_counters": {
+    "mae_rows_seen": 23275170,
+    "vali_rows_seen": 9350520,
+    "test_rows_seen": 13924650
+  },
+  "p0_overlap": {
+    "status": "computed",
+    "p0_sample_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples",
+    "available_p0_sets": [
+      "diagnostic_balanced",
+      "pilot_selection",
+      "pilot_test",
+      "pilot_train"
+    ],
+    "details": {
+      "round2_train_small": {
+        "round2_count": 20000,
+        "overlap_with_p0_any_count": 446,
+        "overlap_with_p0_any_ratio": 0.0223,
+        "overlap_with_pilot_train_count": 342,
+        "overlap_with_pilot_train_ratio": 0.0171,
+        "overlap_with_pilot_selection_count": 65,
+        "overlap_with_pilot_selection_ratio": 0.00325,
+        "overlap_with_diagnostic_balanced_count": 39,
+        "overlap_with_diagnostic_balanced_ratio": 0.00195,
+        "overlap_with_pilot_test_count": 0,
+        "overlap_with_pilot_test_ratio": 0.0
+      },
+      "round2_selection_small": {
+        "round2_count": 5000,
+        "overlap_with_p0_any_count": 106,
+        "overlap_with_p0_any_ratio": 0.0212,
+        "overlap_with_pilot_train_count": 76,
+        "overlap_with_pilot_train_ratio": 0.0152,
+        "overlap_with_pilot_selection_count": 17,
+        "overlap_with_pilot_selection_ratio": 0.0034,
+        "overlap_with_diagnostic_balanced_count": 13,
+        "overlap_with_diagnostic_balanced_ratio": 0.0026,
+        "overlap_with_pilot_test_count": 0,
+        "overlap_with_pilot_test_ratio": 0.0
+      },
+      "round2_diagnostic_balanced_small": {
+        "round2_count": 5000,
+        "overlap_with_p0_any_count": 132,
+        "overlap_with_p0_any_ratio": 0.0264,
+        "overlap_with_pilot_train_count": 100,
+        "overlap_with_pilot_train_ratio": 0.02,
+        "overlap_with_pilot_selection_count": 18,
+        "overlap_with_pilot_selection_ratio": 0.0036,
+        "overlap_with_diagnostic_balanced_count": 14,
+        "overlap_with_diagnostic_balanced_ratio": 0.0028,
+        "overlap_with_pilot_test_count": 0,
+        "overlap_with_pilot_test_ratio": 0.0
+      },
+      "round2_test_small": {
+        "round2_count": 5000,
+        "overlap_with_p0_any_count": 23,
+        "overlap_with_p0_any_ratio": 0.0046,
+        "overlap_with_pilot_train_count": 0,
+        "overlap_with_pilot_train_ratio": 0.0,
+        "overlap_with_pilot_selection_count": 0,
+        "overlap_with_pilot_selection_ratio": 0.0,
+        "overlap_with_diagnostic_balanced_count": 0,
+        "overlap_with_diagnostic_balanced_ratio": 0.0,
+        "overlap_with_pilot_test_count": 23,
+        "overlap_with_pilot_test_ratio": 0.0046
+      }
+    }
+  },
+  "validation": {
+    "status": "passed",
+    "generated_at": "2026-06-21 21:18:56 CST",
+    "per_set_counts": {
+      "round2_train_small": 20000,
+      "round2_selection_small": 5000,
+      "round2_diagnostic_balanced_small": 5000,
+      "round2_test_small": 5000
+    },
+    "per_set_duplicate_counts": {
+      "round2_train_small": 0,
+      "round2_selection_small": 0,
+      "round2_diagnostic_balanced_small": 0,
+      "round2_test_small": 0
+    },
+    "cross_set_duplicate_count": 0,
+    "split_values": {
+      "round2_train_small": [
+        "vali"
+      ],
+      "round2_selection_small": [
+        "vali"
+      ],
+      "round2_diagnostic_balanced_small": [
+        "vali"
+      ],
+      "round2_test_small": [
+        "test"
+      ]
+    },
+    "round2_train_selection_intersection_count": 0,
+    "all_outputs_have_order_index": true
+  },
+  "output_files": {
+    "round2_train_small_sample_keys": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_train_small_sample_keys.csv",
+    "round2_selection_small_sample_keys": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_selection_small_sample_keys.csv",
+    "round2_diagnostic_balanced_small_sample_keys": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_diagnostic_balanced_small_sample_keys.csv",
+    "round2_test_small_sample_keys": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_test_small_sample_keys.csv",
+    "round2_small_sample_manifest": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+    "round2_coverage_summary": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_coverage_summary.csv",
+    "round2_validation_summary": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_validation_summary.json",
+    "round2_layout_candidates": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_layout_candidates.json",
+    "round2_top3fold_reuse_audit": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_top3fold_reuse_audit.md",
+    "round2_small_sample_metadata": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_metadata.json",
+    "round2_small_screening_summary": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_screening_summary.md"
+  },
+  "light_summary_files": {
+    "round2_layout_candidates.json": "experiment_summaries/visual_router_v2_round2/small_samples/round2_layout_candidates.json",
+    "round2_top3fold_reuse_audit.md": "experiment_summaries/visual_router_v2_round2/small_samples/round2_top3fold_reuse_audit.md",
+    "round2_small_sample_metadata.json": "experiment_summaries/visual_router_v2_round2/small_samples/round2_small_sample_metadata.json",
+    "round2_small_screening_summary.md": "experiment_summaries/visual_router_v2_round2/small_samples/round2_small_screening_summary.md",
+    "round2_coverage_summary.csv": "experiment_summaries/visual_router_v2_round2/small_samples/round2_coverage_summary.csv",
+    "round2_validation_summary.json": "experiment_summaries/visual_router_v2_round2/small_samples/round2_validation_summary.json"
+  }
+}

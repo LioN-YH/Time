@@ -1,0 +1,33 @@
+{
+  "status": "passed",
+  "generated_at": "2026-06-21 21:18:56 CST",
+  "per_set_counts": {
+    "round2_train_small": 20000,
+    "round2_selection_small": 5000,
+    "round2_diagnostic_balanced_small": 5000,
+    "round2_test_small": 5000
+  },
+  "per_set_duplicate_counts": {
+    "round2_train_small": 0,
+    "round2_selection_small": 0,
+    "round2_diagnostic_balanced_small": 0,
+    "round2_test_small": 0
+  },
+  "cross_set_duplicate_count": 0,
+  "split_values": {
+    "round2_train_small": [
+      "vali"
+    ],
+    "round2_selection_small": [
+      "vali"
+    ],
+    "round2_diagnostic_balanced_small": [
+      "vali"
+    ],
+    "round2_test_small": [
+      "test"
+    ]
+  },
+  "round2_train_selection_intersection_count": 0,
+  "all_outputs_have_order_index": true
+}
