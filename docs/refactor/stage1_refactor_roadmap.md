@@ -2911,6 +2911,69 @@ rg -n "/data2|torch.load|ViTModel|AutoImageProcessor|train_visual_router_online_
    `FeatureBatch` 交给 P16a adapter。
 3. TimeFuse formal streaming 入口接入 canonical artifact writer 仍需另起审计与 smoke。
 
+### P16b：real Visual feature provider boundary audit
+
+P16b 已完成 real Visual feature provider 边界审计，见
+`docs/refactor/stage1_real_visual_feature_provider_audit.md`。
+
+本次完成范围：
+
+- 冻结 real Visual feature provider 的输入边界：调用方应显式提供
+  `SampleManifest` / ordered sample_keys、history window 所需元信息、pseudo image 参数、
+  visual encoder 配置或实例，以及显式 scaler / normalizer state；provider 不从 `run_dir`
+  推断输入，不硬编码 `/data2`，不读取 router checkpoint，不启动训练，也不知道 Bash。
+- 冻结输出边界：目标输出仍是 canonical `FeatureBatch`，`sample_keys` 与 manifest order
+  完全一致，`features` 为二维 float32 `[num_samples, feature_dim]`，`feature_schema` 记录
+  encoder/provider/scaler lineage，`extra` 只记录轻量 metadata。
+- 将真实 Visual feature chain 拆成候选层：`HistoryWindowProvider` /
+  `VisualRawInputProvider`、`PseudoImageTransformer`、`VisualEncoderProvider` /
+  `FrozenViTFeatureProvider`、可选 `FeatureScaler` / `FeatureNormalizer` 和组合型
+  `VisualFeatureProvider`。
+- 明确 scaler fit 属于 training/runtime，不属于 evaluation/test-time provider；scaler state
+  loading 属于 Runtime / entrypoint；scaler transform 必须显式设计，不允许
+  `LoadedTorchMLPRouterHeadAdapter` 内部偷偷处理。
+- 明确 ViT loading、device、dtype、batch size、DataParallel、Hugging Face cache 和 retry
+  属于 Runtime / entrypoint / encoder factory 边界；feature cache 是实现选择，不是
+  provider interface。
+- 明确 P16b 不修改 P16a adapter，不把 feature provider 与 router head 耦合，也不声称正式
+  Visual Router 已迁移完成。
+
+P16b 明确不做：
+
+- 不新增 real `VisualFeatureProvider` 代码。
+- 不新增 ViT provider 代码。
+- 不修改 `time_router/features/visual_mock.py`。
+- 不修改 `time_router/models/visual_mlp_adapter.py`。
+- 不修改 `scripts/run_stage1_visual_small.py`。
+- 不修改正式训练 / evaluation 入口。
+- 不读取真实 checkpoint。
+- 不启动 ViT embedding。
+- 不访问 `/data2`。
+- 不启动训练、pressure 或 full-scale。
+- 不新增 Bash launcher。
+- 不把 Bash 引入 `time_router`。
+- 不把 `run_dir` 传入 provider。
+- 不把 cache 设计成 interface。
+- 不为兼容旧版 `96_48_S` full-scale 输出 schema 写适配逻辑。
+
+P16b 验收：
+
+```bash
+git diff --name-only
+rg -n "FeatureBatch|scaler|ViT|pseudo|run_dir|cache|P16a|LoadedTorchMLPRouterHeadAdapter" docs/refactor/stage1_real_visual_feature_provider_audit.md
+```
+
+后续连接：
+
+1. real Visual feature provider minimal smoke 可先用 tiny fixture、fake encoder 或 precomputed
+   embedding 验证 `FeatureBatch` 边界。
+2. scaler boundary design/smoke 应单独验证 loaded scaler transform -> head-ready float32
+   `FeatureBatch`，并禁止 silent fit。
+3. legacy `VisualMLPRouter` checkpoint/signature audit 应单独处理 import、constructor
+   signature、state_dict、DataParallel key 和 device。
+4. online ViT provider audit/smoke 应单独处理 pseudo image + frozen ViT + batching。
+5. feature/head/runtime 边界都清楚后，再做 Visual full-scale entrypoint migration plan。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。
