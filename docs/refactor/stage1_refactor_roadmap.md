@@ -3189,8 +3189,8 @@ rg -n "VisualMLPRouter|state_dict|DataParallel|torch.load|checkpoint|scaler|Load
 
 1. P16h 已完成 legacy `VisualMLPRouter` loaded-module smoke，使用 in-memory fake
    `state_dict` 覆盖 normal key 与 `module.` 前缀 key 清洗，不读取 `/data2` 真实 checkpoint。
-2. P16h 覆盖 strict loading 和 P16a adapter 消费边界；真实 checkpoint payload discovery、
-   `map_location`、strict load 错误上报和 scaler loading 仍未实现。
+2. P16i 已完成 Runtime-side tiny checkpoint payload loader smoke，使用 tempfile checkpoint
+   覆盖 `router_state_dict` 提取、`module.` 前缀清理、strict load 和 P16a adapter 消费边界。
 3. 正式 Visual entrypoint migration 仍需在 Runtime 中加载 checkpoint/scaler/encoder，再把
    head-ready `FeatureBatch` 交给 P16a adapter。
 
@@ -3230,6 +3230,56 @@ P16h 验收：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_loaded_module_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_feature_chain_protocol_smoke.py
+```
+
+### P16i：legacy VisualMLPRouter checkpoint payload smoke
+
+P16i 已完成 Runtime-side tiny checkpoint payload loader smoke，见
+`docs/refactor/stage1_visual_legacy_mlp_checkpoint_payload.md`。
+
+本次新增范围：
+
+- 新增 `time_router/runtime/visual_mlp_checkpoint.py`，提供
+  `strip_dataparallel_prefix`、`extract_router_state_dict`、
+  `load_checkpoint_payload` 和 `load_router_state_dict`。
+- 同步 `time_router/runtime/__init__.py` public API。
+- 新增 `tests/smoke/stage1_visual_legacy_mlp_checkpoint_payload_smoke.py`，在
+  tempfile 内创建 tiny checkpoint payload，不读取真实 checkpoint。
+- payload 覆盖 `router_state_dict`、`scaler_state`、`config` 和 `metadata`；`scaler_state`
+  只作为 metadata 被识别，不执行 transform。
+- 覆盖 normal key 和 DataParallel 风格 `module.` 前缀 key，两者均 strict load 到已构造
+  legacy `VisualMLPRouter`。
+- 将 loaded module 交给 P16a `LoadedTorchMLPRouterHeadAdapter`，并用
+  `EvaluationInputAdapter` 生成 hard/raw-soft MAE/MSE summary 与 rows。
+
+P16i 明确不做：
+
+- 不读取真实 checkpoint。
+- 不访问 `/data2`。
+- 不做 run_dir discovery。
+- 不构造 `FeatureBatch`。
+- 不启动 ViT / transformers。
+- 不处理真实 scaler transform。
+- 不修改 P16a adapter。
+- 不修改或调用正式 Visual Router 训练入口。
+- 不修改 `scripts/run_stage1_visual_small.py`。
+
+P16i 负向用例：
+
+- 缺少 `router_state_dict` 报错。
+- `module.` prefix 清理后 key 冲突 fail-fast。
+- strict load missing key 报错。
+- strict load unexpected key 报错。
+
+P16i 验收：
+
+```bash
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python -m compileall \
+  time_router/runtime/visual_mlp_checkpoint.py \
+  tests/smoke/stage1_visual_legacy_mlp_checkpoint_payload_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_checkpoint_payload_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_legacy_mlp_loaded_module_smoke.py
+/home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_visual_mlp_routerhead_adapter_smoke.py
 ```
 
 ### P6：migrate visual router and TimeFuse fusor entrypoints

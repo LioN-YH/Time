@@ -182,8 +182,14 @@ loss、optimizer、scheduler、checkpoint/resume 和 epoch loop 仍由 branch-sp
   `tests/smoke/stage1_visual_legacy_mlp_loaded_module_smoke.py`，用 P13b ordered sample_keys、
   P16c head-ready fixture、P13b expert JSON 和 in-memory fake state_dict，验证 normal 与
   `module.` 前缀 state_dict 清洗后 strict load 到 legacy module，并可由 P16a adapter 输出
-  `RouterOutput` 后交给 `EvaluationInputAdapter`。真实 checkpoint loader、`map_location`、
-  scaler loading 和正式入口迁移仍未实现。
+  `RouterOutput` 后交给 `EvaluationInputAdapter`。
+- P16i 已完成 legacy `VisualMLPRouter` tiny checkpoint payload smoke，见
+  `docs/refactor/stage1_visual_legacy_mlp_checkpoint_payload.md`；新增
+  `time_router/runtime/visual_mlp_checkpoint.py` 和
+  `tests/smoke/stage1_visual_legacy_mlp_checkpoint_payload_smoke.py`，只验证显式
+  checkpoint path 到 payload、`router_state_dict` 提取、`module.` 前缀清理、strict load
+  和 P16a adapter 消费边界。`scaler_state` 只作为 payload metadata 被识别，不执行
+  transform；真实 checkpoint dry-run、真实 scaler loading、ViT 和正式入口迁移仍未实现。
 - 正式入口的 loss、optimizer、scaler、checkpoint/resume 均未改变。
 
 ### 2.6 EvaluationInputAdapter / Evaluator
