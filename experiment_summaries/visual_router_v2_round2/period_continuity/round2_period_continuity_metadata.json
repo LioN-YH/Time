@@ -1,0 +1,50 @@
+{
+  "status": "completed",
+  "script_version": "visual_router_v2_round2d_period_continuity_v1",
+  "generated_at": "2026-06-22 01:25:54 CST",
+  "round2_stage": "period_continuity_diagnostic",
+  "trained_new_model": false,
+  "built_feature_cache": false,
+  "ran_vit_for_embedding_diagnostic": true,
+  "saved_pseudo_image_tensor": false,
+  "used_test_small_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "layouts_diagnosed": [
+    "current_rgb_3view",
+    "top3fold_period_layout"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "sample_sets": [
+    "round2_selection_small",
+    "round2_diagnostic_balanced_small"
+  ],
+  "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+  "round2c_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_screening",
+  "perturbation_sigma_list": [
+    0.001,
+    0.005,
+    0.01
+  ],
+  "num_perturbations": 3,
+  "perturbation_space": "pre_revin_history_x",
+  "devices_requested": [
+    "cuda:0",
+    "cuda:1",
+    "cuda:2",
+    "cuda:3"
+  ],
+  "devices_used": [
+    "cuda:0",
+    "cuda:1",
+    "cuda:2",
+    "cuda:3"
+  ],
+  "parallel_backend": "process_per_layout_seed_sample_set",
+  "single_task_output_isolated": true,
+  "period_soft_mixture_implemented": false,
+  "next_step_recommendation": "direct_65k_with_top3fold"
+}
