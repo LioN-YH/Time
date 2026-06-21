@@ -1,0 +1,46 @@
+{
+  "script_version": "visual_router_v2_round1_aux_only_v1",
+  "created_at": "2026-06-21 09:51:23 CST",
+  "git_commit": "998ed299dbf3e68942ba3073f06904cafd19ec28",
+  "sample_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples",
+  "round0_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round0",
+  "feature_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features",
+  "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+  "prediction_manifest_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv",
+  "prediction_index_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_aux_only/prediction_index_aux_only_p0.sqlite",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_aux_only",
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "epochs": 3,
+  "selection_rule": "min pilot_selection raw_soft_fusion MAE",
+  "diagnostic_role": "diagnostic_only_not_for_selection",
+  "pilot_test_used": false,
+  "input_features": "P2a revin_aux only",
+  "aux_feature_columns": [
+    "mean",
+    "log_std",
+    "min",
+    "max",
+    "range",
+    "clip_ratio"
+  ],
+  "forbidden_features_not_used": [
+    "cls_embedding",
+    "mean_patch_embedding",
+    "17_dim_timefuse_feature",
+    "pseudo_image_tensor"
+  ],
+  "scaler_fit_sample_set": "pilot_train",
+  "sample_counts": {
+    "pilot_train": 150000,
+    "pilot_selection": 30000,
+    "diagnostic_balanced": 20000
+  },
+  "train_objective": "SmoothL1 fused prediction loss + lambda_kl * KL soft oracle",
+  "huber_beta": 0.1,
+  "kl_tau": 0.1,
+  "lambda_kl": 0.01
+}

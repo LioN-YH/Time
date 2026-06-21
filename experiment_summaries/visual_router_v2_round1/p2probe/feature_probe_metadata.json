@@ -1,0 +1,85 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-21 08:41:21 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/probe_visual_router_v2_round1_features.py",
+  "script_version": "visual_router_v2_round1_p2probe_v1",
+  "git_commit": "19666492b9f7841b80587e982e7557bb53932181",
+  "sample_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples",
+  "round0_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round0",
+  "feature_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features",
+  "feature_manifest_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features/round1_feature_manifest.csv",
+  "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+  "tsf_enrichment_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/tsf_enrichment_full_scale_2026-06-16/sample_tsf_enrichment.parquet",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_feature_probe",
+  "sample_counts": {
+    "pilot_train": 150000,
+    "pilot_selection": 30000,
+    "diagnostic_balanced": 20000
+  },
+  "max_samples_per_set": null,
+  "feature_groups": [
+    "cls_embedding",
+    "mean_patch_embedding",
+    "cls_mean_concat",
+    "revin_aux",
+    "cls_plus_aux",
+    "mean_patch_plus_aux"
+  ],
+  "required_feature_groups": [
+    "cls_embedding",
+    "mean_patch_embedding",
+    "cls_mean_concat",
+    "revin_aux"
+  ],
+  "structure_targets": [
+    "error_gap_quantile",
+    "forecastability_cat",
+    "season_strength_cat",
+    "trend_strength_cat",
+    "cv_cat",
+    "missing_ratio_cat",
+    "cluster",
+    "group_name"
+  ],
+  "shortcut_baselines": [
+    "dataset_name_only",
+    "tsf_only",
+    "train_frequency_prior"
+  ],
+  "aux_feature_columns": [
+    "mean",
+    "log_std",
+    "min",
+    "max",
+    "range",
+    "clip_ratio"
+  ],
+  "model_columns": [
+    "DLinear",
+    "PatchTST",
+    "CrossFormer",
+    "ES",
+    "NaiveForecaster"
+  ],
+  "seed": 20260621,
+  "max_iter": 20,
+  "train_protocol": {
+    "fit_sample_set": "pilot_train",
+    "model_selection_sample_set": "pilot_selection",
+    "extra_diagnostic_sample_set": "diagnostic_balanced",
+    "uses_pilot_test": false,
+    "scaler_fit_on": "pilot_train_only",
+    "probe_model": "StandardScaler + class-balanced SGDClassifier(log_loss) for dense features; OneHotEncoder + class-balanced LogisticRegression for shortcut baselines"
+  },
+  "constraints": {
+    "read_p2a_npz_only": true,
+    "regenerate_vit_features": false,
+    "save_pseudo_image_tensor": false,
+    "read_prediction_manifest": false,
+    "train_visual_router_head": false,
+    "train_hard_or_soft_fusion": false,
+    "modify_p2a_schema_or_builder": false
+  },
+  "p2a_feature_metadata_status": "completed",
+  "p2a_feature_schema_version": "visual_router_v2_round1_feature_cache_v1"
+}

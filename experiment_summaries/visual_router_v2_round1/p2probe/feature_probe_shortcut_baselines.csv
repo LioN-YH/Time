@@ -1,0 +1,7 @@
+probe_kind,model_name,sample_set,target_name,sample_count,class_count,accuracy,balanced_accuracy,macro_f1,cross_entropy,top2_recall,feature_dim
+shortcut_baseline,dataset_name_only,pilot_selection,oracle_model,30000,5,0.3198666666666667,0.26278482169964945,0.14904349477417705,1.5760187299786834,0.43883333333333335,1
+shortcut_baseline,tsf_only,pilot_selection,oracle_model,30000,5,0.4144333333333333,0.35735342422397737,0.32873704929359404,1.4429944016239042,0.5925,7
+shortcut_baseline,train_frequency_prior,pilot_selection,oracle_model,30000,5,0.34996666666666665,0.2,0.10369638756512507,1.4567341054238514,0.6596333333333333,0
+shortcut_baseline,dataset_name_only,diagnostic_balanced,oracle_model,20000,5,0.2607,0.26070000000000004,0.1461197259000669,1.5786564497463302,0.4752,1
+shortcut_baseline,tsf_only,diagnostic_balanced,oracle_model,20000,5,0.3514,0.35140000000000005,0.32442038343446655,1.4667306953544543,0.5854,7
+shortcut_baseline,train_frequency_prior,diagnostic_balanced,oracle_model,20000,5,0.2,0.2,0.06666666666666667,1.7762336070229423,0.4,0

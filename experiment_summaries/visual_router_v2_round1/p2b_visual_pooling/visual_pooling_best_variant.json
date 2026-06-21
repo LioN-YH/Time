@@ -1,0 +1,29 @@
+{
+  "best_variant": "visual_mean_patch_only",
+  "selection_basis": "pilot_selection raw_soft_fusion MAE_mean; tie-breakers hard_top1 MAE_mean, regret_to_oracle_mean, oracle_label_accuracy_mean",
+  "selected_from_sample_set": "pilot_selection",
+  "diagnostic_balanced_used_for_selection": false,
+  "pilot_test_used_for_selection": false,
+  "best_row": {
+    "sample_set": "pilot_selection",
+    "variant": "visual_mean_patch_only",
+    "method": "visual_mean_patch_only_raw_soft_fusion",
+    "seed_count": 3,
+    "sample_count_per_seed": 30000,
+    "MAE_mean": 0.30099632756885825,
+    "MAE_std": 0.0010003941856286877,
+    "MSE_mean": 1.2341676710776053,
+    "MSE_std": 0.16344853723889896,
+    "regret_to_oracle_mean": 0.034265123936799625,
+    "regret_to_oracle_std": 0.0010003941856286838,
+    "oracle_label_accuracy_mean": 0.3788555555555555,
+    "oracle_label_accuracy_std": 0.006665027576281505,
+    "weight_entropy_mean": 1.132446240349,
+    "weight_entropy_std": 0.019600980754966277,
+    "normalized_weight_entropy_mean": 0.703628397787828,
+    "normalized_weight_entropy_std": 0.012178773007767974,
+    "mean_max_weight_mean": 0.5045982322749164,
+    "mean_max_weight_std": 0.008922421222269316,
+    "hard_top1_MAE_mean": 0.3197062072221915
+  }
+}

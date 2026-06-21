@@ -1,0 +1,7 @@
+{
+  "selection_rule": "min pilot_selection raw_soft_fusion MAE",
+  "seed": 17,
+  "best_epoch": 3,
+  "selection_raw_soft_MAE": 0.33280747856729237,
+  "selection_raw_soft_MSE": 1.5455269063081547
+}
