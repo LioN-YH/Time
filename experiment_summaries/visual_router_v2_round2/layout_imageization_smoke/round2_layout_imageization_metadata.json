@@ -1,0 +1,393 @@
+{
+  "script_version": "visual_router_v2_round2b_layout_imageization_smoke_v1",
+  "created_at": "2026-06-21 22:00:38 CST",
+  "status": "completed",
+  "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+  "layout_candidates": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_layout_candidates.json",
+  "config_path": "/home/shiyuhong/Time/quito/outputs/default_baseline/dlinear/96_48_S/seed_16/EVALUATE/ver_0/config.yaml",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_layout_imageization_smoke",
+  "device": "cuda:0",
+  "cuda_available": true,
+  "image_size": 224,
+  "batch_size": 32,
+  "layouts_requested": [
+    "current_rgb_3view",
+    "spatial_panel_3view",
+    "line_only",
+    "line_difference_band",
+    "fft_absolute_energy",
+    "top3fold_period_layout"
+  ],
+  "default_layouts": [
+    "current_rgb_3view",
+    "spatial_panel_3view",
+    "line_only",
+    "line_difference_band",
+    "fft_absolute_energy",
+    "top3fold_period_layout"
+  ],
+  "deferred_layouts": [
+    "period_soft_mixture",
+    "independent_view_encoder"
+  ],
+  "registry_specs": {
+    "current_rgb_3view": {
+      "name": "current_rgb_3view",
+      "status": "implemented",
+      "description": "Round1 baseline: line raster, top1 period fold and FFT power packed into RGB channels.",
+      "uses_periods": true,
+      "uses_fft": true,
+      "uses_difference": false,
+      "implementation_note": "adapter around existing imageize_3view"
+    },
+    "spatial_panel_3view": {
+      "name": "spatial_panel_3view",
+      "status": "implemented",
+      "description": "Same three semantic views as current_rgb_3view, arranged as spatial panels.",
+      "uses_periods": true,
+      "uses_fft": true,
+      "uses_difference": false,
+      "implementation_note": "tensorized horizontal panel canvas, replicated to RGB-compatible channels"
+    },
+    "line_only": {
+      "name": "line_only",
+      "status": "implemented",
+      "description": "Minimal shape-only line raster from RevIN-normalized history x.",
+      "uses_periods": false,
+      "uses_fft": false,
+      "uses_difference": false,
+      "implementation_note": "tensorized line raster replicated to three channels"
+    },
+    "line_difference_band": {
+      "name": "line_difference_band",
+      "status": "implemented",
+      "description": "Value line plus first-difference/local-change bands.",
+      "uses_periods": false,
+      "uses_fft": false,
+      "uses_difference": true,
+      "implementation_note": "first diff and abs first diff computed with torch tensor ops"
+    },
+    "fft_absolute_energy": {
+      "name": "fft_absolute_energy",
+      "status": "implemented",
+      "description": "Frequency-domain absolute/log energy profile layout.",
+      "uses_periods": false,
+      "uses_fft": true,
+      "uses_difference": false,
+      "implementation_note": "rFFT absolute/log energy computed with torch; model input uses profile visualization"
+    },
+    "top3fold_period_layout": {
+      "name": "top3fold_period_layout",
+      "status": "implemented",
+      "description": "Top1/top2/top3 selected periods folded into channels.",
+      "uses_periods": true,
+      "uses_fft": true,
+      "uses_difference": false,
+      "implementation_note": "registry adapter around existing imageize_top3fold"
+    },
+    "period_soft_mixture": {
+      "name": "period_soft_mixture",
+      "status": "deferred",
+      "description": "Deferred Round2d continuity/soft-period experiment.",
+      "uses_periods": true,
+      "uses_fft": true,
+      "uses_difference": false,
+      "implementation_note": "stub only; intended to mix multiple period folds by FFT strengths"
+    },
+    "independent_view_encoder": {
+      "name": "independent_view_encoder",
+      "status": "deferred",
+      "description": "Deferred architecture-level candidate with separate encoder pass per view.",
+      "uses_periods": true,
+      "uses_fft": true,
+      "uses_difference": true,
+      "implementation_note": "stub only; changes encoder architecture and compute budget"
+    }
+  },
+  "sample_counts": {
+    "round2_diagnostic_balanced_small": 64,
+    "round2_selection_small": 64,
+    "round2_test_small": 64,
+    "round2_train_small": 128
+  },
+  "constraints": {
+    "read_history_x": true,
+    "read_future_y": false,
+    "read_expert_prediction": false,
+    "read_oracle_label_as_feature": false,
+    "read_116m_prediction_manifest": false,
+    "trained_router": false,
+    "ran_vit": false,
+    "saved_large_pseudo_image_tensor": false,
+    "debug_thumbnails_detach_to_cpu_only": true
+  },
+  "layout_metadata": {
+    "current_rgb_3view": {
+      "layout_name": "current_rgb_3view",
+      "input_source": "history_x_only",
+      "norm_mode": "revin_aux",
+      "history_length": 96,
+      "output_shape_contract": "[B,3,H,W]",
+      "output_value_range_contract": "[0,1]",
+      "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+      "resize_antialias": false,
+      "effective_mapping": "L=96 interpolated/resized to H=W=224",
+      "pixel_mode": "vision",
+      "clip": 5.0,
+      "cpu_fallback": false,
+      "channel_design": "channel-packed line_raster/top1_period_fold/fft_power",
+      "padding": {
+        "padding_mask_available": true,
+        "padding_mask_used_as_vit_input": false,
+        "pad_count_max": 32,
+        "pad_count_mean": 1.0,
+        "padded_sample_ratio": 0.03125
+      },
+      "period_layout": "top1 fold in channel 1",
+      "explicit_cpu_gpu_transfer_in_main_path": "period bucket scalar sync inherited from period fold implementation",
+      "registry_status": "implemented",
+      "registry_implementation_note": "adapter around existing imageize_3view",
+      "period_selection": "fixed_candidates",
+      "period_candidates_count": 14,
+      "selected_periods_shape": [
+        32,
+        3
+      ]
+    },
+    "spatial_panel_3view": {
+      "layout_name": "spatial_panel_3view",
+      "input_source": "history_x_only",
+      "norm_mode": "revin_aux",
+      "history_length": 96,
+      "output_shape_contract": "[B,3,H,W]",
+      "output_value_range_contract": "[0,1]",
+      "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+      "resize_antialias": false,
+      "effective_mapping": "L=96 interpolated/resized to H=W=224",
+      "pixel_mode": "vision",
+      "clip": 5.0,
+      "cpu_fallback": false,
+      "channel_design": "grayscale spatial panel replicated to 3 ViT channels",
+      "panel_design": "horizontal panels widths=[74, 74, 76]: line_raster/top1_period_fold/fft_power",
+      "effective_panel_resolution": {
+        "line": [
+          224,
+          74
+        ],
+        "fold": [
+          224,
+          74
+        ],
+        "fft": [
+          224,
+          76
+        ]
+      },
+      "padding": {
+        "padding_mask_available": true,
+        "padding_mask_used_as_vit_input": false,
+        "pad_count_max": 32,
+        "pad_count_mean": 1.0,
+        "padded_sample_ratio": 0.03125
+      },
+      "explicit_cpu_gpu_transfer_in_main_path": "period bucket scalar sync inherited from period fold implementation",
+      "registry_status": "implemented",
+      "registry_implementation_note": "tensorized horizontal panel canvas, replicated to RGB-compatible channels",
+      "period_selection": "fixed_candidates",
+      "period_candidates_count": 14,
+      "selected_periods_shape": [
+        32,
+        3
+      ]
+    },
+    "line_only": {
+      "layout_name": "line_only",
+      "input_source": "history_x_only",
+      "norm_mode": "revin_aux",
+      "history_length": 96,
+      "output_shape_contract": "[B,3,H,W]",
+      "output_value_range_contract": "[0,1]",
+      "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+      "resize_antialias": false,
+      "effective_mapping": "L=96 interpolated/resized to H=W=224",
+      "pixel_mode": "vision",
+      "clip": 5.0,
+      "cpu_fallback": false,
+      "channel_design": "single line raster replicated to 3 channels",
+      "uses_period_fold": false,
+      "uses_fft_energy": false,
+      "padding": {
+        "padding_mask_available": false,
+        "padding_mask_used_as_vit_input": false
+      },
+      "explicit_cpu_gpu_transfer_in_main_path": "none",
+      "registry_status": "implemented",
+      "registry_implementation_note": "tensorized line raster replicated to three channels",
+      "period_selection": "fixed_candidates",
+      "period_candidates_count": 14,
+      "selected_periods_shape": [
+        32,
+        3
+      ]
+    },
+    "line_difference_band": {
+      "layout_name": "line_difference_band",
+      "input_source": "history_x_only",
+      "norm_mode": "revin_aux",
+      "history_length": 96,
+      "output_shape_contract": "[B,3,H,W]",
+      "output_value_range_contract": "[0,1]",
+      "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+      "resize_antialias": false,
+      "effective_mapping": "L=96 interpolated/resized to H=W=224",
+      "pixel_mode": "vision",
+      "clip": 5.0,
+      "cpu_fallback": false,
+      "channel_design": "channel0=value_line; channel1=signed_first_difference_line; channel2=abs_first_difference_minmax_band",
+      "difference_definition": "first_diff=x[t]-x[t-1], first element padded with 0; abs band uses abs(first_diff)",
+      "uses_rolling_volatility": false,
+      "padding": {
+        "padding_mask_available": false,
+        "padding_mask_used_as_vit_input": false
+      },
+      "explicit_cpu_gpu_transfer_in_main_path": "none",
+      "registry_status": "implemented",
+      "registry_implementation_note": "first diff and abs first diff computed with torch tensor ops",
+      "period_selection": "fixed_candidates",
+      "period_candidates_count": 14,
+      "selected_periods_shape": [
+        32,
+        3
+      ]
+    },
+    "fft_absolute_energy": {
+      "layout_name": "fft_absolute_energy",
+      "input_source": "history_x_only",
+      "norm_mode": "revin_aux",
+      "history_length": 96,
+      "output_shape_contract": "[B,3,H,W]",
+      "output_value_range_contract": "[0,1]",
+      "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+      "resize_antialias": false,
+      "effective_mapping": "L=96 interpolated/resized to H=W=224",
+      "pixel_mode": "vision",
+      "clip": 5.0,
+      "cpu_fallback": false,
+      "channel_design": "channel0=log1p(abs_fft_energy) minmax profile; channel1=abs_fft_energy minmax profile; channel2=cumulative_abs_energy_ratio",
+      "fft_energy_definition": "abs_energy=abs(rfft(centered_x)[1:])**2; log_energy=log1p(abs_energy)",
+      "absolute_energy_preserved_in_model_input": false,
+      "absolute_energy_preserved_in_metadata": true,
+      "model_input_normalization": "per-window minmax for channel0/channel1; cumulative ratio for channel2",
+      "frequency_axis_bins": 48,
+      "abs_energy_mean": 63.800750732421875,
+      "log_energy_mean": 1.8014981746673584,
+      "padding": {
+        "padding_mask_available": false,
+        "padding_mask_used_as_vit_input": false
+      },
+      "explicit_cpu_gpu_transfer_in_main_path": "none; summary scalar detach only",
+      "registry_status": "implemented",
+      "registry_implementation_note": "rFFT absolute/log energy computed with torch; model input uses profile visualization",
+      "period_selection": "fixed_candidates",
+      "period_candidates_count": 14,
+      "selected_periods_shape": [
+        32,
+        3
+      ]
+    },
+    "top3fold_period_layout": {
+      "layout_name": "top3fold_period_layout",
+      "input_source": "history_x_only",
+      "norm_mode": "revin_aux",
+      "history_length": 96,
+      "output_shape_contract": "[B,3,H,W]",
+      "output_value_range_contract": "[0,1]",
+      "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+      "resize_antialias": false,
+      "effective_mapping": "L=96 interpolated/resized to H=W=224",
+      "pixel_mode": "vision",
+      "clip": 5.0,
+      "cpu_fallback": false,
+      "channel_design": "channel-packed top1/top2/top3 period fold",
+      "period_layout": "current Round2b adapter reuses imageize_top3fold; not panelized",
+      "padding": {
+        "padding_mask_available": true,
+        "padding_mask_used_as_vit_input": false,
+        "pad_count_max": 32,
+        "pad_count_mean": 0.6666666865348816,
+        "padded_sample_ratio": 0.02083333395421505
+      },
+      "period_summary": {
+        "topk_periods_first_rows": [
+          [
+            8,
+            4,
+            2
+          ],
+          [
+            24,
+            6,
+            8
+          ],
+          [
+            6,
+            3,
+            2
+          ],
+          [
+            24,
+            12,
+            8
+          ],
+          [
+            96,
+            32,
+            48
+          ],
+          [
+            24,
+            12,
+            6
+          ],
+          [
+            4,
+            3,
+            2
+          ],
+          [
+            24,
+            96,
+            12
+          ]
+        ],
+        "period_score_mean_by_rank": [
+          1361.1259765625,
+          508.95086669921875,
+          217.7114715576172
+        ],
+        "period_score_max_by_rank": [
+          3950.766845703125,
+          2153.259033203125,
+          1297.715576171875
+        ],
+        "top1_period_bucket_counts": {
+          "8": 2,
+          "24": 15,
+          "6": 1,
+          "96": 2,
+          "4": 11,
+          "64": 1
+        }
+      },
+      "explicit_cpu_gpu_transfer_in_main_path": "period bucket scalar sync inherited from period fold implementation",
+      "registry_status": "implemented",
+      "registry_implementation_note": "registry adapter around existing imageize_top3fold",
+      "period_selection": "fixed_candidates",
+      "period_candidates_count": 14,
+      "selected_periods_shape": [
+        32,
+        3
+      ]
+    }
+  }
+}

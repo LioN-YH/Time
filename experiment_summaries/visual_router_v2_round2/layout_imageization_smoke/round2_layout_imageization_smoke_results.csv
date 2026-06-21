@@ -1,0 +1,7 @@
+layout_name,status,sample_count,expected_shape,first_batch_shape,shape_ok,dtype,device,value_min,value_max,finite_ratio,error_message
+current_rgb_3view,passed,320,"[320, 3, 224, 224]","[32, 3, 224, 224]",True,torch.float32,cuda:0,0.0,1.0,1.0,
+spatial_panel_3view,passed,320,"[320, 3, 224, 224]","[32, 3, 224, 224]",True,torch.float32,cuda:0,0.0,1.0,1.0,
+line_only,passed,320,"[320, 3, 224, 224]","[32, 3, 224, 224]",True,torch.float32,cuda:0,0.0,1.0,1.0,
+line_difference_band,passed,320,"[320, 3, 224, 224]","[32, 3, 224, 224]",True,torch.float32,cuda:0,0.0,1.0,1.0,
+fft_absolute_energy,passed,320,"[320, 3, 224, 224]","[32, 3, 224, 224]",True,torch.float32,cuda:0,0.0,1.0,1.0,
+top3fold_period_layout,passed,320,"[320, 3, 224, 224]","[32, 3, 224, 224]",True,torch.float32,cuda:0,0.15193171799182892,1.0,1.0,

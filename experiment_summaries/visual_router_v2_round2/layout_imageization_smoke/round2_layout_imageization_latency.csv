@@ -1,0 +1,7 @@
+layout_name,device,batch_size,batch_count,sample_count,total_time_ms,samples_per_sec,optional_vit_preprocessing_time_ms,cpu_fallback,explicit_cpu_gpu_transfer_note
+current_rgb_3view,cuda:0,32,10,320,772.113096085377,414.4470565548026,,False,period bucket scalar sync inherited from period fold implementation
+spatial_panel_3view,cuda:0,32,10,320,44.172297115437686,7244.35949445255,,False,period bucket scalar sync inherited from period fold implementation
+line_only,cuda:0,32,10,320,16.58902404597029,19289.862930648567,,False,none
+line_difference_band,cuda:0,32,10,320,22.36432203790173,14308.504387375702,,False,none
+fft_absolute_energy,cuda:0,32,10,320,22.948627884034067,13944.18880366403,,False,none; summary scalar detach only
+top3fold_period_layout,cuda:0,32,10,320,118.56762901879847,2698.881664819874,,False,period bucket scalar sync inherited from period fold implementation
