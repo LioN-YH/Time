@@ -1,0 +1,61 @@
+{
+  "script_version": "visual_router_v2_round1_p2f_posthoc_calibration_v1",
+  "created_at": "2026-06-21 19:47:28 CST",
+  "git_commit": "95faf4c13e13934d9bf6839988614ae235b7543d",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_calibration",
+  "summary_dir": "/home/shiyuhong/Time-visual-router-v2/experiment_summaries/visual_router_v2_round1/p2f_calibration",
+  "variants": [
+    "film_mean_patch_aux",
+    "film_cls_mean_concat_aux",
+    "visual_cls_mean_concat",
+    "cls_mean_concat_plus_aux"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "sample_sets": [
+    "pilot_selection",
+    "diagnostic_balanced",
+    "pilot_test"
+  ],
+  "calibration_only": true,
+  "trained_new_model": false,
+  "changed_checkpoint": false,
+  "rebuilt_p2a_feature": false,
+  "used_pilot_test_for_selection": false,
+  "pilot_test_evaluated": true,
+  "selected_calibration_on": "pilot_selection",
+  "diagnostic_balanced_used_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "saved_pseudo_image_tensor": false,
+  "read_feature_shard": false,
+  "read_checkpoint": false,
+  "calibration_methods": [
+    "weight_power_temperature",
+    "optional_entropy_uniform_interpolation"
+  ],
+  "temperature_grid": [
+    0.5,
+    0.7,
+    0.85,
+    1.0,
+    1.15,
+    1.3,
+    1.5,
+    2.0
+  ],
+  "entropy_alpha_grid": [
+    0.0,
+    0.02,
+    0.05,
+    0.1
+  ],
+  "calibration_basis": "prediction CSV had no logits; used normalize(w ** (1/T))",
+  "selection_index_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_visual_pooling/prediction_index_p2b_train_selection_diagnostic.sqlite",
+  "final_index_path": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_final_test_extension/prediction_index_round1_final_test_pilot_test.sqlite",
+  "manifest_dir": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache",
+  "recommended_calibrated_variant": "film_mean_patch_aux",
+  "copied_lightweight_summary_to_repo": true
+}
