@@ -3369,6 +3369,62 @@ P16k 验收：
 /home/shiyuhong/application/miniconda3/envs/quito/bin/python tests/smoke/stage1_branch_small_entrypoint_artifact_parity_smoke.py
 ```
 
+### P16l：Visual real checkpoint dry-run guarded path policy
+
+P16l 已新增 real Visual checkpoint dry-run 前置方案，见
+`docs/refactor/stage1_visual_real_checkpoint_dryrun_plan.md`。
+
+本次新增范围：
+
+- 冻结 real checkpoint dry-run 必须由用户显式传入 checkpoint path。
+- 明确读取非 fixture checkpoint 必须有用户显式授权。
+- 明确默认 smoke / CI 仍只允许 tests fixture 或 tempfile tiny payload，不读取真实
+  checkpoint。
+- 明确不从 `/data2` 自动搜索，不从 `run_dir`、checkpoint index、metadata 或 launcher
+  输出自动推断 checkpoint。
+- 明确 checkpoint path、allow flag、`torch.load`、`map_location`、strict loading 和敏感路径
+  记录策略属于 Runtime / entrypoint，不进入 P16a adapter，也不进入 `FeatureProvider`
+  interface。
+- 明确 payload 仍沿用 P16i 口径，只提取 `router_state_dict`、`scaler_state`、`config`
+  和 `metadata`；`module.` prefix 清理、missing/unexpected key fail-fast 由 Runtime helper
+  管理。
+- 明确 `scaler_state` 可记录 metadata，但不会 silent transform；transform 必须通过 P16d
+  `LoadedFeatureScaler` 或后续明确路径执行。
+- 明确未来 dry-run metadata 应标记 `loads_real_checkpoint`、`loads_real_vit`、
+  `formal_visual_router_migration`、`checkpoint_is_fixture`、`strict_checkpoint_load`、
+  `scaler_state_present` 和 `scaler_transform_applied` 等字段。
+
+P16l 明确不做：
+
+- 不读取真实 checkpoint。
+- 不访问 `/data2`。
+- 不启动 ViT / transformers。
+- 不启动训练、pressure 或 full-scale。
+- 不修改 `train_visual_router_online_streaming.py`。
+- 不修改正式 evaluation 入口。
+- 不新增 Bash launcher。
+- 不新增 path guard helper 或 smoke。
+- 不把 checkpoint/scaler/run_dir 放入 P16a adapter interface。
+- 不把 checkpoint path 设计成 `FeatureProvider` interface。
+- 不声称正式 Visual Router 已迁移完成。
+
+P16l 验收：
+
+```bash
+rg -n "explicit|allow|fixture|/data2|run_dir|Runtime|P16a|scaler_state|loads_real_checkpoint|loads_real_vit|formal_visual_router_migration" docs/refactor/stage1_visual_real_checkpoint_dryrun_plan.md
+git diff --check
+git diff --name-only
+```
+
+后续候选：
+
+1. P16m：visual explicit real-checkpoint dry-run CLI guard smoke，只验证路径 guard，不读
+   `/data2`。
+2. P16n：manual real checkpoint dry-run，用户显式提供 artifact path 后再执行。
+3. P17a：Visual canonical eval entrypoint migration plan。
+4. P17b：real Visual feature chain dry-run / fake encoder to online ViT boundary。
+5. P17c：Visual full-scale / pressure plan。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

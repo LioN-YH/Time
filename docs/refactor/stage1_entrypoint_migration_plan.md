@@ -1,7 +1,7 @@
 # Stage 1 Canonical Entrypoint Migration Plan
 
 创建日期：2026-06-19
-更新日期：2026-06-20
+更新日期：2026-06-21
 
 ## 1. 目标
 
@@ -190,6 +190,22 @@ loss、optimizer、scheduler、checkpoint/resume 和 epoch loop 仍由 branch-sp
   checkpoint path 到 payload、`router_state_dict` 提取、`module.` 前缀清理、strict load
   和 P16a adapter 消费边界。`scaler_state` 只作为 payload metadata 被识别，不执行
   transform；真实 checkpoint dry-run、真实 scaler loading、ViT 和正式入口迁移仍未实现。
+- P16j 已完成 Visual small loaded legacy path，见
+  `docs/refactor/stage1_visual_small_loaded_legacy_path.md`；`scripts/run_stage1_visual_small.py`
+  只有在显式传入 `--use-loaded-legacy-mlp --router-checkpoint-payload` 时才读取 tiny
+  checkpoint payload，并在 Runtime / entrypoint 侧串联 P16c precomputed feature、可选
+  P16d scaler、P16i helper、legacy `VisualMLPRouter` 和 P16a adapter。默认 mock path 不读
+  checkpoint。
+- P16k 已完成 Visual small loaded path artifact parity，见
+  `docs/refactor/stage1_visual_small_loaded_path_artifact_parity.md`；默认 mock path 与显式
+  loaded legacy path 的 canonical run_dir schema、metadata/status/evaluation/prediction rows
+  共同契约已由 smoke 覆盖，loaded path 仍只使用 tempfile tiny payload。
+- P16l 已冻结 real checkpoint dry-run guarded explicit-path policy，见
+  `docs/refactor/stage1_visual_real_checkpoint_dryrun_plan.md`；真实 checkpoint 后续必须由用户
+  显式传入并显式授权，默认 smoke / CI 不读取真实 checkpoint，不从 `/data2` 自动搜索，
+  不从 `run_dir` 自动推断。checkpoint path、allow flag、strict loading、敏感路径摘要和
+  `scaler_state` metadata 记录均属于 Runtime / entrypoint，不进入 P16a adapter 或
+  `FeatureProvider` interface。
 - 正式入口的 loss、optimizer、scaler、checkpoint/resume 均未改变。
 
 ### 2.6 EvaluationInputAdapter / Evaluator
@@ -229,7 +245,8 @@ prediction artifact 写出和 launcher 接手信息。
 保留 branch-specific 实现：
 
 - Visual Router 的 online ViT resource policy、DataParallel、latency 统计、legacy MLP
-  checkpoint/scaler loading、strict state_dict loading 和 visual-specific metadata；
+  checkpoint/scaler loading、strict state_dict loading、显式 real checkpoint dry-run guard
+  和 visual-specific metadata；
 - TimeFuse 的 feature shard discovery、feature-only scaler、shard-local oracle/prediction
   index prepare 和 launcher preflight。
 
