@@ -1,0 +1,288 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-21 17:31:36 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round1_film.py",
+  "script_version": "visual_router_v2_round1_film_p2e_v1",
+  "commit_hash": "39f0e76b859fb57e0303d61703d284fed08e859c",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film",
+  "summary_copy_dir": "/home/shiyuhong/Time-visual-router-v2/experiment_summaries/visual_router_v2_round1/p2e_film",
+  "inputs": {
+    "sample_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_pilot_samples",
+    "round0_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round0",
+    "feature_dir": "/data2/syh/Time/run_outputs/2026-06-20_visual_router_v2_round1_features",
+    "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+    "prediction_manifest_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv"
+  },
+  "variants": [
+    "film_cls_mean_concat_aux",
+    "film_mean_patch_aux"
+  ],
+  "feature_groups": {
+    "film_cls_mean_concat_aux": [
+      "cls_embedding",
+      "mean_patch_embedding"
+    ],
+    "film_mean_patch_aux": [
+      "mean_patch_embedding"
+    ]
+  },
+  "aux_feature_columns": [
+    "mean",
+    "log_std",
+    "min",
+    "max",
+    "range",
+    "clip_ratio"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "constraints": {
+    "pilot_test_used_for_selection": false,
+    "pilot_test_evaluated": false,
+    "trained_new_model": true,
+    "rebuilt_p2a_feature": false,
+    "loaded_116m_prediction_manifest_to_memory": false,
+    "saved_pseudo_image_tensor": false,
+    "used_film": true,
+    "used_gating": false,
+    "used_attention": false,
+    "used_concat_aux": false,
+    "parallel_launcher_used": true,
+    "parallel_backend": "process_per_variant_seed",
+    "devices_requested": "cuda:1,cuda:2,cuda:3",
+    "devices_used": [
+      "cuda:1",
+      "cuda:2",
+      "cuda:3"
+    ],
+    "single_task_output_isolated": true,
+    "scaler_fit_sample_set": "pilot_train",
+    "best_variant_selection_sample_set": "pilot_selection",
+    "diagnostic_balanced_used_for_selection": false
+  },
+  "best_variant": {
+    "best_variant": "film_mean_patch_aux",
+    "selection_basis": "pilot_selection raw-soft MAE_mean; tie-breakers MAE_std, regret_to_oracle_mean, MSE_mean, weight_entropy_std, mean_max_weight_std",
+    "selected_from_sample_set": "pilot_selection",
+    "diagnostic_balanced_used_for_selection": false,
+    "pilot_test_used_for_selection": false,
+    "best_row": {
+      "sample_set": "pilot_selection",
+      "variant": "film_mean_patch_aux",
+      "method": "film_mean_patch_aux_raw_soft_fusion",
+      "seed_count": 3,
+      "sample_count_per_seed": 30000,
+      "MAE_mean": 0.30039319767940614,
+      "MAE_std": 0.0005415206000238382,
+      "MSE_mean": 1.28987162021779,
+      "MSE_std": 0.1646497573801887,
+      "regret_to_oracle_mean": 0.0336619940473476,
+      "regret_to_oracle_std": 0.0005415206000238083,
+      "oracle_label_accuracy_mean": 0.5521666666666666,
+      "oracle_label_accuracy_std": 0.14849245023831278,
+      "weight_entropy_mean": 1.1359745164847483,
+      "weight_entropy_std": 0.020091782760800488,
+      "normalized_weight_entropy_mean": 0.705820639405292,
+      "normalized_weight_entropy_std": 0.012483729930911985,
+      "mean_max_weight_mean": 0.5023525087240669,
+      "mean_max_weight_std": 0.006659042617705556
+    }
+  },
+  "task_metadata": [
+    {
+      "status": "completed",
+      "generated_at": "2026-06-21 17:25:41 CST",
+      "script_version": "visual_router_v2_round1_film_p2e_v1",
+      "variant": "film_cls_mean_concat_aux",
+      "seed": 16,
+      "device": "cuda:1",
+      "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_cls_mean_concat_aux_seed16",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_cls_mean_concat_aux_seed16/checkpoint_film_cls_mean_concat_aux_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.281410594620192,
+        "final_train_loss": 0.2686115818880117,
+        "final_huber_loss": 0.2645411829848745,
+        "final_kl_loss": 0.40703993181319775,
+        "train_weight_entropy": 1.1544249057769775,
+        "train_normalized_weight_entropy": 0.7172845005989075,
+        "train_mean_max_weight": 0.4944945275783539
+      },
+      "constraints": {
+        "pilot_test_used_for_selection": false,
+        "pilot_test_evaluated": false,
+        "trained_new_model": true,
+        "rebuilt_p2a_feature": false,
+        "loaded_116m_prediction_manifest_to_memory": false,
+        "saved_pseudo_image_tensor": false,
+        "used_film": true,
+        "used_gating": false,
+        "used_attention": false,
+        "used_concat_aux": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-21 17:25:39 CST",
+      "script_version": "visual_router_v2_round1_film_p2e_v1",
+      "variant": "film_cls_mean_concat_aux",
+      "seed": 17,
+      "device": "cuda:2",
+      "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_cls_mean_concat_aux_seed17",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_cls_mean_concat_aux_seed17/checkpoint_film_cls_mean_concat_aux_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2807022283559366,
+        "final_train_loss": 0.26945925244597446,
+        "final_huber_loss": 0.265353883289233,
+        "final_kl_loss": 0.4105369022986995,
+        "train_weight_entropy": 1.098190426826477,
+        "train_normalized_weight_entropy": 0.6823440790176392,
+        "train_mean_max_weight": 0.5212955474853516
+      },
+      "constraints": {
+        "pilot_test_used_for_selection": false,
+        "pilot_test_evaluated": false,
+        "trained_new_model": true,
+        "rebuilt_p2a_feature": false,
+        "loaded_116m_prediction_manifest_to_memory": false,
+        "saved_pseudo_image_tensor": false,
+        "used_film": true,
+        "used_gating": false,
+        "used_attention": false,
+        "used_concat_aux": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-21 17:25:39 CST",
+      "script_version": "visual_router_v2_round1_film_p2e_v1",
+      "variant": "film_cls_mean_concat_aux",
+      "seed": 18,
+      "device": "cuda:3",
+      "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_cls_mean_concat_aux_seed18",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_cls_mean_concat_aux_seed18/checkpoint_film_cls_mean_concat_aux_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.28103892037282624,
+        "final_train_loss": 0.26827536884428294,
+        "final_huber_loss": 0.2643568319977347,
+        "final_kl_loss": 0.39185374731089884,
+        "train_weight_entropy": 1.1159251928329468,
+        "train_normalized_weight_entropy": 0.6933633089065552,
+        "train_mean_max_weight": 0.5112338662147522
+      },
+      "constraints": {
+        "pilot_test_used_for_selection": false,
+        "pilot_test_evaluated": false,
+        "trained_new_model": true,
+        "rebuilt_p2a_feature": false,
+        "loaded_116m_prediction_manifest_to_memory": false,
+        "saved_pseudo_image_tensor": false,
+        "used_film": true,
+        "used_gating": false,
+        "used_attention": false,
+        "used_concat_aux": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-21 17:29:43 CST",
+      "script_version": "visual_router_v2_round1_film_p2e_v1",
+      "variant": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:1",
+      "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_mean_patch_aux_seed16",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_mean_patch_aux_seed16/checkpoint_film_mean_patch_aux_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2825582536515929,
+        "final_train_loss": 0.26960575692482774,
+        "final_huber_loss": 0.2656488626585072,
+        "final_kl_loss": 0.3956894868978461,
+        "train_weight_entropy": 1.1529124975204468,
+        "train_normalized_weight_entropy": 0.7163447737693787,
+        "train_mean_max_weight": 0.49860531091690063
+      },
+      "constraints": {
+        "pilot_test_used_for_selection": false,
+        "pilot_test_evaluated": false,
+        "trained_new_model": true,
+        "rebuilt_p2a_feature": false,
+        "loaded_116m_prediction_manifest_to_memory": false,
+        "saved_pseudo_image_tensor": false,
+        "used_film": true,
+        "used_gating": false,
+        "used_attention": false,
+        "used_concat_aux": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-21 17:29:50 CST",
+      "script_version": "visual_router_v2_round1_film_p2e_v1",
+      "variant": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:2",
+      "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_mean_patch_aux_seed17",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_mean_patch_aux_seed17/checkpoint_film_mean_patch_aux_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2818999688678227,
+        "final_train_loss": 0.270293061974309,
+        "final_huber_loss": 0.2662569592888038,
+        "final_kl_loss": 0.4036103025231345,
+        "train_weight_entropy": 1.1153206825256348,
+        "train_normalized_weight_entropy": 0.6929876804351807,
+        "train_mean_max_weight": 0.5114733576774597
+      },
+      "constraints": {
+        "pilot_test_used_for_selection": false,
+        "pilot_test_evaluated": false,
+        "trained_new_model": true,
+        "rebuilt_p2a_feature": false,
+        "loaded_116m_prediction_manifest_to_memory": false,
+        "saved_pseudo_image_tensor": false,
+        "used_film": true,
+        "used_gating": false,
+        "used_attention": false,
+        "used_concat_aux": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-21 17:29:45 CST",
+      "script_version": "visual_router_v2_round1_film_p2e_v1",
+      "variant": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:3",
+      "output_dir": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_mean_patch_aux_seed18",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film/tasks/film_mean_patch_aux_seed18/checkpoint_film_mean_patch_aux_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2838919293961834,
+        "final_train_loss": 0.2692621761977469,
+        "final_huber_loss": 0.2652055117915108,
+        "final_kl_loss": 0.40566643675846453,
+        "train_weight_entropy": 1.1237454414367676,
+        "train_normalized_weight_entropy": 0.698222279548645,
+        "train_mean_max_weight": 0.5050845146179199
+      },
+      "constraints": {
+        "pilot_test_used_for_selection": false,
+        "pilot_test_evaluated": false,
+        "trained_new_model": true,
+        "rebuilt_p2a_feature": false,
+        "loaded_116m_prediction_manifest_to_memory": false,
+        "saved_pseudo_image_tensor": false,
+        "used_film": true,
+        "used_gating": false,
+        "used_attention": false,
+        "used_concat_aux": false,
+        "single_task_output_isolated": true
+      }
+    }
+  ]
+}
