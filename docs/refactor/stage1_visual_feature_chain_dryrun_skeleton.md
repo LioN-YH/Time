@@ -86,6 +86,11 @@ SampleManifest ordered sample_keys
 
 ## 后续
 
-P19a 之后可以继续做真实 raw window provider、pseudo image transform 或 frozen ViT provider 的
-小步迁移。每一步仍应保持 provider/transform/encoder 只消费显式输入，真实资源加载和路径授权留在
-Runtime / entrypoint 层。
+P19b 已在 P19a skeleton 后新增 guarded `VisualVitEncoderProvider`，见
+`docs/refactor/stage1_visual_vit_encoder_guard.md`。该 provider 只迁移
+`VisualEncoderProvider` 真实 ViT adapter 边界，默认 import 仍不导入 transformers，真实
+model / processor path 由 Runtime guard 显式授权。
+
+后续可以继续做真实 raw window provider、pseudo image transform 或把 guarded ViT provider 接到
+显式 small/manual entrypoint。每一步仍应保持 provider/transform/encoder 只消费显式输入，
+训练入口、full-scale launcher、真实资源加载和路径授权留在 Runtime / entrypoint 层。

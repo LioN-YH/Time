@@ -3546,6 +3546,33 @@ P19a 明确不做：
 - 不把 fake encoder 暴露为 `time_router.features` public core。
 - 不删除 P17 precomputed feature path，不改变 P17 canonical eval entrypoint 默认行为。
 
+### P19b：guarded real ViT encoder provider dry-run contract
+
+P19b 已新增 guarded real ViT encoder provider dry-run contract，见
+`docs/refactor/stage1_visual_vit_encoder_guard.md`。
+
+完成内容：
+
+- 新增 `time_router/runtime/visual_vit_guard.py`，提供
+  `authorize_visual_vit_model_paths(...)` 和 `VisualVitModelPathPolicy`。
+- 新增 `time_router/features/visual_vit_encoder.py`，提供
+  `VisualVitEncoderProvider` 和 `build_visual_vit_encoder_provider(...)`。
+- 默认 import `time_router.features` / `time_router.runtime` 不导入 transformers。
+- 真实 `AutoImageProcessor` / `ViTModel` 只在显式构造函数内部 lazy import；测试可通过
+  processor/model 注入绕开 transformers。
+- provider 输出 canonical `VisualEmbeddingBatch`，metadata 记录 `encoder_provider`、
+  `loads_real_vit`、model/processor path policy、allow flags、`lazy_transformers_import=true`、
+  `training_started=false` 和 `formal_training_migration=false`。
+- 新增 P19b smoke 覆盖 import boundary、path guard、注入式 provider、P19a chain integration、
+  small MLP adapter 和 `EvaluationInputAdapter`。
+
+P19b 明确不做：
+
+- 不修改 `train_visual_router_online_streaming.py`，不迁移训练入口，不启动 full-scale。
+- 不新增 Bash launcher，不自动搜索 `/data2`，不从 checkpoint/run_dir 推断 ViT path。
+- 不默认联网或下载 HuggingFace 模型，不默认导入 transformers。
+- 不要求数值对齐 legacy Visual Router，不删除 P17 precomputed feature path。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

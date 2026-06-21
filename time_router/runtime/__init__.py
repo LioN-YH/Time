@@ -8,7 +8,8 @@
     strict load 的最小边界。Provider、Head、Evaluator 不应从这里读取或推导
     run_dir，也不应接收 checkpoint path。
     `visual_mlp_checkpoint`、`visual_eval_checkpoint_guard` 和
-    `visual_eval_feature_guard` 当前属于 Stage 1 P16/P17 migration bridge；
+    `visual_eval_feature_guard` 和 `visual_vit_guard` 当前属于 Stage 1 P16/P17/P19
+    migration bridge；
     后续 Runtime config/checkpoint/artifact policy 成型后可再合并或下沉。
 """
 
@@ -41,19 +42,27 @@ from time_router.runtime.visual_eval_feature_guard import (
     authorize_visual_eval_scaler_path,
     is_fixture_or_tempfile_visual_eval_artifact,
 )
+from time_router.runtime.visual_vit_guard import (
+    VisualVitModelPathPolicy,
+    authorize_visual_vit_model_paths,
+    is_fixture_or_tempfile_visual_vit_artifact,
+)
 
 __all__ = [
     "CANONICAL_RUN_SUBDIRS",
     "CheckpointPathPolicy",
     "VisualEvalPathPolicy",
+    "VisualVitModelPathPolicy",
     "authorize_visual_eval_checkpoint_path",
     "authorize_visual_eval_feature_path",
     "authorize_visual_eval_scaler_path",
+    "authorize_visual_vit_model_paths",
     "create_run_dir",
     "extract_router_state_dict",
     "is_data2_path",
     "is_fixture_or_tempfile_checkpoint",
     "is_fixture_or_tempfile_visual_eval_artifact",
+    "is_fixture_or_tempfile_visual_vit_artifact",
     "load_checkpoint_payload",
     "load_router_state_dict",
     "strip_dataparallel_prefix",
