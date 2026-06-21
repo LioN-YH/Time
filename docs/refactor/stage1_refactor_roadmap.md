@@ -3573,6 +3573,40 @@ P19b 明确不做：
 - 不默认联网或下载 HuggingFace 模型，不默认导入 transformers。
 - 不要求数值对齐 legacy Visual Router，不删除 P17 precomputed feature path。
 
+### P20a：Visual canonical eval visual-chain dry-run path
+
+P20a 已把 P19 visual-chain 基础设施接入 P17 canonical eval entrypoint，见
+`docs/refactor/stage1_visual_eval_visual_chain_path.md`。
+
+完成内容：
+
+- 扩展 `scripts/run_stage1_visual_eval_canonical.py`，`--feature-source` 新增
+  `visual-chain-dryrun`，默认仍为 `precomputed`。
+- 新增 `--raw-window-json`、`--visual-chain-mode`、`--vit-provider-mode`、
+  `--manual-real-vit`、`--vit-model-path`、`--vit-processor-path`、`--allow-real-vit`
+  和 `--allow-external-vit-path`。
+- visual-chain dry-run 从显式 raw-window JSON 读取 manifest ordered sample_keys，经
+  `VisualFeatureChainRunner`、默认 injected-fake `VisualVitEncoderProvider`、
+  mean patch pooling 和可选 `LoadedFeatureScaler` transform 输出 canonical `FeatureBatch`。
+- `FeatureBatch` 继续复用 P17 既有 checkpoint/head/eval/runtime writer 链路，不把
+  raw window path、run_dir、checkpoint path 或 allow flags 下沉到 provider/head adapter。
+- `run_metadata.visual_router` 记录 `feature_source=visual-chain-dryrun`、
+  `visual_chain_enabled=true`、`raw_window_source`、`vit_provider_mode=injected-fake`、
+  `loads_real_vit=false`、`visual_chain_runner=VisualFeatureChainRunner`、
+  `encoder_provider=VisualVitEncoderProvider`、`training_started=false`、
+  `formal_training_migration=false` 和 `full_scale_run=false`。
+- 新增 P20a smoke 覆盖 P17a precomputed 回归、visual-chain 正向 run_dir、
+  import/stdout 边界、raw-window-json 缺失 fail-fast 和 raw-window fixture 缺 manifest
+  sample_key fail-fast。
+
+P20a 明确不做：
+
+- 不启动 full-scale，不启动训练，不新增 Bash launcher。
+- 不自动搜索 `/data2`，不默认加载真实 ViT，不默认导入 transformers。
+- 不默认下载 HuggingFace 模型，不修改 `train_visual_router_online_streaming.py`。
+- 不删除 precomputed feature path，不修改 TimeFuse small entrypoint。
+- 不要求与 legacy Visual Router 数值对齐。
+
 ### P6：migrate visual router and TimeFuse fusor entrypoints
 
 目标：让两个正式入口逐步消费共享 provider chain、metrics/report 和 runtime helper，但保留各自 head、loss 与实验变量。

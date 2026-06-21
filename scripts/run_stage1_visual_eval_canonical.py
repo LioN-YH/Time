@@ -13,9 +13,11 @@
     status、inputs、evaluation summary、prediction rows 和最小日志。
 
 关键约束：
-    本脚本只做 Visual evaluation，不启动训练、不启动 ViT、不迁移
+    本脚本只做 Visual evaluation，不启动训练、不迁移
     `train_visual_router_online_streaming.py`，也不修改 P15c/P16j Visual small
-    entrypoint 的默认行为。checkpoint/scaler path 只属于 Runtime/entrypoint，
+    entrypoint 的默认行为。默认 visual-chain dry-run 使用 injected fake ViT
+    provider，不导入 transformers、不加载真实 ViT；manual real ViT 只允许显式
+    授权 dry-run。checkpoint/scaler/raw-window/ViT path 只属于 Runtime/entrypoint，
     不进入 FeatureProvider 或 RouterHead adapter interface。
 """
 
@@ -40,7 +42,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from time_router.evaluation import EvaluationInputAdapter, EvaluationInputAdapterResult  # noqa: E402
-from time_router.features import LoadedFeatureScaler, VisualPrecomputedFeatureProvider  # noqa: E402
+from time_router.features import (  # noqa: E402
+    LoadedFeatureScaler,
+    PreImageBatch,
+    RawWindowBatch,
+    VisualEmbeddingBatch,
+    VisualFeatureChainRunner,
+    VisualFeatureChainSpec,
+    VisualInputBatch,
+    VisualPrecomputedFeatureProvider,
+    VisualVitEncoderProvider,
+    build_visual_vit_encoder_provider,
+)
 from time_router.models import LoadedTorchMLPRouterHeadAdapter  # noqa: E402
 from time_router.protocols import ExpertBatch, FeatureBatch, RouterOutput, SampleManifest, SampleManifestRow  # noqa: E402
 from time_router.runtime import (  # noqa: E402
@@ -64,6 +77,8 @@ from time_router.runtime import (  # noqa: E402
 LEGACY_MODULE_IMPORT_PATH = "visual_router_experiments.stage1_vali_test_router.train_visual_router"
 ENTRYPOINT_NAME = "visual_eval_canonical"
 PROTOCOL_VERSION = "stage1_visual_eval_canonical_entrypoint_v1"
+VISUAL_CHAIN_DRYRUN_TOKEN_COUNT = 5
+VISUAL_CHAIN_DRYRUN_EMBED_DIM = 4
 
 
 def assert_not_data2(path: Path, *, role: str) -> None:
@@ -228,6 +243,192 @@ class JsonExpertProvider:
         )
 
 
+class JsonRawWindowProvider:
+    """
+    类功能：
+        从显式 raw-window JSON fixture 按 manifest ordered sample_keys 输出 RawWindowBatch。
+
+    关键约束：
+        provider 只读取 CLI 显式传入的 JSON；不搜索 `/data2`，不接收 run_dir、
+        checkpoint path 或 ViT path。
+    """
+
+    provider_name = "json_raw_window_fixture"
+
+    def __init__(self, raw_window_json: Path) -> None:
+        assert_not_data2(raw_window_json, role="raw_window_json")
+        self.raw_window_json = Path(raw_window_json)
+        if not self.raw_window_json.is_file():
+            raise FileNotFoundError(f"raw_window_json 不存在：{self.raw_window_json}")
+        with self.raw_window_json.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, Mapping):
+            raise ValueError("raw_window_json 必须是 JSON object")
+        windows_payload = payload.get("windows")
+        if not isinstance(windows_payload, Mapping) or not windows_payload:
+            raise ValueError("raw_window_json 需要非空 windows object")
+        self.fixture_metadata = dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {}
+        self._windows_by_key = {
+            str(sample_key): np.asarray(values, dtype=np.float32) for sample_key, values in windows_payload.items()
+        }
+        if len(self._windows_by_key) != len(windows_payload):
+            raise ValueError("raw_window_json 存在重复或不可区分的 sample_key")
+        for sample_key, values in self._windows_by_key.items():
+            if values.ndim != 1 or values.size == 0:
+                raise ValueError(f"raw_window_json window 必须是一维非空数组：sample_key={sample_key}, shape={values.shape}")
+            if not np.all(np.isfinite(values)):
+                raise ValueError(f"raw_window_json window 包含 NaN 或 Inf：sample_key={sample_key}")
+
+    def load_batch(self, sample_keys: Sequence[str]) -> RawWindowBatch:
+        """函数功能：按调用方 sample_key 顺序堆叠 raw windows，并检查 fixture 覆盖。"""
+        ordered_keys = tuple(str(sample_key) for sample_key in sample_keys)
+        missing = [sample_key for sample_key in ordered_keys if sample_key not in self._windows_by_key]
+        if missing:
+            raise KeyError(f"raw_window_json 缺少 manifest sample_key：{missing}")
+        windows = np.stack([self._windows_by_key[sample_key] for sample_key in ordered_keys], axis=0).astype(
+            np.float32,
+            copy=False,
+        )
+        return RawWindowBatch(
+            sample_keys=ordered_keys,
+            windows=windows,
+            metadata={
+                "stage": "raw_window",
+                "component": self.provider_name,
+                "source": str(self.raw_window_json),
+                "shape": tuple(windows.shape),
+                "fixture_metadata": self.fixture_metadata,
+            },
+        )
+
+
+class IdentityPreImageTransform:
+    """类功能：dry-run 用 identity pre-image transform，占位 future RevIN/normalization。"""
+
+    def transform(self, batch: RawWindowBatch) -> PreImageBatch:
+        """函数功能：复制 raw window payload 并保留 sample_key 顺序。"""
+        values = np.asarray(batch.windows, dtype=np.float32).copy()
+        return PreImageBatch(
+            sample_keys=batch.sample_keys,
+            values=values,
+            metadata={
+                "stage": "pre_image",
+                "component": "identity_pre_image",
+                "input_stage": batch.metadata.get("stage"),
+                "shape": tuple(values.shape),
+            },
+        )
+
+
+class TinyPseudoImageTransform:
+    """类功能：把一维 raw window fixture 转成 deterministic CHW pseudo image。"""
+
+    def transform(self, batch: PreImageBatch) -> VisualInputBatch:
+        """函数功能：构造固定 3x4x4 pseudo image，供 fake/real ViT provider dry-run。"""
+        values = np.asarray(batch.values, dtype=np.float32)
+        if values.ndim != 2 or values.shape[0] != len(batch.sample_keys):
+            raise ValueError(f"pre-image values 必须是二维 [sample, window]：actual={values.shape}")
+        window_mean = np.mean(values, axis=1, keepdims=True).reshape(values.shape[0], 1, 1, 1)
+        window_std = np.std(values, axis=1, keepdims=True).reshape(values.shape[0], 1, 1, 1)
+        grid = np.linspace(0.0, 1.0, num=16, dtype=np.float32).reshape(1, 1, 4, 4)
+        images = np.concatenate(
+            [
+                window_mean + grid,
+                window_std + grid * 0.5,
+                (window_mean + window_std) + grid * 0.25,
+            ],
+            axis=1,
+        ).astype(np.float32)
+        return VisualInputBatch(
+            sample_keys=batch.sample_keys,
+            images=images,
+            metadata={
+                "stage": "pseudo_image",
+                "component": "tiny_deterministic_pseudo_image",
+                "input_stage": batch.metadata.get("stage"),
+                "shape": tuple(images.shape),
+            },
+        )
+
+
+class IdentityResizePolicy:
+    """类功能：dry-run resize/input policy，占位 future processor resize policy。"""
+
+    def apply(self, batch: VisualInputBatch) -> VisualInputBatch:
+        """函数功能：复制 pseudo image payload 并记录 resize lineage。"""
+        images = np.asarray(batch.images, dtype=np.float32).copy()
+        return VisualInputBatch(
+            sample_keys=batch.sample_keys,
+            images=images,
+            metadata={
+                "stage": "resize_policy",
+                "component": "identity_resize_policy",
+                "input_stage": batch.metadata.get("stage"),
+                "shape": tuple(images.shape),
+            },
+        )
+
+
+class InjectedFakeVitProcessor:
+    """
+    类功能：
+        injected fake processor，匹配 VisualVitEncoderProvider 所需 processor callable。
+
+    关键约束：
+        不导入 transformers，不下载模型；只把 numpy images 转成 torch tensor。
+    """
+
+    def __call__(self, images: object, *, return_tensors: str = "pt") -> Mapping[str, torch.Tensor]:
+        """函数功能：返回 provider 可消费的 pixel_values mapping。"""
+        if return_tensors != "pt":
+            raise ValueError(f"injected fake processor 只支持 return_tensors='pt'：actual={return_tensors}")
+        return {"pixel_values": torch.as_tensor(np.asarray(images, dtype=np.float32), dtype=torch.float32)}
+
+
+class InjectedFakeVitModel(torch.nn.Module):
+    """类功能：injected fake ViT model，输出 deterministic last_hidden_state。"""
+
+    def forward(self, *, pixel_values: torch.Tensor) -> object:
+        """函数功能：用 pseudo image 统计量生成三维 token embedding。"""
+        flattened = pixel_values.reshape(pixel_values.shape[0], -1)
+        mean = torch.mean(flattened, dim=1, keepdim=True)
+        maximum = torch.max(flattened, dim=1, keepdim=True).values
+        token_axis = torch.arange(VISUAL_CHAIN_DRYRUN_TOKEN_COUNT, dtype=torch.float32, device=pixel_values.device).reshape(
+            1,
+            VISUAL_CHAIN_DRYRUN_TOKEN_COUNT,
+            1,
+        )
+        dim_axis = torch.arange(VISUAL_CHAIN_DRYRUN_EMBED_DIM, dtype=torch.float32, device=pixel_values.device).reshape(
+            1,
+            1,
+            VISUAL_CHAIN_DRYRUN_EMBED_DIM,
+        )
+        embeddings = mean[:, None, :] + maximum[:, None, :] * 0.05 + token_axis * 0.1 + dim_axis * 0.01
+        return type("InjectedFakeVitOutput", (), {"last_hidden_state": embeddings})()
+
+
+class MeanPatchPoolingStrategy:
+    """类功能：把 fake/ViT token embedding mean-pool 为 canonical FeatureBatch。"""
+
+    def pool(self, batch: VisualEmbeddingBatch) -> FeatureBatch:
+        """函数功能：忽略 CLS token，对 patch tokens 做 mean pooling。"""
+        embeddings = np.asarray(batch.embeddings, dtype=np.float32)
+        if embeddings.ndim != 3 or embeddings.shape[1] < 2:
+            raise ValueError(f"VisualEmbeddingBatch embeddings shape 异常：actual={embeddings.shape}")
+        features = np.mean(embeddings[:, 1:, :], axis=1).astype(np.float32, copy=False)
+        return FeatureBatch(
+            sample_keys=batch.sample_keys,
+            features=features,
+            feature_schema={
+                "stage": "pooling_strategy",
+                "component": "mean_patch_pooling",
+                "feature_dim": int(features.shape[1]),
+                "dtype": str(features.dtype),
+            },
+            extra={"pooling_metadata": {"component": "mean_patch_pooling", "input_stage": batch.metadata.get("stage")}},
+        )
+
+
 def import_legacy_visual_mlp_router() -> type[torch.nn.Module]:
     """
     函数功能：
@@ -243,14 +444,19 @@ def import_legacy_visual_mlp_router() -> type[torch.nn.Module]:
 def build_feature_batch(args: argparse.Namespace, ordered_sample_keys: Sequence[str]) -> tuple[FeatureBatch, Mapping[str, object]]:
     """
     函数功能：
-        使用 precomputed fixture feature source，并可选执行 LoadedFeatureScaler。
+        按 CLI feature_source 构造 canonical FeatureBatch，并可选执行 LoadedFeatureScaler。
 
     关键约束：
-        P17a 只支持 precomputed feature CSV；真实 ViT provider 留到后续。
-        scaler 只在显式传入 state JSON 时 transform，不做 silent fit。
+        默认 precomputed 分支保持 P17 行为；只有 `visual-chain-dryrun` 才执行
+        VisualFeatureChainRunner。scaler 只在显式传入 state JSON 时 transform，
+        不做 silent fit。
     """
+    if str(args.feature_source) == "visual-chain-dryrun":
+        return build_visual_chain_dryrun_feature_batch(args, ordered_sample_keys)
     if str(args.feature_source) != "precomputed":
-        raise ValueError(f"P17a thin slice 只支持 precomputed feature_source：actual={args.feature_source}")
+        raise ValueError(f"未知 feature_source：actual={args.feature_source}")
+    if not args.visual_features_csv:
+        raise ValueError("--feature-source precomputed 必须显式传入 --visual-features-csv")
     visual_features_csv = Path(args.visual_features_csv)
     feature_policy = authorize_visual_eval_feature_path(
         visual_features_csv,
@@ -330,6 +536,214 @@ def build_feature_batch(args: argparse.Namespace, ordered_sample_keys: Sequence[
     return feature_batch, metadata
 
 
+def build_visual_chain_dryrun_feature_batch(
+    args: argparse.Namespace,
+    ordered_sample_keys: Sequence[str],
+) -> tuple[FeatureBatch, Mapping[str, object]]:
+    """
+    函数功能：
+        构造 small visual-chain dry-run feature source，并输出 canonical FeatureBatch。
+
+    关键约束：
+        raw window 必须来自显式 `--raw-window-json`；默认 injected fake ViT provider
+        不导入 transformers、不加载真实 ViT。manual real ViT 需要双重显式授权，
+        且仍只做 evaluation-only dry-run。
+    """
+    if str(args.visual_chain_mode) != "dryrun":
+        raise ValueError(f"P20a 只支持 --visual-chain-mode dryrun：actual={args.visual_chain_mode}")
+    if not args.raw_window_json:
+        raise ValueError("--feature-source visual-chain-dryrun 必须显式传入 --raw-window-json")
+    raw_window_json = Path(args.raw_window_json)
+    assert_not_data2(raw_window_json, role="raw_window_json")
+    raw_provider = JsonRawWindowProvider(raw_window_json)
+
+    scaler_metadata, feature_transform = build_optional_feature_transform(args)
+    encoder_provider, encoder_metadata = build_visual_chain_encoder_provider(args)
+    runner = VisualFeatureChainRunner(
+        spec=VisualFeatureChainSpec(
+            raw_window_provider=raw_provider,
+            pre_image_transform=IdentityPreImageTransform(),
+            pseudo_image_transformer=TinyPseudoImageTransform(),
+            resize_policy=IdentityResizePolicy(),
+            visual_encoder_provider=encoder_provider,
+            pooling_strategy=MeanPatchPoolingStrategy(),
+            feature_transform=feature_transform,
+            chain_name="stage1_p20a_visual_chain_dryrun",
+            metadata={
+                "feature_source": "visual-chain-dryrun",
+                "visual_chain_mode": "dryrun",
+                "loads_real_vit": bool(encoder_metadata["loads_real_vit"]),
+                "training_started": False,
+                "formal_training_migration": False,
+                "full_scale_run": False,
+            },
+        )
+    )
+    result = runner.run(ordered_sample_keys)
+    feature_batch = result.feature_batch
+    assert_visual_chain_feature_contract(feature_batch=feature_batch, ordered_sample_keys=ordered_sample_keys)
+    metadata: dict[str, object] = {
+        "feature_source": "visual-chain-dryrun",
+        "feature_provider": "VisualFeatureChainRunner",
+        "feature_path_policy": "explicit_raw_window_json",
+        "feature_path_guard": "raw_window_json_explicit_no_auto_search",
+        "feature_path_label": str(args.feature_path_label or ""),
+        "allow_external_feature_path": False,
+        "visual_features_csv": None,
+        "raw_window_json": {
+            "reference_type": "file",
+            "path": str(raw_window_json),
+            "checksum": sha256_file(raw_window_json),
+            "checksum_algorithm": "sha256",
+        },
+        "raw_window_source": str(raw_window_json),
+        "visual_chain_enabled": True,
+        "visual_chain_mode": "dryrun",
+        "visual_chain_runner": "VisualFeatureChainRunner",
+        "encoder_provider": "VisualVitEncoderProvider",
+        "vit_provider_mode": str(args.vit_provider_mode),
+        "loads_real_vit": bool(encoder_metadata["loads_real_vit"]),
+        "allow_real_vit": bool(args.allow_real_vit),
+        "allow_external_vit_path": bool(args.allow_external_vit_path),
+        "manual_real_vit": bool(args.manual_real_vit),
+        "training_started": False,
+        "formal_training_migration": False,
+        "full_scale_run": False,
+        "stage_metadata": result.stage_metadata,
+        "encoder_metadata": encoder_metadata,
+        "scaler": scaler_metadata,
+    }
+    return feature_batch, metadata
+
+
+def build_optional_feature_transform(args: argparse.Namespace) -> tuple[dict[str, object], LoadedFeatureScaler | None]:
+    """
+    函数功能：
+        读取可选 scaler state，并作为 visual-chain 的 FeatureTransform 插槽返回。
+    """
+    if not args.scaler_state_json:
+        return (
+            {
+                "scaler_enabled": False,
+                "scaler_path_policy": "not_provided",
+                "scaler_path_guard": "not_applicable",
+                "scaler_path_label": str(args.scaler_path_label or ""),
+                "allow_external_scaler_path": bool(args.allow_external_scaler_path),
+                "fit_performed": False,
+            },
+            None,
+        )
+    scaler_state_json = Path(args.scaler_state_json)
+    scaler_policy = authorize_visual_eval_scaler_path(
+        scaler_state_json,
+        repo_root=REPO_ROOT,
+        allow_external_scaler_path=bool(args.allow_external_scaler_path),
+        path_label=str(args.scaler_path_label or ""),
+    )
+    if not scaler_state_json.is_file():
+        raise FileNotFoundError(f"scaler_state_json 不存在：{scaler_state_json}")
+    scaler = LoadedFeatureScaler.from_json(scaler_state_json)
+    return (
+        {
+            "scaler_enabled": True,
+            "scaler_name": "LoadedFeatureScaler",
+            "scaler_path_policy": scaler_policy.path_policy,
+            "scaler_path_guard": scaler_policy.policy_name,
+            "scaler_path_label": scaler_policy.path_label,
+            "allow_external_scaler_path": scaler_policy.allow_external_path,
+            "scaler_state_json": {
+                "reference_type": "file",
+                "path": str(scaler_state_json),
+                "checksum": sha256_file(scaler_state_json),
+                "checksum_algorithm": "sha256",
+            },
+            "fit_performed": False,
+        },
+        scaler,
+    )
+
+
+def build_visual_chain_encoder_provider(args: argparse.Namespace) -> tuple[VisualVitEncoderProvider, dict[str, object]]:
+    """
+    函数功能：
+        根据 CLI guard 构造 visual-chain encoder provider。
+
+    关键约束：
+        默认 injected-fake 分支只注入本地 fake processor/model；只有 manual real
+        ViT 分支才调用 guarded builder，并允许其 lazy import transformers。
+    """
+    if bool(args.manual_real_vit):
+        if str(args.vit_provider_mode) != "manual-real":
+            raise ValueError("--manual-real-vit 必须搭配 --vit-provider-mode manual-real")
+        if not bool(args.allow_real_vit):
+            raise ValueError("--manual-real-vit 必须显式传入 --allow-real-vit")
+        if not args.vit_model_path:
+            raise ValueError("--manual-real-vit 必须显式传入 --vit-model-path")
+        model_path = Path(args.vit_model_path)
+        processor_path = Path(args.vit_processor_path) if args.vit_processor_path else None
+        provider = build_visual_vit_encoder_provider(
+            model_path=model_path,
+            processor_path=processor_path,
+            repo_root=REPO_ROOT,
+            allow_real_vit=bool(args.allow_real_vit),
+            allow_external_vit_path=bool(args.allow_external_vit_path),
+            device="cpu",
+            local_files_only=True,
+        )
+        return (
+            provider,
+            {
+                "vit_provider_mode": "manual-real",
+                "loads_real_vit": True,
+                "manual_real_vit": True,
+                "vit_model_path": str(model_path),
+                "vit_processor_path": str(processor_path) if processor_path else None,
+                "allow_real_vit": bool(args.allow_real_vit),
+                "allow_external_vit_path": bool(args.allow_external_vit_path),
+            },
+        )
+
+    if str(args.vit_provider_mode) != "injected-fake":
+        raise ValueError("--vit-provider-mode 默认只支持 injected-fake；真实 ViT 需显式 --manual-real-vit")
+    if bool(args.allow_real_vit):
+        raise ValueError("--allow-real-vit 只能与 --manual-real-vit 一起使用")
+    if bool(args.allow_external_vit_path):
+        raise ValueError("--allow-external-vit-path 只能与 --manual-real-vit 一起使用")
+    if args.vit_model_path or args.vit_processor_path:
+        raise ValueError("--vit-model-path/--vit-processor-path 只能与 --manual-real-vit 一起使用")
+    provider = VisualVitEncoderProvider(
+        processor=InjectedFakeVitProcessor(),
+        model=InjectedFakeVitModel(),
+        policy={
+            "loads_real_vit": False,
+            "model_path_policy": "injected_fake_no_model_path",
+            "processor_path_policy": "injected_fake_no_processor_path",
+            "allow_real_vit": False,
+            "allow_external_vit_path": False,
+        },
+        device="cpu",
+        provider_name="VisualVitEncoderProvider",
+        mocked_real_vit=False,
+        extra_metadata={
+            "vit_provider_mode": "injected-fake",
+            "manual_real_vit": False,
+            "training_started": False,
+            "formal_training_migration": False,
+            "full_scale_run": False,
+        },
+    )
+    return (
+        provider,
+        {
+            "vit_provider_mode": "injected-fake",
+            "loads_real_vit": False,
+            "manual_real_vit": False,
+            "allow_real_vit": False,
+            "allow_external_vit_path": False,
+        },
+    )
+
+
 def assert_precomputed_feature_contract(
     *,
     feature_batch: FeatureBatch,
@@ -378,6 +792,34 @@ def assert_scaled_feature_contract(
         raise AssertionError(f"LoadedFeatureScaler transform 后 dtype 必须为 float32：actual={features.dtype}")
     if not np.isfinite(features).all():
         raise AssertionError("LoadedFeatureScaler transform 后 features 包含 NaN 或 Inf")
+
+
+def assert_visual_chain_feature_contract(
+    *,
+    feature_batch: FeatureBatch,
+    ordered_sample_keys: Sequence[str],
+) -> None:
+    """
+    函数功能：
+        对 VisualFeatureChainRunner dry-run 输出做 canonical FeatureBatch contract 检查。
+    """
+    ordered_keys = tuple(str(sample_key) for sample_key in ordered_sample_keys)
+    if feature_batch.sample_keys != ordered_keys:
+        raise AssertionError("VisualFeatureChainRunner 输出未保持 manifest sample_key 顺序")
+    features = np.asarray(feature_batch.features)
+    if features.ndim != 2 or features.shape[0] != len(ordered_keys):
+        raise AssertionError(f"VisualFeatureChainRunner FeatureBatch shape 异常：actual={features.shape}")
+    if features.shape[1] <= 0:
+        raise AssertionError("VisualFeatureChainRunner FeatureBatch feature dim 必须大于 0")
+    if features.dtype != np.float32:
+        raise AssertionError(f"VisualFeatureChainRunner FeatureBatch dtype 必须为 float32：actual={features.dtype}")
+    if not np.all(np.isfinite(features)):
+        raise AssertionError("VisualFeatureChainRunner FeatureBatch features 包含 NaN 或 Inf")
+    schema = dict(feature_batch.feature_schema)
+    if schema.get("chain_runner") != "VisualFeatureChainRunner":
+        raise AssertionError(f"FeatureBatch schema 未记录 VisualFeatureChainRunner：{schema}")
+    if schema.get("encoder") != "VisualVitEncoderProvider":
+        raise AssertionError(f"FeatureBatch schema 未记录 VisualVitEncoderProvider：{schema}")
 
 
 def build_router_output(
@@ -583,6 +1025,8 @@ def write_runtime_artifacts(
         "created_at": created_at,
     }
     scaler_metadata = dict(feature_metadata["scaler"])
+    visual_features_ref = feature_metadata.get("visual_features_csv")
+    raw_window_ref = feature_metadata.get("raw_window_json")
     metadata = {
         "run_artifact_schema_version": "stage1_run_artifact_v1",
         "protocol_version": PROTOCOL_VERSION,
@@ -600,7 +1044,8 @@ def write_runtime_artifacts(
                 "checksum": sha256_file(expert_predictions_json),
                 "checksum_algorithm": "sha256",
             },
-            "visual_features_csv": dict(feature_metadata["visual_features_csv"]),
+            "visual_features_csv": dict(visual_features_ref) if isinstance(visual_features_ref, Mapping) else None,
+            "raw_window_json": dict(raw_window_ref) if isinstance(raw_window_ref, Mapping) else None,
             "router_checkpoint_payload": {
                 "reference_type": "file",
                 "path": str(head_metadata["checkpoint_payload_path"]),
@@ -618,12 +1063,18 @@ def write_runtime_artifacts(
             "feature_path_label": feature_metadata["feature_path_label"],
             "allow_external_feature_path": feature_metadata["allow_external_feature_path"],
             "feature_schema": dict(feature_batch.feature_schema),
+            "visual_chain_enabled": bool(feature_metadata.get("visual_chain_enabled", False)),
+            "raw_window_source": feature_metadata.get("raw_window_source"),
+            "vit_provider_mode": feature_metadata.get("vit_provider_mode", "not_applicable"),
+            "visual_chain_runner": feature_metadata.get("visual_chain_runner"),
+            "encoder_provider": feature_metadata.get("encoder_provider"),
             "loaded_legacy_mlp": True,
             "scaler_enabled": bool(scaler_metadata["scaler_enabled"]),
             "loads_real_checkpoint": bool(head_metadata["loads_real_checkpoint"]),
-            "loads_real_vit": False,
+            "loads_real_vit": bool(feature_metadata.get("loads_real_vit", False)),
             "training_started": False,
             "formal_training_migration": False,
+            "full_scale_run": bool(feature_metadata.get("full_scale_run", False)),
             "head": head_metadata["head"],
             "adapter_name": head_metadata["adapter_name"],
             "checkpoint_payload_source": head_metadata["checkpoint_payload_source"],
@@ -686,7 +1137,7 @@ def write_runtime_artifacts(
                 f"hard_mae={evaluation_summary['metrics']['hard_mae']}",
                 f"raw_soft_mae={evaluation_summary['metrics']['raw_soft_mae']}",
                 "training_started=false",
-                "loads_real_vit=false",
+                f"loads_real_vit={str(bool(feature_metadata.get('loads_real_vit', False))).lower()}",
             ]
         )
         + "\n",
@@ -758,9 +1209,10 @@ def run_entrypoint(args: argparse.Namespace) -> Path:
                 "loaded_legacy_mlp": True,
                 "scaler_enabled": bool(dict(feature_metadata["scaler"])["scaler_enabled"]),
                 "loads_real_checkpoint": bool(head_metadata["loads_real_checkpoint"]),
-                "loads_real_vit": False,
+                "loads_real_vit": bool(feature_metadata.get("loads_real_vit", False)),
                 "training_started": False,
                 "formal_training_migration": False,
+                "full_scale_run": bool(feature_metadata.get("full_scale_run", False)),
                 "hard_mae": summary["metrics"]["hard_mae"],
                 "raw_soft_mae": summary["metrics"]["raw_soft_mae"],
             },
@@ -776,14 +1228,36 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Stage 1 Visual canonical evaluation entrypoint thin slice.")
     parser.add_argument("--sample-manifest-csv", required=True, help="显式 SampleManifest CSV；P17a 禁止自动搜索。")
     parser.add_argument("--expert-predictions-json", required=True, help="显式 expert prediction JSON。")
-    parser.add_argument("--visual-features-csv", required=True, help="显式 precomputed visual feature CSV fixture。")
+    parser.add_argument("--visual-features-csv", default=None, help="显式 precomputed visual feature CSV fixture。")
     parser.add_argument("--router-checkpoint-payload", required=True, help="显式 router checkpoint payload；默认只允许 fixture/tempfile tiny payload。")
     parser.add_argument("--scaler-state-json", default=None, help="可选 loaded scaler state JSON；传入时执行 LoadedFeatureScaler。")
     parser.add_argument("--output-dir", required=True, help="canonical run_dir 的父目录；P17a 禁止使用 /data2。")
     parser.add_argument("--run-id", required=True, help="output-dir 下创建的单层 run 目录名。")
     parser.add_argument("--config-name", required=True, help="写入 run metadata 的 config 名。")
     parser.add_argument("--split-name", required=True, help="使用的 split；可传 all 使用全部 fixture。")
-    parser.add_argument("--feature-source", default="precomputed", choices=("precomputed",), help="Visual feature source；P17a 只支持 precomputed。")
+    parser.add_argument(
+        "--feature-source",
+        default="precomputed",
+        choices=("precomputed", "visual-chain-dryrun"),
+        help="Visual feature source；默认保持 P17 precomputed 行为。",
+    )
+    parser.add_argument("--raw-window-json", default=None, help="visual-chain-dryrun 使用的显式 raw window JSON fixture。")
+    parser.add_argument("--visual-chain-mode", default="dryrun", choices=("dryrun",), help="visual-chain 执行模式；P20a 只支持 dryrun。")
+    parser.add_argument(
+        "--vit-provider-mode",
+        default="injected-fake",
+        choices=("injected-fake", "manual-real"),
+        help="VisualVitEncoderProvider 模式；默认 injected-fake 不导入 transformers。",
+    )
+    parser.add_argument("--manual-real-vit", action="store_true", help="显式启用 manual real ViT dry-run；默认 false。")
+    parser.add_argument("--vit-model-path", default=None, help="manual real ViT 模型路径；默认不用。")
+    parser.add_argument("--vit-processor-path", default=None, help="manual real ViT processor 路径；默认跟随模型路径。")
+    parser.add_argument("--allow-real-vit", action="store_true", help="manual real ViT 的显式授权；默认 false。")
+    parser.add_argument(
+        "--allow-external-vit-path",
+        action="store_true",
+        help="/data2 或仓库外 ViT path 的额外授权；必须与 --manual-real-vit/--allow-real-vit 搭配。",
+    )
     parser.add_argument("--strict-checkpoint-load", action="store_true", help="对 checkpoint state_dict 执行 strict load。")
     parser.add_argument("--allow-real-checkpoint", action="store_true", help="显式允许非 fixture/tempfile checkpoint；默认 false。")
     parser.add_argument("--allow-external-feature-path", action="store_true", help="显式允许非 fixture/tempfile precomputed feature CSV。")
