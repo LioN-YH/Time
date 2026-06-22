@@ -1,0 +1,147 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 15:29:50 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/probe_visual_router_v2_panel_gating.py",
+  "script_version": "visual_router_v2_round2_panel_gating_probe_v1",
+  "schema_version": "visual_router_v2_round2_panel_gating_v1",
+  "variants": [
+    "film_panel_gated_mean_aux",
+    "film_panel_lowrank_aux",
+    "film_panel_attention_aux"
+  ],
+  "seed": 20260622,
+  "config": {
+    "visual_dim": 768,
+    "panel_count": 3,
+    "gate_hidden_dim": 64,
+    "lowrank_dim": 256,
+    "init_alpha": 0.1
+  },
+  "rerun_vit": false,
+  "saved_pseudo_image_tensor": false,
+  "trained_router": false,
+  "full_scale_validation": false,
+  "launched_65k": false,
+  "test_small_used_for_design_selection": false,
+  "feature_cache_reused": true,
+  "feature_manifest_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_35k_features/round2_panel_pooling_35k_feature_manifest.csv",
+  "sample_set": "round2_selection_small",
+  "max_samples": 32,
+  "loaded_samples": 32,
+  "sample_key_head": [
+    "96_48_S__vali__TEST_DATA_HOUR__item108887__ch1__win131",
+    "96_48_S__vali__TEST_DATA_HOUR__item107804__ch3__win1227",
+    "96_48_S__vali__TEST_DATA_HOUR__item102430__ch0__win2246",
+    "96_48_S__vali__TEST_DATA_HOUR__item111843__ch1__win1777",
+    "96_48_S__vali__TEST_DATA_HOUR__item110787__ch2__win1440"
+  ],
+  "order_index_head": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "source_shard_paths": [
+    "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_35k_features/features/round2_selection_small/shard_00000.npz"
+  ],
+  "global_mean_patch_shape": [
+    32,
+    768
+  ],
+  "panel_mean_concat_shape": [
+    32,
+    2304
+  ],
+  "panel_mean_stack_shape": [
+    32,
+    3,
+    768
+  ],
+  "revin_aux_shape": [
+    32,
+    6
+  ],
+  "finite_check": true,
+  "variant_summaries": [
+    {
+      "variant": "film_mean_patch_aux",
+      "role": "baseline global mean_patch; panel stack is diagnostic only",
+      "visual_shape": [
+        32,
+        768
+      ],
+      "visual_finite": true,
+      "global_norm_mean": 19.466148376464844,
+      "mean_panel_residual_norm_mean": 1.7849427461624146,
+      "mean_panel_residual_to_global_norm_ratio_mean": 0.09168528020381927,
+      "panel_token_to_global_norm_ratio_mean": 1.0845452547073364,
+      "panel_token_to_global_norm_ratio_max": 1.2687674760818481
+    },
+    {
+      "variant": "film_panel_gated_mean_aux",
+      "visual_shape": [
+        32,
+        768
+      ],
+      "visual_finite": true,
+      "alpha": 0.10000000149011612,
+      "global_norm_mean": 19.466148376464844,
+      "visual_norm_mean": 19.451629638671875,
+      "panel_residual_norm_mean": 1.7849427461624146,
+      "visual_delta_norm_mean": 0.17849428951740265,
+      "panel_residual_to_global_norm_ratio_mean": 0.09168529510498047,
+      "visual_delta_to_global_norm_ratio_mean": 0.009168529883027077,
+      "visual_delta_to_global_norm_ratio_max": 0.010320562869310379,
+      "gate_shape": [
+        32,
+        3
+      ],
+      "gate_min": 0.5,
+      "gate_max": 0.5,
+      "gate_mean": 0.5,
+      "gate_std": 0.0,
+      "gate_range_valid": true
+    },
+    {
+      "variant": "film_panel_lowrank_aux",
+      "visual_shape": [
+        32,
+        768
+      ],
+      "visual_finite": true,
+      "alpha": 0.10000000149011612,
+      "global_norm_mean": 19.466148376464844,
+      "visual_norm_mean": 19.466781616210938,
+      "panel_residual_norm_mean": 0.1434207707643509,
+      "visual_delta_norm_mean": 0.014342080801725388,
+      "panel_residual_to_global_norm_ratio_mean": 0.007371424697339535,
+      "visual_delta_to_global_norm_ratio_mean": 0.0007371427491307259,
+      "visual_delta_to_global_norm_ratio_max": 0.0008390918956138194
+    },
+    {
+      "variant": "film_panel_attention_aux",
+      "visual_shape": [
+        32,
+        768
+      ],
+      "visual_finite": true,
+      "alpha": 0.10000000149011612,
+      "global_norm_mean": 19.466148376464844,
+      "visual_norm_mean": 19.451629638671875,
+      "panel_residual_norm_mean": 1.7849427461624146,
+      "visual_delta_norm_mean": 0.17849428951740265,
+      "panel_residual_to_global_norm_ratio_mean": 0.09168529510498047,
+      "visual_delta_to_global_norm_ratio_mean": 0.009168529883027077,
+      "visual_delta_to_global_norm_ratio_max": 0.010320562869310379,
+      "attention_shape": [
+        32,
+        3
+      ],
+      "attention_min": 0.3333333432674408,
+      "attention_max": 0.3333333432674408,
+      "attention_mean": 0.3333333432674408,
+      "attention_row_sum_max_abs_error": 0.0
+    }
+  ]
+}
