@@ -8,8 +8,8 @@
     - layout 固定为 `spatial_panel_3view`；
     - 只保存 pooled ViT features、RevIN aux、sample_key/order_index 等轻量字段；
     - 不保存 pseudo image tensor，不读取 oracle label，不启动 full-scale；
-    - 默认用于 32/128 级 smoke；如需 35k screening，只调大 `--max-samples-per-set`
-      或省略该参数并继续保持 Round2 small manifest。
+    - 默认读取完整 Round2 small manifest；如需 32/128 级 smoke，再显式传入
+      `--max-samples-per-set`。
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary-dir", type=Path, default=DEFAULT_SUMMARY_DIR)
     parser.add_argument("--sample-sets", default=",".join(DEFAULT_SAMPLE_SETS))
     parser.add_argument("--artifact-prefix", default="round2_panel_pooling")
-    parser.add_argument("--max-samples-per-set", type=int, default=32)
+    parser.add_argument("--max-samples-per-set", type=int, default=None, help="默认不限制；仅 smoke 时传入 32/128 等整数。")
     parser.add_argument("--shard-size", type=int, default=512)
     parser.add_argument("--embedding-batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda:0")
@@ -265,14 +265,14 @@ def build_summary_text(metadata: Mapping[str, object], mapping: Mapping[str, obj
             "## Smoke 结果",
             "",
             f"- sample_sets={metadata['sample_sets']}，max_samples_per_set={metadata['max_samples_per_set']}。",
-            f"- feature_shapes={metadata['feature_shapes']}。",
+            f"- feature_shapes_by_sample_set={metadata['feature_shapes_by_sample_set']}。",
             f"- finite_check={metadata['finite_check']}，dtype=float32。",
             f"- global mean patch 重构最大误差：{smoke_stats.get('global_mean_reconstruct_max_abs_error')}。",
             f"- panel cosine/L2 统计：{dict(smoke_stats)}。",
             "",
             "## 初步判断",
             "",
-            "当前步骤完成 architecture probe 和 very-small feature smoke；panel means 之间存在稳定数值差异，说明该方向值得进入 35k small screening。尚未运行 35k training，因此不能把 panel-wise pooling 写成主线结论，也不建议直接进入 65k expanded validation 或 full-scale。若后续 35k 中 `film_panel_mean_aux` 或 `film_global_panel_mean_aux` 在 selection raw-soft MAE、tail regret 和 CrossFormer/PatchTST strata 上稳定优于 `film_mean_patch_aux`，才建议进入 65k expanded validation。",
+            "当前步骤完成 panel pooling feature cache/probe；panel means 之间存在稳定数值差异，说明该 feature 构造可用于后续 router screening。性能结论必须以独立训练汇总为准，不能只凭 feature smoke 把 panel-wise pooling 写成主线结论，也不能直接进入 65k expanded validation 或 full-scale。若后续 35k 中 `film_panel_mean_aux` 或 `film_global_panel_mean_aux` 在 selection raw-soft MAE、tail regret 和 CrossFormer/PatchTST strata 上稳定优于 `film_mean_patch_aux`，才建议进入 65k expanded validation。",
             "",
         ]
     ) + "\n"
@@ -310,7 +310,8 @@ def main() -> None:
     manifest_rows: List[Dict[str, object]] = []
     latency_rows: List[Dict[str, object]] = []
     smoke_stats_all: Dict[str, Dict[str, float]] = {}
-    feature_shapes: Dict[str, List[int]] = {}
+    feature_dims: Dict[str, int] = {}
+    feature_shapes_by_sample_set: Dict[str, Dict[str, List[int]]] = {}
     finite_check = True
     for sample_set, sample_df in samples_by_set.items():
         set_dir = output_dir / "features" / sample_set
@@ -345,7 +346,7 @@ def main() -> None:
                 revin_aux=revin_aux,
             )
             for name, array in features.items():
-                feature_shapes[name] = [int(value) for value in array.shape]
+                feature_dims[name] = int(array.shape[1])
                 finite_check = finite_check and bool(np.isfinite(array).all())
             finite_check = finite_check and bool(np.isfinite(revin_aux).all())
             smoke_stats_all[f"{sample_set}/shard_{shard_id:05d}"] = smoke_stats
@@ -372,6 +373,16 @@ def main() -> None:
             )
 
     manifest = pd.DataFrame(manifest_rows)
+    for sample_set in sample_sets:
+        rows = manifest[manifest["sample_set"].astype(str) == str(sample_set)]
+        sample_count = int(rows["sample_count"].sum())
+        feature_shapes_by_sample_set[str(sample_set)] = {
+            "global_mean_patch": [sample_count, int(rows["visual_feature_dim_global_mean_patch"].iloc[0])],
+            "panel_mean_concat": [sample_count, int(rows["visual_feature_dim_panel_mean_concat"].iloc[0])],
+            "global_plus_panel_mean": [sample_count, int(rows["visual_feature_dim_global_plus_panel_mean"].iloc[0])],
+            "panel_variance": [sample_count, int(feature_dims.get("panel_variance", 0))],
+            "revin_aux": [sample_count, int(rows["aux_feature_dim"].iloc[0])],
+        }
     manifest_path = output_dir / f"{args.artifact_prefix}_feature_manifest.csv"
     latency_path = output_dir / f"{args.artifact_prefix}_feature_latency.csv"
     manifest.to_csv(manifest_path, index=False)
@@ -390,7 +401,8 @@ def main() -> None:
         "layout_name": "spatial_panel_3view",
         "pooling_variants": ["global_mean_patch", "panel_mean_concat", "global_plus_panel_mean", "panel_variance"],
         "feature_manifest": str(manifest_path),
-        "feature_shapes": feature_shapes,
+        "feature_dims": feature_dims,
+        "feature_shapes_by_sample_set": feature_shapes_by_sample_set,
         "finite_check": bool(finite_check),
         "dtype_written": "float32",
         "ran_vit": True,

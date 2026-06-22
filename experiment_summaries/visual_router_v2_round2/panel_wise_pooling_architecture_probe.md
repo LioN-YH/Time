@@ -1,6 +1,6 @@
 # Visual Router V2 Round2 panel-wise pooling architecture probe
 
-生成时间：2026-06-22 12:57:06 CST
+生成时间：2026-06-22 14:42:26 CST
 
 ## 目的
 
@@ -28,13 +28,13 @@
 
 ## Smoke 结果
 
-- sample_sets=['round2_train_small', 'round2_selection_small', 'round2_diagnostic_balanced_small', 'round2_test_small']，max_samples_per_set=32。
-- feature_shapes={'global_mean_patch': [32, 768], 'panel_mean_concat': [32, 2304], 'global_plus_panel_mean': [32, 3072], 'panel_variance': [32, 768]}。
+- sample_sets=['round2_train_small', 'round2_selection_small', 'round2_diagnostic_balanced_small', 'round2_test_small']，max_samples_per_set=None。
+- feature_shapes_by_sample_set={'round2_train_small': {'global_mean_patch': [20000, 768], 'panel_mean_concat': [20000, 2304], 'global_plus_panel_mean': [20000, 3072], 'panel_variance': [20000, 768], 'revin_aux': [20000, 6]}, 'round2_selection_small': {'global_mean_patch': [5000, 768], 'panel_mean_concat': [5000, 2304], 'global_plus_panel_mean': [5000, 3072], 'panel_variance': [5000, 768], 'revin_aux': [5000, 6]}, 'round2_diagnostic_balanced_small': {'global_mean_patch': [5000, 768], 'panel_mean_concat': [5000, 2304], 'global_plus_panel_mean': [5000, 3072], 'panel_variance': [5000, 768], 'revin_aux': [5000, 6]}, 'round2_test_small': {'global_mean_patch': [5000, 768], 'panel_mean_concat': [5000, 2304], 'global_plus_panel_mean': [5000, 3072], 'panel_variance': [5000, 768], 'revin_aux': [5000, 6]}}。
 - finite_check=True，dtype=float32。
 - global mean patch 重构最大误差：0.0。
-- panel cosine/L2 统计：{'global_mean_reconstruct_max_abs_error': 0.0, 'line_vs_fold_cosine_mean': 0.8071441650390625, 'line_vs_fold_cosine_std': 0.0699643399712062, 'line_vs_fold_l2_mean': 13.3173828125, 'line_vs_fold_l2_std': 2.1937860904344104, 'fold_vs_fft_cosine_mean': 0.76446533203125, 'fold_vs_fft_cosine_std': 0.06995808500250007, 'fold_vs_fft_l2_mean': 15.52001953125, 'fold_vs_fft_l2_std': 2.3991800954146325, 'line_vs_fft_cosine_mean': 0.8016357421875, 'line_vs_fft_cosine_std': 0.11785962950572673, 'line_vs_fft_l2_mean': 12.4813232421875, 'line_vs_fft_l2_std': 4.90601263109866}。
+- panel cosine/L2 统计：{'global_mean_reconstruct_max_abs_error': 0.0, 'line_vs_fold_cosine_mean': 0.800440788269043, 'line_vs_fold_cosine_std': 0.06648741024637232, 'line_vs_fold_l2_mean': 13.587570190429688, 'line_vs_fold_l2_std': 2.112132400454123, 'fold_vs_fft_cosine_mean': 0.7568016052246094, 'fold_vs_fft_cosine_std': 0.0708500311618438, 'fold_vs_fft_l2_mean': 15.814743041992188, 'fold_vs_fft_l2_std': 2.4094789018732863, 'line_vs_fft_cosine_mean': 0.782008171081543, 'line_vs_fft_cosine_std': 0.11499737471619696, 'line_vs_fft_l2_mean': 13.271240234375, 'line_vs_fft_l2_std': 4.665087141652068}。
 
 ## 初步判断
 
-当前步骤完成 architecture probe 和 very-small feature smoke；panel means 之间存在稳定数值差异，说明该方向值得进入 35k small screening。尚未运行 35k training，因此不能把 panel-wise pooling 写成主线结论，也不建议直接进入 65k expanded validation 或 full-scale。若后续 35k 中 `film_panel_mean_aux` 或 `film_global_panel_mean_aux` 在 selection raw-soft MAE、tail regret 和 CrossFormer/PatchTST strata 上稳定优于 `film_mean_patch_aux`，才建议进入 65k expanded validation。
+当前步骤完成 panel pooling feature cache/probe；panel means 之间存在稳定数值差异，说明该 feature 构造可用于后续 router screening。性能结论必须以独立训练汇总为准，不能只凭 feature smoke 把 panel-wise pooling 写成主线结论，也不能直接进入 65k expanded validation 或 full-scale。本次 35k small screening 的训练结论见 `panel_pooling_35k_screening_summary.md`：selection raw-soft MAE 仍由 `film_mean_patch_aux` baseline 最优，因此 panel-wise pooling 暂保留为 side branch，不进入 65k。
 

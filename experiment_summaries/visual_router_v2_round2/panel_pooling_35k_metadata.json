@@ -1,0 +1,158 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 14:53:55 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_panel_pooling_probe.py",
+  "script_version": "visual_router_v2_round2_panel_pooling_train_probe_v1",
+  "feature_schema_version": "visual_router_v2_round2_panel_pooling_v1",
+  "commit_hash": "2e9d368ba324daba049de0b2ab03440d72b04724",
+  "variants": [
+    "film_mean_patch_aux",
+    "film_panel_mean_aux",
+    "film_global_panel_mean_aux"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "selection_sample_set": "round2_selection_small",
+  "diagnostic_sample_set": "round2_diagnostic_balanced_small",
+  "test_sample_set": "round2_test_small",
+  "best_selection_variant": {
+    "sample_set": "round2_selection_small",
+    "variant": "film_mean_patch_aux",
+    "method": "film_mean_patch_aux_raw_soft_fusion",
+    "seed_count": 3,
+    "sample_count_per_seed": 5000,
+    "MAE_mean": 0.31038456742547255,
+    "MAE_std": 0.008198538862867238,
+    "MSE_mean": 3.3291987709968374,
+    "MSE_std": 0.5733501875184446,
+    "regret_to_oracle_mean": 0.04693483320141364,
+    "regret_to_oracle_std": 0.008198538862867219,
+    "oracle_label_accuracy_mean": 0.5379999999999999,
+    "oracle_label_accuracy_std": 0.14223515739788103,
+    "weight_entropy_mean": 1.135331719422296,
+    "weight_entropy_std": 0.010910451488166995,
+    "normalized_weight_entropy_mean": 0.7054212460428205,
+    "normalized_weight_entropy_std": 0.0067790445499669415,
+    "mean_max_weight_mean": 0.5150047407438357,
+    "mean_max_weight_std": 0.014562566417641932
+  },
+  "next_step_recommendation": "暂不升级到 65k，保持 global mean_patch baseline",
+  "saved_pseudo_image_tensor": false,
+  "full_scale_validation": false,
+  "test_used_for_selection": false,
+  "archive_generated_at": "2026-06-22 14:55:46 CST",
+  "screening_scope": "35k small screening only; not full-scale, not P0-scale",
+  "feature_output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_35k_features",
+  "training_output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_35k_screening",
+  "feature_sample_counts": {
+    "round2_diagnostic_balanced_small": 5000,
+    "round2_selection_small": 5000,
+    "round2_test_small": 5000,
+    "round2_train_small": 20000
+  },
+  "selection_rule": "round2_selection_small raw-soft MAE only",
+  "test_small_role": "frozen screening only; not used for training, tuning, seed, epoch, or variant selection",
+  "final_verdict": "Keep as side branch; do not enter 65k from this 35k screening",
+  "alias_files": {
+    "round2_panel_pooling_35k_selection_summary.csv": "panel_pooling_35k_selection_summary.csv",
+    "round2_panel_pooling_35k_diagnostic_summary.csv": "panel_pooling_35k_diagnostic_summary.csv",
+    "round2_panel_pooling_35k_test_summary.csv": "panel_pooling_35k_test_small_summary.csv",
+    "round2_panel_pooling_35k_selected_model_counts.csv": "panel_pooling_35k_selected_model_counts.csv",
+    "round2_panel_pooling_35k_stratified_summary.csv": "panel_pooling_35k_stratified_summary.csv",
+    "round2_panel_pooling_35k_training_metadata.json": "panel_pooling_35k_metadata.json",
+    "round2_panel_pooling_35k_variant_seed_results.csv": "panel_pooling_35k_variant_seed_results.csv"
+  },
+  "feature_shapes_by_sample_set": {
+    "round2_train_small": {
+      "global_mean_patch": [
+        20000,
+        768
+      ],
+      "panel_mean_concat": [
+        20000,
+        2304
+      ],
+      "global_plus_panel_mean": [
+        20000,
+        3072
+      ],
+      "panel_variance": [
+        20000,
+        768
+      ],
+      "revin_aux": [
+        20000,
+        6
+      ]
+    },
+    "round2_selection_small": {
+      "global_mean_patch": [
+        5000,
+        768
+      ],
+      "panel_mean_concat": [
+        5000,
+        2304
+      ],
+      "global_plus_panel_mean": [
+        5000,
+        3072
+      ],
+      "panel_variance": [
+        5000,
+        768
+      ],
+      "revin_aux": [
+        5000,
+        6
+      ]
+    },
+    "round2_diagnostic_balanced_small": {
+      "global_mean_patch": [
+        5000,
+        768
+      ],
+      "panel_mean_concat": [
+        5000,
+        2304
+      ],
+      "global_plus_panel_mean": [
+        5000,
+        3072
+      ],
+      "panel_variance": [
+        5000,
+        768
+      ],
+      "revin_aux": [
+        5000,
+        6
+      ]
+    },
+    "round2_test_small": {
+      "global_mean_patch": [
+        5000,
+        768
+      ],
+      "panel_mean_concat": [
+        5000,
+        2304
+      ],
+      "global_plus_panel_mean": [
+        5000,
+        3072
+      ],
+      "panel_variance": [
+        5000,
+        768
+      ],
+      "revin_aux": [
+        5000,
+        6
+      ]
+    }
+  }
+}
