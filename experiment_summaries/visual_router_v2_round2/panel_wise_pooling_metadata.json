@@ -1,0 +1,113 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 12:57:06 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/probe_visual_router_v2_panel_pooling.py",
+  "script_version": "visual_router_v2_round2_panel_pooling_probe_v1",
+  "feature_schema_version": "visual_router_v2_round2_panel_pooling_v1",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_probe",
+  "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+  "sample_sets": [
+    "round2_train_small",
+    "round2_selection_small",
+    "round2_diagnostic_balanced_small",
+    "round2_test_small"
+  ],
+  "max_samples_per_set": 32,
+  "layout_name": "spatial_panel_3view",
+  "pooling_variants": [
+    "global_mean_patch",
+    "panel_mean_concat",
+    "global_plus_panel_mean",
+    "panel_variance"
+  ],
+  "feature_manifest": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_probe/round2_panel_pooling_feature_manifest.csv",
+  "feature_shapes": {
+    "global_mean_patch": [
+      32,
+      768
+    ],
+    "panel_mean_concat": [
+      32,
+      2304
+    ],
+    "global_plus_panel_mean": [
+      32,
+      3072
+    ],
+    "panel_variance": [
+      32,
+      768
+    ]
+  },
+  "finite_check": true,
+  "dtype_written": "float32",
+  "ran_vit": true,
+  "saved_pseudo_image_tensor": false,
+  "full_scale_validation": false,
+  "worth_35k_screening": true,
+  "worth_65k_validation_without_35k": false,
+  "next_step_recommendation": "Run 35k small screening for film_mean_patch_aux, film_panel_mean_aux and film_global_panel_mean_aux before any 65k/full-scale promotion.",
+  "region_mapping_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_panel_pooling_probe/panel_region_mapping.json",
+  "smoke_stats": {
+    "round2_train_small/shard_00000": {
+      "global_mean_reconstruct_max_abs_error": 0.0,
+      "line_vs_fold_cosine_mean": 0.8071441650390625,
+      "line_vs_fold_cosine_std": 0.0699643399712062,
+      "line_vs_fold_l2_mean": 13.3173828125,
+      "line_vs_fold_l2_std": 2.1937860904344104,
+      "fold_vs_fft_cosine_mean": 0.76446533203125,
+      "fold_vs_fft_cosine_std": 0.06995808500250007,
+      "fold_vs_fft_l2_mean": 15.52001953125,
+      "fold_vs_fft_l2_std": 2.3991800954146325,
+      "line_vs_fft_cosine_mean": 0.8016357421875,
+      "line_vs_fft_cosine_std": 0.11785962950572673,
+      "line_vs_fft_l2_mean": 12.4813232421875,
+      "line_vs_fft_l2_std": 4.90601263109866
+    },
+    "round2_selection_small/shard_00000": {
+      "global_mean_reconstruct_max_abs_error": 0.0,
+      "line_vs_fold_cosine_mean": 0.787109375,
+      "line_vs_fold_cosine_std": 0.06119425065984455,
+      "line_vs_fold_l2_mean": 14.05712890625,
+      "line_vs_fold_l2_std": 2.002386993286557,
+      "fold_vs_fft_cosine_mean": 0.7541961669921875,
+      "fold_vs_fft_cosine_std": 0.06403374600874823,
+      "fold_vs_fft_l2_mean": 16.049560546875,
+      "fold_vs_fft_l2_std": 2.333696381106703,
+      "line_vs_fft_cosine_mean": 0.76434326171875,
+      "line_vs_fft_cosine_std": 0.107395706457266,
+      "line_vs_fft_l2_mean": 14.0780029296875,
+      "line_vs_fft_l2_std": 4.475301300260164
+    },
+    "round2_diagnostic_balanced_small/shard_00000": {
+      "global_mean_reconstruct_max_abs_error": 0.0,
+      "line_vs_fold_cosine_mean": 0.8055267333984375,
+      "line_vs_fold_cosine_std": 0.06871249241883093,
+      "line_vs_fold_l2_mean": 13.572265625,
+      "line_vs_fold_l2_std": 2.253968870988843,
+      "fold_vs_fft_cosine_mean": 0.77099609375,
+      "fold_vs_fft_cosine_std": 0.060761716591894145,
+      "fold_vs_fft_l2_mean": 15.51708984375,
+      "fold_vs_fft_l2_std": 2.2382833271116835,
+      "line_vs_fft_cosine_mean": 0.8060760498046875,
+      "line_vs_fft_cosine_std": 0.11374432259941417,
+      "line_vs_fft_l2_mean": 12.4869384765625,
+      "line_vs_fft_l2_std": 4.8961172845012175
+    },
+    "round2_test_small/shard_00000": {
+      "global_mean_reconstruct_max_abs_error": 0.0,
+      "line_vs_fold_cosine_mean": 0.8131866455078125,
+      "line_vs_fold_cosine_std": 0.06853787244489533,
+      "line_vs_fold_l2_mean": 13.20166015625,
+      "line_vs_fold_l2_std": 2.2281856041754384,
+      "fold_vs_fft_cosine_mean": 0.7657012939453125,
+      "fold_vs_fft_cosine_std": 0.07209449397281134,
+      "fold_vs_fft_l2_mean": 15.357421875,
+      "fold_vs_fft_l2_std": 2.465315735812777,
+      "line_vs_fft_cosine_mean": 0.7950286865234375,
+      "line_vs_fft_cosine_std": 0.13031094392212197,
+      "line_vs_fft_l2_mean": 12.21923828125,
+      "line_vs_fft_l2_std": 5.054477858286315
+    }
+  }
+}
