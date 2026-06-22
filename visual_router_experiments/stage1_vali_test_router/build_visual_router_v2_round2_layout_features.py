@@ -102,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--layouts", default=",".join(DEFAULT_ROUND2_LAYOUTS))
     parser.add_argument("--layout", default=None, help="单 layout worker 模式；launcher 会使用该参数。")
     parser.add_argument("--sample-sets", default=",".join(ROUND2_SAMPLE_SETS))
+    parser.add_argument("--sample-set-worker", action="store_true", help="按单个 sample_set 并行的 worker 模式，写 worker_manifests，避免同 layout 多进程写冲突。")
     parser.add_argument("--artifact-prefix", default="round2_layout", help="聚合产物文件名前缀；expanded validation 使用 round2_expanded_layout。")
     parser.add_argument("--shard-size", type=int, default=2000)
     parser.add_argument("--embedding-batch-size", type=int, default=16)
@@ -432,13 +433,18 @@ def run_layout_worker(args: argparse.Namespace, layout_name: str) -> None:
     """函数功能：构建单个 layout 的 feature cache，输出 layout-level manifest/status。"""
     output_dir = Path(args.output_dir)
     layout_dir = output_dir / "features" / layout_name
-    if layout_dir.exists() and args.overwrite:
+    sample_sets = parse_csv(args.sample_sets)
+    if args.sample_set_worker and len(sample_sets) != 1:
+        raise ValueError("--sample-set-worker 模式必须只传入一个 sample_set")
+    if layout_dir.exists() and args.overwrite and not args.sample_set_worker:
         shutil.rmtree(layout_dir)
     layout_dir.mkdir(parents=True, exist_ok=True)
-    status_path = layout_dir / "layout_status.json"
+    worker_name = sample_sets[0] if args.sample_set_worker else "layout"
+    status_path = layout_dir / "worker_status" / f"{worker_name}.json" if args.sample_set_worker else layout_dir / "layout_status.json"
     status: Dict[str, object] = {
         "status": "running",
         "layout_name": layout_name,
+        "worker_name": worker_name,
         "started_at": now_cst(),
         "current_sample_set": None,
         "current_shard_id": None,
@@ -449,7 +455,6 @@ def run_layout_worker(args: argparse.Namespace, layout_name: str) -> None:
     atomic_write_json(status_path, status)
     start_time = time.perf_counter()
     try:
-        sample_sets = parse_csv(args.sample_sets)
         samples_by_set = load_round2_samples(args.sample_manifest, sample_sets, args.max_samples_per_set)
         checkpoint = load_checkpoint(Path(args.visual_checkpoint))
         embedding_metadata = checkpoint.get("embedding_metadata")
@@ -541,9 +546,14 @@ def run_layout_worker(args: argparse.Namespace, layout_name: str) -> None:
                 atomic_write_json(status_path, status)
 
         manifest_df = pd.DataFrame(manifest_rows)
-        manifest_df.to_csv(layout_dir / "layout_feature_manifest.csv", index=False)
+        manifest_path = layout_dir / "worker_manifests" / f"{worker_name}_feature_manifest.csv" if args.sample_set_worker else layout_dir / "layout_feature_manifest.csv"
+        latency_path = layout_dir / "worker_latencies" / f"{worker_name}_feature_latency.csv" if args.sample_set_worker else layout_dir / "layout_feature_latency.csv"
+        metadata_path = layout_dir / "worker_metadata" / f"{worker_name}_feature_metadata.json" if args.sample_set_worker else layout_dir / "layout_feature_metadata.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_df.to_csv(manifest_path, index=False)
         if latency_rows:
-            pd.DataFrame(latency_rows).to_csv(layout_dir / "layout_feature_latency.csv", index=False)
+            latency_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(latency_rows).to_csv(latency_path, index=False)
         metadata = {
             "status": "completed",
             "generated_at": now_cst(),
@@ -551,6 +561,8 @@ def run_layout_worker(args: argparse.Namespace, layout_name: str) -> None:
             "script_version": SCRIPT_VERSION,
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "layout_name": layout_name,
+            "worker_name": worker_name,
+            "sample_set_worker": bool(args.sample_set_worker),
             "sample_manifest": str(args.sample_manifest),
             "layout_candidates": str(args.layout_candidates),
             "visual_checkpoint": str(args.visual_checkpoint),
@@ -579,7 +591,7 @@ def run_layout_worker(args: argparse.Namespace, layout_name: str) -> None:
                 "mean_patch_excludes_cls": True,
             },
         }
-        atomic_write_json(layout_dir / "layout_feature_metadata.json", metadata)
+        atomic_write_json(metadata_path, metadata)
         status.update({"status": "completed", "current_sample_set": None, "current_shard_id": None, "elapsed_sec": metadata["elapsed_sec"]})
         atomic_write_json(status_path, status)
     except Exception as exc:  # noqa: BLE001
@@ -598,15 +610,37 @@ def aggregate(args: argparse.Namespace) -> None:
     missing: List[str] = []
     for layout_name in layouts:
         layout_dir = output_dir / "features" / layout_name
-        for name in ["layout_feature_manifest.csv", "layout_feature_metadata.json", "layout_status.json"]:
-            if not (layout_dir / name).exists():
-                missing.append(str(layout_dir / name))
-        if missing:
+        regular_manifest = layout_dir / "layout_feature_manifest.csv"
+        regular_metadata = layout_dir / "layout_feature_metadata.json"
+        if regular_manifest.exists() and regular_metadata.exists():
+            manifest_frames.append(pd.read_csv(regular_manifest))
+            if (layout_dir / "layout_feature_latency.csv").exists():
+                latency_frames.append(pd.read_csv(layout_dir / "layout_feature_latency.csv"))
+            layout_metadata[layout_name] = json.loads(regular_metadata.read_text(encoding="utf-8"))
             continue
-        manifest_frames.append(pd.read_csv(layout_dir / "layout_feature_manifest.csv"))
-        if (layout_dir / "layout_feature_latency.csv").exists():
-            latency_frames.append(pd.read_csv(layout_dir / "layout_feature_latency.csv"))
-        layout_metadata[layout_name] = json.loads((layout_dir / "layout_feature_metadata.json").read_text(encoding="utf-8"))
+        worker_manifest_dir = layout_dir / "worker_manifests"
+        worker_metadata_dir = layout_dir / "worker_metadata"
+        worker_manifests = sorted(worker_manifest_dir.glob("*_feature_manifest.csv")) if worker_manifest_dir.exists() else []
+        worker_metadata_files = sorted(worker_metadata_dir.glob("*_feature_metadata.json")) if worker_metadata_dir.exists() else []
+        if not worker_manifests or not worker_metadata_files:
+            missing.append(str(regular_manifest))
+            missing.append(str(regular_metadata))
+            continue
+        worker_frame = pd.concat([pd.read_csv(path) for path in worker_manifests], ignore_index=True)
+        present_sets = set(worker_frame["sample_set"].astype(str).unique().tolist())
+        expected_sets = set(parse_csv(args.sample_sets))
+        if present_sets != expected_sets:
+            raise ValueError(f"{layout_name} worker manifests sample_set 不完整：present={sorted(present_sets)} expected={sorted(expected_sets)}")
+        manifest_frames.append(worker_frame)
+        worker_latency_dir = layout_dir / "worker_latencies"
+        if worker_latency_dir.exists():
+            latency_paths = sorted(worker_latency_dir.glob("*_feature_latency.csv"))
+            if latency_paths:
+                latency_frames.append(pd.concat([pd.read_csv(path) for path in latency_paths], ignore_index=True))
+        layout_metadata[layout_name] = {
+            "sample_set_worker": True,
+            "workers": {path.stem.replace("_feature_metadata", ""): json.loads(path.read_text(encoding="utf-8")) for path in worker_metadata_files},
+        }
     if missing:
         raise FileNotFoundError("layout feature 输出不完整：" + "; ".join(missing[:20]))
     manifest_df = pd.concat(manifest_frames, ignore_index=True)

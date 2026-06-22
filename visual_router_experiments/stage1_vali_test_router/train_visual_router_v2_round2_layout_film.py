@@ -463,6 +463,8 @@ def normalize_round0_reference(path: Path, sample_set: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     rows: List[Dict[str, object]] = []
     name_map = {
+        "visual_router_raw_soft_fusion": ("Round0 original Visual", "raw_soft_fusion"),
+        "visual_router_hard_top1": ("Round0 original Visual", "hard_top1"),
         "timefuse_raw_soft_fusion": ("Round0 TimeFuse", "raw_soft_fusion"),
         "timefuse_hard_top1": ("Round0 TimeFuse", "hard_top1"),
         "global_best_single": ("global_best_single", "single"),
@@ -832,13 +834,26 @@ def aggregate(args: argparse.Namespace) -> None:
         normalize_comparison_frame(diagnostic_summary, stage=str(args.experiment_label), source_path=diagnostic_path),
         normalize_comparison_frame(test_summary, stage=str(args.experiment_label), source_path=test_path),
     ]
-    for path, stage, sample_set in [
-        (DATA2_RUN_OUTPUT_ROOT / "2026-06-21_visual_router_v2_round1_film" / "round1_film_selection_comparison.csv", "Round1 reference", selection_set),
-        (DATA2_RUN_OUTPUT_ROOT / "2026-06-20_visual_router_v2_round1_visual_pooling" / "visual_pooling_selection_comparison.csv", "Round1 reference", selection_set),
+    for path, stage, sample_set, variants in [
+        (
+            DATA2_RUN_OUTPUT_ROOT / "2026-06-21_visual_router_v2_round1_film" / "round1_film_selection_comparison.csv",
+            "Round1 reference",
+            selection_set,
+            ["film_mean_patch_aux", "film_cls_mean_concat_aux"],
+        ),
+        (
+            DATA2_RUN_OUTPUT_ROOT / "2026-06-20_visual_router_v2_round1_visual_pooling" / "visual_pooling_selection_comparison.csv",
+            "Round1 reference",
+            selection_set,
+            ["visual_cls_mean_concat"],
+        ),
     ]:
         ref = comparison_from_reference(path, stage=stage, sample_set=sample_set)
         if not ref.empty:
-            comparison_frames.append(ref[ref["variant"].astype(str).isin(["film_mean_patch_aux", "visual_cls_mean_concat"])].copy())
+            # Round2 P0 主线验收要求 selection comparison 中保留 Round1
+            # film_mean_patch_aux、film_cls_mean_concat_aux 和 visual_cls_mean_concat
+            # 三个点名对照，避免只和当前 best 单点比较。
+            comparison_frames.append(ref[ref["variant"].astype(str).isin(variants)].copy())
     round0_ref = normalize_round0_reference(Path(args.round0_dir) / "round0_selection_comparison.csv", selection_set)
     if not round0_ref.empty:
         comparison_frames.append(round0_ref)

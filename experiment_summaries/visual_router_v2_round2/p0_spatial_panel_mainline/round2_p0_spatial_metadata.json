@@ -1,0 +1,217 @@
+{
+  "status": "completed",
+  "round2_stage": "layout_feature_cache_and_fixed_film_screening",
+  "generated_at": "2026-06-22 08:17:24 CST",
+  "artifact_prefix": "round2_p0_spatial",
+  "summary_title": "Visual Router V2 Round2f P0 Spatial Panel Mainline Summary",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round2_layout_film.py",
+  "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+  "commit_hash": "449b43adecf238fd38742a5bad11a9022349c343",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline",
+  "summary_copy_dir": "/home/shiyuhong/Time-visual-router-v2/experiment_summaries/visual_router_v2_round2/p0_spatial_panel_mainline",
+  "inputs": {
+    "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/inputs/p0_sample_manifest.csv",
+    "feature_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline",
+    "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+    "prediction_manifest_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv",
+    "prediction_index": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/prediction_index_round2_layout_subset.sqlite"
+  },
+  "layouts": [
+    "spatial_panel_3view"
+  ],
+  "layouts_screened": [
+    "spatial_panel_3view"
+  ],
+  "deferred_layouts": [
+    "period_soft_mixture",
+    "independent_view_encoder"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "train_sample_set": "pilot_train",
+  "selection_sample_set": "pilot_selection",
+  "diagnostic_sample_set": "diagnostic_balanced",
+  "test_sample_set": "pilot_test",
+  "backend_style": "film_mean_patch_aux",
+  "backend_fixed_to": "film_mean_patch_aux_style",
+  "trained_model": true,
+  "built_feature_cache": true,
+  "ran_vit": true,
+  "saved_pseudo_image_tensor": false,
+  "used_frozen_test_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "layout_registry_used": true,
+  "changed_router_head": false,
+  "changed_loss": false,
+  "changed_selection_rule": false,
+  "changed_sample_split": false,
+  "devices_requested": "cuda:0,cuda:1,cuda:2,cuda:3",
+  "devices_used": [
+    "cuda:0",
+    "cuda:1",
+    "cuda:2"
+  ],
+  "parallel_backend": "process_per_layout_and_seed",
+  "single_task_output_isolated": true,
+  "feature_cache_parallel_used": true,
+  "training_parallel_used": true,
+  "next_step_recommendation": "Upgrade spatial_panel_3view to Round2 mainline and expand to P0/P2a scale.",
+  "constraints": {
+    "only_variable_is_layout": true,
+    "base_visual_input": "mean_patch_embedding",
+    "condition_input": "revin_aux",
+    "used_film": true,
+    "used_concat_aux": false,
+    "searched_head_loss_film_dim_dropout_calibration": false,
+    "pilot_selection_used_for_selection": true,
+    "diagnostic_balanced_used_for_selection": false,
+    "pilot_test_used_for_selection": false,
+    "parallel_launcher_used": true,
+    "parallel_backend": "process_per_layout_and_seed",
+    "devices_requested": "cuda:0,cuda:1,cuda:2,cuda:3",
+    "devices_used": [
+      "cuda:0",
+      "cuda:1",
+      "cuda:2"
+    ],
+    "single_task_output_isolated": true,
+    "feature_cache_parallel_used": true,
+    "training_parallel_used": true
+  },
+  "best_layout": {
+    "best_layout": "spatial_panel_3view",
+    "backend_style": "film_mean_patch_aux",
+    "selection_basis": "pilot_selection raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+    "selected_from_sample_set": "pilot_selection",
+    "diagnostic_balanced_used_for_selection": false,
+    "pilot_test_used_for_selection": false,
+    "best_row": {
+      "sample_set": "pilot_selection",
+      "variant": "spatial_panel_3view",
+      "method": "spatial_panel_3view_raw_soft_fusion",
+      "seed_count": 3,
+      "sample_count_per_seed": 30000,
+      "MAE_mean": 0.3002268343315664,
+      "MAE_std": 0.0005459253748224863,
+      "MSE_mean": 1.269413468185334,
+      "MSE_std": 0.20450017274028937,
+      "regret_to_oracle_mean": 0.03349563069950783,
+      "regret_to_oracle_std": 0.0005459253748224806,
+      "oracle_label_accuracy_mean": 0.5496555555555556,
+      "oracle_label_accuracy_std": 0.15001211926349795,
+      "weight_entropy_mean": 1.1427316150452798,
+      "weight_entropy_std": 0.008501649993879848,
+      "normalized_weight_entropy_mean": 0.7100190632815727,
+      "normalized_weight_entropy_std": 0.005282371830111288,
+      "mean_max_weight_mean": 0.4980334579509165,
+      "mean_max_weight_std": 0.005322817101308125
+    }
+  },
+  "task_metadata": [
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 08:12:59 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/tasks/spatial_panel_3view_seed16/checkpoint_spatial_panel_3view_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2797999135615883,
+        "final_train_loss": 0.2672176312006781,
+        "final_huber_loss": 0.26335704939458965,
+        "final_kl_loss": 0.3860582100043118,
+        "train_weight_entropy": 1.146223783493042,
+        "train_normalized_weight_entropy": 0.7121888399124146,
+        "train_mean_max_weight": 0.49420449137687683
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "frozen_test_used_for_selection": false,
+        "train_sample_set": "pilot_train",
+        "selection_sample_set": "pilot_selection",
+        "diagnostic_sample_set": "diagnostic_balanced",
+        "test_sample_set": "pilot_test",
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 08:12:54 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 17,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/tasks/spatial_panel_3view_seed17/checkpoint_spatial_panel_3view_seed17.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2798811376806819,
+        "final_train_loss": 0.26675289711651134,
+        "final_huber_loss": 0.2628729436991565,
+        "final_kl_loss": 0.3879953573995076,
+        "train_weight_entropy": 1.1295667886734009,
+        "train_normalized_weight_entropy": 0.70183926820755,
+        "train_mean_max_weight": 0.5038360357284546
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "frozen_test_used_for_selection": false,
+        "train_sample_set": "pilot_train",
+        "selection_sample_set": "pilot_selection",
+        "diagnostic_sample_set": "diagnostic_balanced",
+        "test_sample_set": "pilot_test",
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 08:12:48 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 18,
+      "device": "cuda:2",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/tasks/spatial_panel_3view_seed18/checkpoint_spatial_panel_3view_seed18.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.2794775805172253,
+        "final_train_loss": 0.26764564233936955,
+        "final_huber_loss": 0.2637484292324899,
+        "final_kl_loss": 0.38972135101772415,
+        "train_weight_entropy": 1.138167381286621,
+        "train_normalized_weight_entropy": 0.7071831226348877,
+        "train_mean_max_weight": 0.5026741027832031
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "frozen_test_used_for_selection": false,
+        "train_sample_set": "pilot_train",
+        "selection_sample_set": "pilot_selection",
+        "diagnostic_sample_set": "diagnostic_balanced",
+        "test_sample_set": "pilot_test",
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    }
+  ]
+}
