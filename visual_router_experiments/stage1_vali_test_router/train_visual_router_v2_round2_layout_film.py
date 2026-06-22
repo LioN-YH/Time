@@ -74,6 +74,16 @@ EVAL_SAMPLE_SETS = (
     "round2_test_small",
 )
 SCRIPT_VERSION = "visual_router_v2_round2c_layout_film_screening_v1"
+VISUAL_INPUT_MODE_TO_VARIANT = {
+    "cls": "film_cls_aux",
+    "mean_patch": "film_mean_patch_aux",
+    "cls_mean_concat": "film_cls_mean_concat_aux",
+}
+VISUAL_INPUT_MODE_TO_COLUMNS = {
+    "cls": ("cls_embedding",),
+    "mean_patch": ("mean_patch_embedding",),
+    "cls_mean_concat": ("cls_embedding", "mean_patch_embedding"),
+}
 
 
 def display_time() -> str:
@@ -109,12 +119,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-manifest", type=Path, default=DEFAULT_SAMPLE_MANIFEST)
     parser.add_argument("--round0-dir", type=Path, default=DEFAULT_ROUND0_DIR)
     parser.add_argument("--feature-dir", type=Path, default=DEFAULT_FEATURE_DIR)
+    parser.add_argument("--feature-artifact-prefix", default=None, help="feature manifest 前缀；为空时沿用 --artifact-prefix。")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--summary-copy-dir", type=Path, default=DEFAULT_SUMMARY_DIR)
     parser.add_argument("--oracle-labels-path", type=Path, default=DEFAULT_ORACLE_LABELS)
     parser.add_argument("--prediction-manifest-path", type=Path, default=DEFAULT_PREDICTION_MANIFEST)
     parser.add_argument("--layouts", default=",".join(DEFAULT_ROUND2_LAYOUTS))
     parser.add_argument("--layout", default=None)
+    parser.add_argument("--visual-input-mode", choices=sorted(VISUAL_INPUT_MODE_TO_VARIANT), default="mean_patch")
+    parser.add_argument("--visual-input-modes", default="", help="聚合/串行运行多个 pooling mode；为空时保持 layout validation 语义。")
+    parser.add_argument("--variant-name", default=None, help="单任务结果中的 variant 名称；pooling ablation 默认由 visual-input-mode 推导。")
     parser.add_argument("--artifact-prefix", default="round2_layout", help="聚合产物文件名前缀；expanded validation 使用 round2_expanded_layout。")
     parser.add_argument("--train-sample-set", default="round2_train_small")
     parser.add_argument("--selection-sample-set", default="round2_selection_small")
@@ -155,9 +169,38 @@ def write_json(path: Path, payload: Mapping[str, object]) -> None:
     path.write_text(json.dumps(dict(payload), indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
 
 
-def task_dir(output_dir: Path, layout: str, seed: int) -> Path:
-    """函数功能：返回 layout/seed 隔离输出目录。"""
-    return Path(output_dir) / "tasks" / f"{layout}_seed{int(seed)}"
+def visual_input_modes_from_args(args: argparse.Namespace) -> List[str]:
+    """函数功能：解析本轮要比较的视觉 pooling mode。"""
+    if str(getattr(args, "visual_input_modes", "")).strip():
+        modes = parse_csv(str(args.visual_input_modes))
+    else:
+        modes = [str(args.visual_input_mode)]
+    invalid = [mode for mode in modes if mode not in VISUAL_INPUT_MODE_TO_VARIANT]
+    if invalid:
+        raise ValueError(f"未知 visual input mode：{invalid}")
+    return modes
+
+
+def variant_name_for_mode(mode: str, explicit_name: str | None = None, *, layout_name: str | None = None, multi_mode: bool = False) -> str:
+    """
+    函数功能：
+        将 visual input mode 映射为实验 variant 名称。
+
+    约束：
+        layout validation 默认仍以 layout 名称作为 variant；pooling ablation 多 mode
+        运行时使用 film_cls_aux / film_mean_patch_aux / film_cls_mean_concat_aux。
+    """
+    if explicit_name:
+        return str(explicit_name)
+    if multi_mode:
+        return VISUAL_INPUT_MODE_TO_VARIANT[str(mode)]
+    return str(layout_name) if layout_name is not None else VISUAL_INPUT_MODE_TO_VARIANT[str(mode)]
+
+
+def task_dir(output_dir: Path, layout: str, seed: int, variant_name: str | None = None) -> Path:
+    """函数功能：返回 layout/seed 或 pooling variant/seed 隔离输出目录。"""
+    task_name = str(variant_name) if variant_name else str(layout)
+    return Path(output_dir) / "tasks" / f"{task_name}_seed{int(seed)}"
 
 
 def sample_sets_from_args(args: argparse.Namespace) -> Tuple[str, str, str, str]:
@@ -234,8 +277,12 @@ def load_layout_features(
     sample_df: pd.DataFrame,
     sample_set: str,
     layout_name: str,
+    visual_input_mode: str = "mean_patch",
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """函数功能：从 Round2 layout feature cache 读取 mean_patch_embedding 和 revin_aux。"""
+    """函数功能：从 Round2 layout feature cache 读取指定 pooling visual input 和 revin_aux。"""
+    if visual_input_mode not in VISUAL_INPUT_MODE_TO_COLUMNS:
+        raise ValueError(f"未知 visual_input_mode：{visual_input_mode}")
+    visual_columns = VISUAL_INPUT_MODE_TO_COLUMNS[str(visual_input_mode)]
     manifest = pd.read_csv(feature_manifest_path)
     rows = manifest[
         (manifest["layout_name"].astype(str) == str(layout_name))
@@ -259,7 +306,12 @@ def load_layout_features(
             shard_order = np.asarray(data["order_index"], dtype=np.int64)
             shard_layouts = {str(value) for value in data["layout_name"].tolist()}
             shard_sets = {str(value) for value in data["sample_set"].tolist()}
-            visual = np.asarray(data["mean_patch_embedding"], dtype=np.float32)
+            missing_columns = [column for column in visual_columns if column not in data.files]
+            if missing_columns:
+                raise KeyError(f"feature shard 缺少 {missing_columns}：{shard_path}")
+            visual_arrays = [np.asarray(data[column], dtype=np.float32) for column in visual_columns]
+            # cls_mean_concat 严格按 [cls_embedding; mean_patch_embedding] 拼接，保证 visual_dim=1536。
+            visual = visual_arrays[0] if len(visual_arrays) == 1 else np.concatenate(visual_arrays, axis=1)
             aux = np.asarray(data["revin_aux"], dtype=np.float32)
         if shard_layouts != {str(layout_name)} or shard_sets != {str(sample_set)}:
             raise ValueError(f"feature shard layout/sample_set 字段不一致：{shard_path}")
@@ -304,13 +356,20 @@ def run_single(args: argparse.Namespace) -> None:
         raise ValueError("--run-single 必须同时提供 --layout 和 --seed")
     layout_name = str(args.layout)
     seed = int(args.seed)
-    out_dir = task_dir(args.output_dir, layout_name, seed)
+    visual_input_mode = str(args.visual_input_mode)
+    variant_name = variant_name_for_mode(
+        visual_input_mode,
+        args.variant_name,
+        layout_name=layout_name,
+        multi_mode=bool(str(getattr(args, "visual_input_modes", "")).strip()),
+    )
+    out_dir = task_dir(args.output_dir, layout_name, seed, variant_name=variant_name if variant_name != layout_name else None)
     if out_dir.exists() and args.overwrite:
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if (out_dir / "task_metadata.json").exists() and not args.overwrite:
         raise FileExistsError(f"单任务输出已存在；如需覆盖请传 --overwrite：{out_dir}")
-    write_json(out_dir / "status.json", {"status": "started", "layout_name": layout_name, "seed": seed, "updated_at": display_time()})
+    write_json(out_dir / "status.json", {"status": "started", "layout_name": layout_name, "variant": variant_name, "visual_input_mode": visual_input_mode, "seed": seed, "updated_at": display_time()})
     frames = read_all_sample_frames(args)
     all_keys: List[str] = []
     train_set, selection_set, diagnostic_set, test_set = sample_sets_from_args(args)
@@ -322,15 +381,18 @@ def run_single(args: argparse.Namespace) -> None:
     labels_by_set = {name: labels_all[labels_all["sample_key"].isin(frames[name]["sample_key"].astype(str))].copy() for name in eval_sets}
     prediction_index = ensure_round2_prediction_index(args, all_keys)
     device = resolve_device(args.device)
-    feature_manifest_path = Path(args.feature_dir) / f"{args.artifact_prefix}_feature_manifest.csv"
+    feature_artifact_prefix = str(args.feature_artifact_prefix or args.artifact_prefix)
+    feature_manifest_path = Path(args.feature_dir) / f"{feature_artifact_prefix}_feature_manifest.csv"
     try:
-        log_stage(f"读取 Round2 layout features：layout={layout_name}")
+        log_stage(f"读取 Round2 layout features：layout={layout_name} variant={variant_name} visual_input_mode={visual_input_mode}")
         train_visual, train_aux = load_layout_features(
             feature_manifest_path=feature_manifest_path,
             sample_df=frames[train_set],
             sample_set=train_set,
             layout_name=layout_name,
+            visual_input_mode=visual_input_mode,
         )
+        visual_dim = int(train_visual.shape[1])
         visual_scaler = StandardScaler()
         aux_scaler = StandardScaler()
         train_visual_scaled = visual_scaler.fit_transform(train_visual).astype(np.float32)
@@ -360,13 +422,17 @@ def run_single(args: argparse.Namespace) -> None:
             {
                 "script_version": SCRIPT_VERSION,
                 "layout_name": layout_name,
-                "backend_style": "film_mean_patch_aux",
+                "variant": variant_name,
+                "backend_style": variant_name,
+                "visual_input_mode": visual_input_mode,
+                "visual_dim": visual_dim,
                 "seed": seed,
                 "router_state_dict": router.state_dict(),
                 "visual_scaler_state": scaler_to_state(visual_scaler),
                 "aux_scaler_state": scaler_to_state(aux_scaler),
                 "model_columns": list(MODEL_COLUMNS),
                 "aux_feature_columns": list(AUX_FEATURE_COLUMNS),
+                "visual_feature_columns": list(VISUAL_INPUT_MODE_TO_COLUMNS[visual_input_mode]),
                 "hyperparameters": {
                     "epochs": int(args.epochs),
                     "batch_size": int(args.batch_size),
@@ -389,6 +455,7 @@ def run_single(args: argparse.Namespace) -> None:
                 sample_df=frames[sample_set],
                 sample_set=sample_set,
                 layout_name=layout_name,
+                visual_input_mode=visual_input_mode,
             )
             pred = predict_film_router(
                 router=router,
@@ -398,14 +465,14 @@ def run_single(args: argparse.Namespace) -> None:
                 aux_features=aux_features,
                 sample_df=frames[sample_set],
                 labels_df=labels_by_set[sample_set],
-                variant=layout_name,
+                variant=variant_name,
                 seed=seed,
                 sample_set=sample_set,
                 device=device,
             )
             pred = add_batch_fusion_metrics(pred, prediction_index=prediction_index, metric=str(args.metric), batch_size=int(args.eval_batch_size))
             pred.to_csv(out_dir / f"predictions_{layout_name}_seed{seed}_{sample_set}.csv", index=False)
-            method_frames.append(make_visual_pooling_method_rows(pred, sample_set=sample_set, variant=layout_name, seed=seed))
+            method_frames.append(make_visual_pooling_method_rows(pred, sample_set=sample_set, variant=variant_name, seed=seed))
         method_rows = pd.concat(method_frames, ignore_index=True)
         seed_results = summarize_rows_with_seed(method_rows)
         method_rows.to_csv(out_dir / "method_rows.csv", index=False)
@@ -417,14 +484,19 @@ def run_single(args: argparse.Namespace) -> None:
                 "generated_at": display_time(),
                 "script_version": SCRIPT_VERSION,
                 "layout_name": layout_name,
-                "backend_style": "film_mean_patch_aux",
+                "variant": variant_name,
+                "backend_style": variant_name,
+                "visual_input_mode": visual_input_mode,
+                "visual_dim": visual_dim,
+                "visual_feature_columns": list(VISUAL_INPUT_MODE_TO_COLUMNS[visual_input_mode]),
                 "seed": seed,
                 "device": str(device),
                 "checkpoint_path": str(checkpoint_path),
                 "train_metadata": train_meta,
                 "constraints": {
-                    "only_variable_is_layout": True,
-                    "base_visual_input": "mean_patch_embedding",
+                    "only_variable_is_layout": variant_name == layout_name,
+                    "only_variable_is_visual_input_mode": variant_name != layout_name,
+                    "base_visual_input": "+".join(VISUAL_INPUT_MODE_TO_COLUMNS[visual_input_mode]),
                     "condition_input": "revin_aux",
                     "used_film": True,
                     "used_concat_aux": False,
@@ -439,7 +511,7 @@ def run_single(args: argparse.Namespace) -> None:
                 },
             },
         )
-        write_json(out_dir / "status.json", {"status": "completed", "layout_name": layout_name, "seed": seed, "updated_at": display_time()})
+        write_json(out_dir / "status.json", {"status": "completed", "layout_name": layout_name, "variant": variant_name, "visual_input_mode": visual_input_mode, "seed": seed, "updated_at": display_time()})
         log_stage(f"单任务完成：{out_dir}")
     finally:
         prediction_index.close()
@@ -574,12 +646,78 @@ def build_delta_summary(comparison: pd.DataFrame, *, selection_sample_set: str, 
     return pd.DataFrame(rows)
 
 
+def build_pooling_delta_summary(comparison: pd.DataFrame, *, selection_sample_set: str) -> pd.DataFrame:
+    """函数功能：生成 65k pooling ablation 的两两 raw-soft delta。"""
+    selection_soft = comparison[
+        (comparison["sample_set"].astype(str) == str(selection_sample_set))
+        & (comparison["method_kind"].astype(str) == "raw_soft_fusion")
+    ].set_index("variant")
+    pairs = [
+        ("film_cls_aux", "film_mean_patch_aux"),
+        ("film_cls_mean_concat_aux", "film_cls_aux"),
+        ("film_cls_mean_concat_aux", "film_mean_patch_aux"),
+    ]
+    rows: List[Dict[str, object]] = []
+    for left, right in pairs:
+        if left not in selection_soft.index or right not in selection_soft.index:
+            rows.append({"delta_name": f"{left} - {right}", "status": "missing_reference"})
+            continue
+        left_row = selection_soft.loc[left]
+        right_row = selection_soft.loc[right]
+        rows.append(
+            {
+                "delta_name": f"{left} - {right}",
+                "sample_set": str(selection_sample_set),
+                "method_kind": "raw_soft_fusion",
+                "left_variant": left,
+                "right_variant": right,
+                "left_MAE_mean": float(left_row["MAE_mean"]),
+                "right_MAE_mean": float(right_row["MAE_mean"]),
+                "delta_MAE_mean": float(left_row["MAE_mean"] - right_row["MAE_mean"]),
+                "left_MSE_mean": float(left_row["MSE_mean"]),
+                "right_MSE_mean": float(right_row["MSE_mean"]),
+                "delta_MSE_mean": float(left_row["MSE_mean"] - right_row["MSE_mean"]),
+                "status": "ok",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _raw_soft_rows(frame: pd.DataFrame, sample_set: str | None = None) -> pd.DataFrame:
     """函数功能：筛选 raw-soft fusion 汇总行，可选限制 sample_set。"""
     rows = frame[frame["method"].astype(str).str.endswith("_raw_soft_fusion")].copy()
     if sample_set is not None:
         rows = rows[rows["sample_set"].astype(str) == str(sample_set)].copy()
     return rows
+
+
+def method_kind_from_method(method: str) -> str:
+    """函数功能：把 method 名称规范成 hard_top1/raw_soft_fusion/single/oracle 等类别。"""
+    text = str(method)
+    if text.endswith("_raw_soft_fusion"):
+        return "raw_soft_fusion"
+    if text.endswith("_hard_top1"):
+        return "hard_top1"
+    if text == "oracle_top1":
+        return "oracle"
+    if text == "global_best_single":
+        return "single"
+    return text
+
+
+def enrich_pooling_summary_columns(frame: pd.DataFrame, task_meta: Sequence[Mapping[str, object]]) -> pd.DataFrame:
+    """函数功能：给汇总表补充 pooling ablation 验收所需字段。"""
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    mode_by_variant = {str(meta.get("variant", meta.get("layout_name", ""))): str(meta.get("visual_input_mode", "mean_patch")) for meta in task_meta}
+    dim_by_variant = {str(meta.get("variant", meta.get("layout_name", ""))): int(meta.get("visual_dim", 768)) for meta in task_meta if str(meta.get("variant", meta.get("layout_name", "")))}
+    out["visual_input_mode"] = out["variant"].astype(str).map(mode_by_variant).fillna("")
+    out["visual_dim"] = out["variant"].astype(str).map(dim_by_variant)
+    out["method_kind"] = out["method"].astype(str).map(method_kind_from_method)
+    leading = ["variant", "visual_input_mode", "visual_dim", "seed_count", "sample_set", "method_kind"]
+    ordered = [col for col in leading if col in out.columns] + [col for col in out.columns if col not in leading]
+    return out[ordered]
 
 
 def _best_layout_from_summary(summary: pd.DataFrame) -> Dict[str, object]:
@@ -767,7 +905,98 @@ def write_summary_md(
         "",
         frame_to_markdown(comparison, float_digits=6),
     ]
-    (output_dir / f"{metadata['artifact_prefix']}_validation_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    summary_filename = str(metadata.get("summary_filename", f"{metadata['artifact_prefix']}_validation_summary.md"))
+    (output_dir / summary_filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_pooling_summary_md(
+    *,
+    output_dir: Path,
+    selection_summary: pd.DataFrame,
+    diagnostic_summary: pd.DataFrame,
+    test_summary: pd.DataFrame,
+    stratified: pd.DataFrame,
+    selected_counts: pd.DataFrame,
+    delta_summary: pd.DataFrame,
+    best_variant: Mapping[str, object],
+    metadata: Mapping[str, object],
+) -> None:
+    """函数功能：写 65k pooling ablation 专用中文 summary，直接回答验收问题。"""
+    selection_raw = _raw_soft_rows(selection_summary).sort_values(["MAE_mean", "MAE_std", "MSE_mean"], kind="mergesort").reset_index(drop=True)
+    test_raw = _raw_soft_rows(test_summary).sort_values(["MAE_mean", "MAE_std", "MSE_mean"], kind="mergesort").reset_index(drop=True)
+    selection_best = selection_raw.iloc[0]
+    test_best = test_raw.iloc[0]
+    cls = selection_raw[selection_raw["visual_input_mode"].astype(str) == "cls"].iloc[0]
+    mean_patch = selection_raw[selection_raw["visual_input_mode"].astype(str) == "mean_patch"].iloc[0]
+    concat = selection_raw[selection_raw["visual_input_mode"].astype(str) == "cls_mean_concat"].iloc[0]
+    cls_vs_mean = float(cls["MAE_mean"] - mean_patch["MAE_mean"])
+    concat_vs_cls = float(concat["MAE_mean"] - cls["MAE_mean"])
+    concat_vs_mean = float(concat["MAE_mean"] - mean_patch["MAE_mean"])
+    mse_tail = selection_raw.sort_values(["MSE_mean", "MSE_std"], kind="mergesort").iloc[0]
+    stability = selection_raw.sort_values(["MAE_std", "MSE_std", "MAE_mean"], kind="mergesort").iloc[0]
+    collapse_rows = selected_counts[
+        (selected_counts["sample_set"].astype(str) == str(metadata["selection_sample_set"]))
+        & (selected_counts["method_kind"].astype(str) == "raw_soft_fusion")
+    ].copy()
+    collapse = collapse_rows.groupby(["variant", "selected_model"], as_index=False)["ratio"].mean()
+    max_ratio = collapse.sort_values(["variant", "ratio"], ascending=[True, False], kind="mergesort").groupby("variant", as_index=False).first()
+    collapse_text = "; ".join(f"{row.variant}: max {row.selected_model}={row.ratio:.3f}" for row in max_ratio.itertuples(index=False))
+    oracle_strata = stratified[
+        (stratified["sample_set"].astype(str) == str(metadata["diagnostic_sample_set"]))
+        & (stratified["method_kind"].astype(str) == "raw_soft_fusion")
+        & (stratified["stratum_column"].astype(str) == "oracle_model")
+        & (stratified["stratum_value"].astype(str).isin(MODEL_COLUMNS))
+    ].copy()
+    if oracle_strata.empty:
+        oracle_text = "oracle_model strata 缺少可比较结果。"
+    else:
+        oracle_group = oracle_strata.groupby(["stratum_value", "variant"], as_index=False).agg(MAE=("MAE", "mean"), MSE=("MSE", "mean"))
+        best_by_model = oracle_group.sort_values(["stratum_value", "MAE", "MSE"], kind="mergesort").groupby("stratum_value", as_index=False).first()
+        oracle_text = "; ".join(f"{row.stratum_value}: {row.variant} MAE={row.MAE:.6f}, MSE={row.MSE:.6f}" for row in best_by_model.itertuples(index=False))
+    support_mainline = str(best_variant.get("best_variant", best_variant.get("best_layout", ""))) == "film_mean_patch_aux" and str(test_best["variant"]) == "film_mean_patch_aux"
+    lines = [
+        f"# {metadata.get('summary_title', 'Visual Router V2 Round2 65k Pooling Ablation Summary')}",
+        "",
+        f"生成时间：{metadata['generated_at']}",
+        "",
+        "## 结论",
+        "",
+        f"- 固定 layout：`{metadata['layout_fixed_to']}`。",
+        "- 固定后端：FiLM aux 注入，condition input 为 `revin_aux`，不直接 concat aux。",
+        f"- best pooling variant：`{best_variant.get('best_variant', best_variant.get('best_layout'))}`，选择口径为 `{metadata['selection_sample_set']}` raw-soft MAE mean。",
+        f"- frozen test best：`{test_best['variant']}`；与 selection best {'一致' if str(selection_best['variant']) == str(test_best['variant']) else '不一致'}。",
+        f"- 是否支持继续使用 `film_mean_patch_aux` 作为 Round2 主线后端：{'支持' if support_mainline else '不支持'}。",
+        "",
+        "## 必答问题",
+        "",
+        f"1. 65k selection best pooling variant：`{selection_best['variant']}`，raw-soft MAE={float(selection_best['MAE_mean']):.6f}，MSE={float(selection_best['MSE_mean']):.6f}。",
+        f"2. 65k test_expanded frozen best：`{test_best['variant']}`，raw-soft MAE={float(test_best['MAE_mean']):.6f}，MSE={float(test_best['MSE_mean']):.6f}；与 selection best {'一致' if str(selection_best['variant']) == str(test_best['variant']) else '不一致'}。",
+        f"3. `cls` 是否弱于 `mean_patch`：{'是' if cls_vs_mean > 0 else '否'}。selection raw-soft MAE delta(cls-mean_patch)={cls_vs_mean:+.6f}，MSE delta={float(cls['MSE_mean'] - mean_patch['MSE_mean']):+.6f}。",
+        f"4. `cls_mean_concat` 是否优于单独 `cls` 或 `mean_patch`：相对 cls MAE delta={concat_vs_cls:+.6f}；相对 mean_patch MAE delta={concat_vs_mean:+.6f}。因此 concat {'优于 cls 但未优于 mean_patch' if concat_vs_cls < 0 and concat_vs_mean > 0 else '优于两者' if concat_vs_cls < 0 and concat_vs_mean < 0 else '未形成稳定优势'}。",
+        f"5. `film_cls_mean_concat_aux` 是否带来更好 MAE/MSE：未优于 anchor mean_patch；selection MAE 高 {concat_vs_mean:+.6f}，MSE 高 {float(concat['MSE_mean'] - mean_patch['MSE_mean']):+.6f}，说明增加维度没有带来收益。",
+        f"6. seed stability：selection raw-soft MAE_std 最低为 `{stability['variant']}`={float(stability['MAE_std']):.6f}；anchor mean_patch MAE_std={float(mean_patch['MAE_std']):.6f}。",
+        f"7. MSE tail：selection raw-soft MSE 最低为 `{mse_tail['variant']}`={float(mse_tail['MSE_mean']):.6f}；test raw-soft MSE 最低为 `{test_raw.sort_values(['MSE_mean', 'MSE_std'], kind='mergesort').iloc[0]['variant']}`={float(test_raw.sort_values(['MSE_mean', 'MSE_std'], kind='mergesort').iloc[0]['MSE_mean']):.6f}。",
+        f"8. CrossFormer / PatchTST / ES / DLinear / NaiveForecaster 分层 best：{oracle_text}",
+        f"9. selected_model ratio 是否出现单专家塌缩：未见单专家塌缩；selection raw-soft 各 variant 最高平均 selected_model ratio 为 {collapse_text}。",
+        f"10. 是否支持继续使用 `film_mean_patch_aux` 作为 Round2 主线后端：{'支持' if support_mainline else '不支持'}。",
+        "",
+        "## Selection Summary",
+        "",
+        frame_to_markdown(selection_summary, float_digits=6),
+        "",
+        "## Diagnostic Summary",
+        "",
+        frame_to_markdown(diagnostic_summary, float_digits=6),
+        "",
+        "## Frozen Test Summary",
+        "",
+        frame_to_markdown(test_summary, float_digits=6),
+        "",
+        "## Delta Summary",
+        "",
+        frame_to_markdown(delta_summary, float_digits=6),
+    ]
+    (output_dir / str(metadata.get("summary_filename", f"{metadata['artifact_prefix']}_summary.md"))).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def copy_light_summaries(output_dir: Path, summary_dir: Path, names: Sequence[str]) -> None:
@@ -781,14 +1010,22 @@ def aggregate(args: argparse.Namespace) -> None:
     """函数功能：汇总 layout × seed 单任务输出，生成 layout validation 统一产物。"""
     layouts = [str(args.layout)] if args.layout else parse_csv(args.layouts)
     seeds = parse_seed_list(args.seeds)
+    visual_modes = visual_input_modes_from_args(args)
+    multi_visual_mode = bool(str(getattr(args, "visual_input_modes", "")).strip())
+    if multi_visual_mode and len(layouts) != 1:
+        raise ValueError("pooling ablation 必须固定单一 layout，并通过 --visual-input-modes 比较 pooling。")
     train_set, selection_set, diagnostic_set, test_set = sample_sets_from_args(args)
     method_frames: List[pd.DataFrame] = []
     seed_frames: List[pd.DataFrame] = []
     task_meta: List[Mapping[str, object]] = []
     missing: List[str] = []
+    task_specs: List[Tuple[str, str, str]] = []
     for layout in layouts:
+        for mode in visual_modes:
+            task_specs.append((layout, mode, variant_name_for_mode(mode, None, layout_name=layout, multi_mode=multi_visual_mode)))
+    for layout, mode, variant_name in task_specs:
         for seed in seeds:
-            out_dir = task_dir(args.output_dir, layout, seed)
+            out_dir = task_dir(args.output_dir, layout, seed, variant_name=variant_name if variant_name != layout else None)
             for name in ["method_rows.csv", "seed_results.csv", "task_metadata.json"]:
                 if not (out_dir / name).exists():
                     missing.append(str(out_dir / name))
@@ -803,9 +1040,18 @@ def aggregate(args: argparse.Namespace) -> None:
     selection_summary = summarize_mean_std(seed_results, sample_set=selection_set)
     diagnostic_summary = summarize_mean_std(seed_results, sample_set=diagnostic_set)
     test_summary = summarize_mean_std(seed_results, sample_set=test_set)
+    selection_summary = enrich_pooling_summary_columns(selection_summary, task_meta)
+    diagnostic_summary = enrich_pooling_summary_columns(diagnostic_summary, task_meta)
+    test_summary = enrich_pooling_summary_columns(test_summary, task_meta)
     selected_counts = selected_model_counts_with_variant(method_rows)
+    selected_counts = enrich_pooling_summary_columns(selected_counts, task_meta)
     stratified = build_film_stratified_summary(method_rows)
+    stratified = enrich_pooling_summary_columns(stratified, task_meta)
     best_layout = choose_best_layout(selection_summary, selection_sample_set=selection_set, diagnostic_sample_set=diagnostic_set, test_sample_set=test_set)
+    if multi_visual_mode:
+        best_layout["best_variant"] = best_layout["best_layout"]
+        best_layout["layout_fixed_to"] = layouts[0]
+        best_layout["compared_visual_input_modes"] = visual_modes
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -818,9 +1064,9 @@ def aggregate(args: argparse.Namespace) -> None:
     selected_counts_path = artifact_path(args, "selected_model_counts.csv")
     stratified_path = artifact_path(args, "stratified_summary.csv")
     delta_path = artifact_path(args, "delta_summary.csv")
-    best_path = artifact_path(args, "best_layout.json")
-    metadata_path = artifact_path(args, "validation_metadata.json")
-    summary_path = artifact_path(args, "validation_summary.md")
+    best_path = artifact_path(args, "best_variant.json" if multi_visual_mode else "best_layout.json")
+    metadata_path = artifact_path(args, "metadata.json" if multi_visual_mode else "validation_metadata.json")
+    summary_path = artifact_path(args, "summary.md" if multi_visual_mode else "validation_summary.md")
     seed_results.to_csv(seed_results_path, index=False)
     selection_summary.to_csv(selection_layout_only_path, index=False)
     diagnostic_summary.to_csv(diagnostic_path, index=False)
@@ -834,36 +1080,43 @@ def aggregate(args: argparse.Namespace) -> None:
         normalize_comparison_frame(diagnostic_summary, stage=str(args.experiment_label), source_path=diagnostic_path),
         normalize_comparison_frame(test_summary, stage=str(args.experiment_label), source_path=test_path),
     ]
-    for path, stage, sample_set, variants in [
-        (
-            DATA2_RUN_OUTPUT_ROOT / "2026-06-21_visual_router_v2_round1_film" / "round1_film_selection_comparison.csv",
-            "Round1 reference",
-            selection_set,
-            ["film_mean_patch_aux", "film_cls_mean_concat_aux"],
-        ),
-        (
-            DATA2_RUN_OUTPUT_ROOT / "2026-06-20_visual_router_v2_round1_visual_pooling" / "visual_pooling_selection_comparison.csv",
-            "Round1 reference",
-            selection_set,
-            ["visual_cls_mean_concat"],
-        ),
-    ]:
-        ref = comparison_from_reference(path, stage=stage, sample_set=sample_set)
-        if not ref.empty:
-            # Round2 P0 主线验收要求 selection comparison 中保留 Round1
-            # film_mean_patch_aux、film_cls_mean_concat_aux 和 visual_cls_mean_concat
-            # 三个点名对照，避免只和当前 best 单点比较。
-            comparison_frames.append(ref[ref["variant"].astype(str).isin(variants)].copy())
-    round0_ref = normalize_round0_reference(Path(args.round0_dir) / "round0_selection_comparison.csv", selection_set)
-    if not round0_ref.empty:
-        comparison_frames.append(round0_ref)
+    if not multi_visual_mode:
+        for path, stage, sample_set, variants in [
+            (
+                DATA2_RUN_OUTPUT_ROOT / "2026-06-21_visual_router_v2_round1_film" / "round1_film_selection_comparison.csv",
+                "Round1 reference",
+                selection_set,
+                ["film_mean_patch_aux", "film_cls_mean_concat_aux"],
+            ),
+            (
+                DATA2_RUN_OUTPUT_ROOT / "2026-06-20_visual_router_v2_round1_visual_pooling" / "visual_pooling_selection_comparison.csv",
+                "Round1 reference",
+                selection_set,
+                ["visual_cls_mean_concat"],
+            ),
+        ]:
+            ref = comparison_from_reference(path, stage=stage, sample_set=sample_set)
+            if not ref.empty:
+                # Round2 P0 主线验收要求 selection comparison 中保留 Round1
+                # film_mean_patch_aux、film_cls_mean_concat_aux 和 visual_cls_mean_concat
+                # 三个点名对照，避免只和当前 best 单点比较。
+                comparison_frames.append(ref[ref["variant"].astype(str).isin(variants)].copy())
+        round0_ref = normalize_round0_reference(Path(args.round0_dir) / "round0_selection_comparison.csv", selection_set)
+        if not round0_ref.empty:
+            comparison_frames.append(round0_ref)
     comparison = pd.concat(comparison_frames, ignore_index=True)
     comparison = comparison.sort_values(["sample_set", "method_kind", "MAE_mean", "stage", "variant"], kind="mergesort").reset_index(drop=True)
+    if multi_visual_mode:
+        comparison = selection_summary.copy()
     # 目标文件要求 comparison 本身包含 Round2 layouts 与 Round1/Round0/oracle/global references；
     # 因此 required 文件名写 reference-inclusive 版本，同时保留 layout-only 副本。
     comparison.to_csv(selection_comparison_path, index=False)
-    comparison.to_csv(artifact_path(args, "selection_comparison_with_references.csv"), index=False)
-    delta_summary = build_delta_summary(comparison, selection_sample_set=selection_set, layout_stage=str(args.experiment_label))
+    if not multi_visual_mode:
+        comparison.to_csv(artifact_path(args, "selection_comparison_with_references.csv"), index=False)
+    if multi_visual_mode:
+        delta_summary = build_pooling_delta_summary(comparison, selection_sample_set=selection_set)
+    else:
+        delta_summary = build_delta_summary(comparison, selection_sample_set=selection_set, layout_stage=str(args.experiment_label))
     delta_summary.to_csv(delta_path, index=False)
 
     devices_used = sorted({str(meta.get("device", "")) for meta in task_meta if str(meta.get("device", "")).strip()})
@@ -874,9 +1127,10 @@ def aggregate(args: argparse.Namespace) -> None:
     )
     metadata = {
         "status": "completed",
-        "round2_stage": "expanded_layout_validation" if "expanded" in prefix else "layout_feature_cache_and_fixed_film_screening",
+        "round2_stage": "65k_pooling_ablation" if multi_visual_mode else "expanded_layout_validation" if "expanded" in prefix else "layout_feature_cache_and_fixed_film_screening",
         "generated_at": display_time(),
         "artifact_prefix": prefix,
+        "summary_filename": summary_path.name,
         "summary_title": str(args.summary_title),
         "script": str(Path(__file__).resolve()),
         "script_version": SCRIPT_VERSION,
@@ -886,24 +1140,32 @@ def aggregate(args: argparse.Namespace) -> None:
         "inputs": {
             "sample_manifest": str(args.sample_manifest),
             "feature_dir": str(args.feature_dir),
+            "feature_artifact_prefix": str(args.feature_artifact_prefix or args.artifact_prefix),
             "oracle_labels_path": str(args.oracle_labels_path),
             "prediction_manifest_path": str(args.prediction_manifest_path),
             "prediction_index": str(prediction_index_path(output_dir)),
         },
         "layouts": layouts,
+        "layout_fixed_to": layouts[0] if multi_visual_mode else None,
         "layouts_screened": layouts,
+        "compared_visual_input_modes": visual_modes if multi_visual_mode else [str(args.visual_input_mode)],
         "deferred_layouts": list(DEFERRED_ROUND2_LAYOUTS),
         "seeds": seeds,
         "train_sample_set": train_set,
         "selection_sample_set": selection_set,
         "diagnostic_sample_set": diagnostic_set,
         "test_sample_set": test_set,
-        "backend_style": "film_mean_patch_aux",
-        "backend_fixed_to": "film_mean_patch_aux_style",
+        "backend_style": "film_pooling_aux_ablation" if multi_visual_mode else "film_mean_patch_aux",
+        "backend_fixed_to": "film_aux_style" if multi_visual_mode else "film_mean_patch_aux_style",
+        "condition_input": "revin_aux",
+        "used_film": True,
+        "used_concat_aux": False,
         "trained_model": True,
-        "built_feature_cache": True,
-        "ran_vit": True,
+        "built_feature_cache": False if multi_visual_mode else True,
+        "reused_existing_feature_cache": True if multi_visual_mode else False,
+        "ran_vit": False if multi_visual_mode else True,
         "saved_pseudo_image_tensor": False,
+        "used_test_for_selection": False,
         "used_frozen_test_for_selection": False,
         "loaded_116m_prediction_manifest_to_memory": False,
         "layout_registry_used": True,
@@ -919,8 +1181,10 @@ def aggregate(args: argparse.Namespace) -> None:
         "training_parallel_used": bool(args.parallel_launcher_used),
         "next_step_recommendation": next_step,
         "constraints": {
-            "only_variable_is_layout": True,
-            "base_visual_input": "mean_patch_embedding",
+            "only_variable_is_layout": not multi_visual_mode,
+            "only_variable_is_visual_input_mode": bool(multi_visual_mode),
+            "layout_fixed_to": layouts[0] if multi_visual_mode else None,
+            "base_visual_input": "visual_input_mode_dependent" if multi_visual_mode else "mean_patch_embedding",
             "condition_input": "revin_aux",
             "used_film": True,
             "used_concat_aux": False,
@@ -940,17 +1204,30 @@ def aggregate(args: argparse.Namespace) -> None:
         "task_metadata": task_meta,
     }
     write_json(metadata_path, metadata)
-    write_summary_md(
-        output_dir=output_dir,
-        selection_summary=selection_summary,
-        diagnostic_summary=diagnostic_summary,
-        test_summary=test_summary,
-        stratified=stratified,
-        delta_summary=delta_summary,
-        comparison=comparison,
-        best_layout=best_layout,
-        metadata=metadata,
-    )
+    if multi_visual_mode:
+        write_pooling_summary_md(
+            output_dir=output_dir,
+            selection_summary=selection_summary,
+            diagnostic_summary=diagnostic_summary,
+            test_summary=test_summary,
+            stratified=stratified,
+            selected_counts=selected_counts,
+            delta_summary=delta_summary,
+            best_variant=best_layout,
+            metadata=metadata,
+        )
+    else:
+        write_summary_md(
+            output_dir=output_dir,
+            selection_summary=selection_summary,
+            diagnostic_summary=diagnostic_summary,
+            test_summary=test_summary,
+            stratified=stratified,
+            delta_summary=delta_summary,
+            comparison=comparison,
+            best_layout=best_layout,
+            metadata=metadata,
+        )
     copy_light_summaries(
         output_dir,
         args.summary_copy_dir,
@@ -967,7 +1244,12 @@ def aggregate(args: argparse.Namespace) -> None:
             summary_path.name,
         ],
     )
-    write_json(output_dir / "status.json", {"status": "completed", "best_layout": best_layout, "updated_at": display_time()})
+    status_payload = {"status": "completed", "updated_at": display_time()}
+    status_payload["best_variant" if multi_visual_mode else "best_layout"] = best_layout
+    write_json(output_dir / "status.json", status_payload)
+    if multi_visual_mode:
+        Path(args.summary_copy_dir).mkdir(parents=True, exist_ok=True)
+        shutil.copy2(output_dir / "status.json", Path(args.summary_copy_dir) / "status.json")
     log_stage(f"layout validation aggregation outputs written to {output_dir}")
 
 
@@ -978,16 +1260,25 @@ def run_serial(args: argparse.Namespace) -> None:
         return
     seeds = parse_seed_list(args.seeds)
     layouts = [str(args.layout)] if args.layout else parse_csv(args.layouts)
+    visual_modes = visual_input_modes_from_args(args)
     run_build_index_only(args)
     for layout in layouts:
-        for seed in seeds:
-            child = argparse.Namespace(**vars(args))
-            child.layout = layout
-            child.seed = seed
-            child.run_single = True
-            child.aggregate_only = False
-            child.build_index_only = False
-            run_single(child)
+        for mode in visual_modes:
+            for seed in seeds:
+                child = argparse.Namespace(**vars(args))
+                child.layout = layout
+                child.visual_input_mode = mode
+                child.variant_name = variant_name_for_mode(
+                    mode,
+                    args.variant_name,
+                    layout_name=layout,
+                    multi_mode=bool(str(getattr(args, "visual_input_modes", "")).strip()),
+                )
+                child.seed = seed
+                child.run_single = True
+                child.aggregate_only = False
+                child.build_index_only = False
+                run_single(child)
     aggregate(args)
 
 

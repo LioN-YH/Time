@@ -1,0 +1,4 @@
+delta_name,sample_set,method_kind,left_variant,right_variant,left_MAE_mean,right_MAE_mean,delta_MAE_mean,left_MSE_mean,right_MSE_mean,delta_MSE_mean,status
+film_cls_aux - film_mean_patch_aux,round2_selection_expanded,raw_soft_fusion,film_cls_aux,film_mean_patch_aux,0.3085951325492057,0.30723307552229984,0.0013620570269058385,2.0464134080223175,2.043913664347326,0.002499743674991617,ok
+film_cls_mean_concat_aux - film_cls_aux,round2_selection_expanded,raw_soft_fusion,film_cls_mean_concat_aux,film_cls_aux,0.3080285067648357,0.3085951325492057,-0.0005666257843700007,2.2691293388162594,2.0464134080223175,0.22271593079394192,ok
+film_cls_mean_concat_aux - film_mean_patch_aux,round2_selection_expanded,raw_soft_fusion,film_cls_mean_concat_aux,film_mean_patch_aux,0.3080285067648357,0.30723307552229984,0.0007954312425358379,2.2691293388162594,2.043913664347326,0.22521567446893354,ok
