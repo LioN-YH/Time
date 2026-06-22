@@ -1,0 +1,57 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 20:38:59 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_panel_gating_probe.py",
+  "script_version": "visual_router_v2_round2_panel_gating_35k_screening_v1",
+  "feature_schema_version": "visual_router_v2_round2_panel_pooling_v1",
+  "panel_gating_schema_version": "visual_router_v2_round2_panel_gating_v1",
+  "commit_hash": "ea18c9694b5f4b138bcd20e4a12349ddc5ef1291",
+  "variants": [
+    "film_mean_patch_aux",
+    "film_panel_gated_mean_aux",
+    "film_panel_lowrank_aux"
+  ],
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "selection_sample_set": "round2_selection_small",
+  "diagnostic_sample_set": "round2_diagnostic_balanced_small",
+  "test_sample_set": "round2_test_small",
+  "best_selection_variant": {
+    "sample_set": "round2_selection_small",
+    "variant": "film_panel_lowrank_aux",
+    "method": "film_panel_lowrank_aux_raw_soft_fusion",
+    "seed_count": 3,
+    "sample_count_per_seed": 5000,
+    "MAE_mean": 0.30860482362859704,
+    "MAE_std": 0.007982367668752198,
+    "MSE_mean": 3.153192388771766,
+    "MSE_std": 0.6884772298203937,
+    "regret_to_oracle_mean": 0.0451550894045381,
+    "regret_to_oracle_std": 0.007982367668752209,
+    "oracle_label_accuracy_mean": 0.5418666666666666,
+    "oracle_label_accuracy_std": 0.14711007216820107,
+    "weight_entropy_mean": 1.1305082366199544,
+    "weight_entropy_std": 0.0285631340617553,
+    "normalized_weight_entropy_mean": 0.7024242517493043,
+    "normalized_weight_entropy_std": 0.017747272859120675,
+    "mean_max_weight_mean": 0.5033820692310731,
+    "mean_max_weight_std": 0.019453308472033505
+  },
+  "recommendation": "Drop / defer panel-aware path",
+  "recommendation_reasons": [
+    "film_panel_lowrank_aux: selection MAE delta=-0.001780, MSE delta=-0.176006, regret delta=-0.001780, q5_ok=True, PatchTST/CrossFormer_ok=False, test_ok=True",
+    "film_panel_gated_mean_aux: selection MAE delta=+0.004405, MSE delta=+0.321951, regret delta=+0.004405, q5_ok=False, PatchTST/CrossFormer_ok=False, test_ok=True"
+  ],
+  "constraints": {
+    "reran_vit": false,
+    "saved_pseudo_image_tensor": false,
+    "full_scale_validation": false,
+    "expanded_65k_validation": false,
+    "p0_scale": false,
+    "test_small_used_for_training_tuning_selection_seed_or_epoch": false,
+    "oracle_label_accuracy_is_primary_metric": false
+  }
+}
