@@ -1,0 +1,104 @@
+{
+  "script_version": "current_layout_equivalence_check_inline_v1",
+  "created_at": "2026-06-22 09:50:29 CST",
+  "scope": "Round1 current layout vs Round2 registry current_rgb_3view tensor equivalence only",
+  "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round2_small_samples/round2_small_sample_manifest.csv",
+  "sample_set": "round2_selection_small",
+  "sample_count": 64,
+  "sample_keys_head": [
+    "96_48_S__vali__TEST_DATA_HOUR__item108887__ch1__win131",
+    "96_48_S__vali__TEST_DATA_HOUR__item107804__ch3__win1227",
+    "96_48_S__vali__TEST_DATA_HOUR__item102430__ch0__win2246",
+    "96_48_S__vali__TEST_DATA_HOUR__item111843__ch1__win1777",
+    "96_48_S__vali__TEST_DATA_HOUR__item110787__ch2__win1440",
+    "96_48_S__vali__TEST_DATA_HOUR__item110575__ch3__win1921",
+    "96_48_S__vali__TEST_DATA_HOUR__item108608__ch0__win17",
+    "96_48_S__vali__TEST_DATA_HOUR__item102162__ch2__win637"
+  ],
+  "visual_checkpoint": "/data2/syh/Time/run_outputs/2026-06-16_stage1_96_48_s_streaming_visual_router_1epoch_v2/checkpoints/latest_96_48_S.pt",
+  "embedding_metadata": {
+    "embedding_version": "visual_router_vit_embedding_v1_online_streaming",
+    "encoder_name": "google/vit-base-patch16-224",
+    "variant": "variant_a_3view",
+    "pooling": "cls",
+    "normalization_preset": "hf_vit_0_5",
+    "image_size": 224,
+    "norm_mode": "revin_aux",
+    "pixel_mode": "vision",
+    "clip": 5.0,
+    "period_selection": "fixed_candidates",
+    "period_candidates_arg": null,
+    "period_candidates": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      8,
+      10,
+      12,
+      16,
+      24,
+      32,
+      48,
+      64,
+      96
+    ],
+    "dtype_arg": "auto"
+  },
+  "round1_path": {
+    "entrypoint": "build_visual_router_v2_round1_features.forward_visual_features -> make_pseudo_images",
+    "pseudo_image_function": "visual_router_experiments.common.vit_embedding_utils.make_pseudo_images",
+    "raw_image_function_for_variant_a_3view": "visual_router_experiments.common.pseudo_imageization.imageize_3view",
+    "encoder_normalization": "visual_router_experiments.common.pseudo_imageization.encoder_normalize"
+  },
+  "round2_path": {
+    "entrypoint": "build_visual_router_v2_round2_layout_features.forward_layout_features -> imageize_round2_layout",
+    "registry_function": "visual_router_experiments.common.round2_layout_registry.imageize_round2_layout",
+    "layout": "current_rgb_3view",
+    "layout_adapter": "_layout_current_rgb_3view -> imageize_3view",
+    "encoder_normalization": "visual_router_experiments.common.pseudo_imageization.encoder_normalize"
+  },
+  "round2_layout_metadata": {
+    "layout_name": "current_rgb_3view",
+    "input_source": "history_x_only",
+    "norm_mode": "revin_aux",
+    "history_length": 96,
+    "output_shape_contract": "[B,3,H,W]",
+    "output_value_range_contract": "[0,1]",
+    "resize_interpolation_mode": "linear_for_1d_profile; bilinear_for_2d_panel_or_fold",
+    "resize_antialias": false,
+    "effective_mapping": "L=96 interpolated/resized to H=W=224",
+    "pixel_mode": "vision",
+    "clip": 5.0,
+    "cpu_fallback": false,
+    "channel_design": "channel-packed line_raster/top1_period_fold/fft_power",
+    "padding": {
+      "padding_mask_available": true,
+      "padding_mask_used_as_vit_input": false,
+      "pad_count_max": 0,
+      "pad_count_mean": 0.0,
+      "padded_sample_ratio": 0.0
+    },
+    "period_layout": "top1 fold in channel 1",
+    "explicit_cpu_gpu_transfer_in_main_path": "period bucket scalar sync inherited from period fold implementation",
+    "registry_status": "implemented",
+    "registry_implementation_note": "adapter around existing imageize_3view",
+    "period_selection": "fixed_candidates",
+    "period_candidates_count": 14,
+    "selected_periods_shape": [
+      64,
+      3
+    ]
+  },
+  "metrics_csv": "/home/shiyuhong/Time-visual-router-v2/experiment_summaries/visual_router_v2_round2/current_layout_equivalence_metrics.csv",
+  "best_channel_permutation": "raw_channel_permutation_round2_(0, 1, 2)",
+  "conclusion": "Equivalent",
+  "negative_controls": {
+    "trained_router": false,
+    "ran_vit_encoder": false,
+    "generated_feature_cache": false,
+    "created_new_samples": false,
+    "used_future_y_or_predictions": false
+  }
+}
