@@ -233,7 +233,9 @@ def parse_args() -> argparse.Namespace:
         "--fusion_mode",
         choices=[
             "feature_concat",
+            "feature_gate",
             "film",
+            "gated_residual_feature",
             "residual_feature",
             "visual_residual",
             "pred_gate",

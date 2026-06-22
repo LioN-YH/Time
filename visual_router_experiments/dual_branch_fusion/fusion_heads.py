@@ -18,7 +18,9 @@ from torch import nn
 
 FusionMode = Literal[
     "feature_concat",
+    "feature_gate",
     "film",
+    "gated_residual_feature",
     "residual_feature",
     "visual_residual",
     "pred_gate",
@@ -82,11 +84,24 @@ class DualBranchFusionHead(nn.Module):
         if mode == "feature_concat":
             self.fusion = _make_mlp(ts_dim + visual_dim, hidden_dim, hidden_dim, dropout)
             self.prediction_head = nn.Linear(hidden_dim, output_dim)
+        elif mode == "feature_gate":
+            # feature_gate 先把两个分支投影到同一隐空间，再逐维门控融合；它不是
+            # PatchTST prediction residual，因此初始输出不保证等于 PatchTST baseline。
+            self.ts_projection = nn.Linear(ts_dim, hidden_dim)
+            self.visual_projection = nn.Linear(visual_dim, hidden_dim)
+            self.feature_gate = _make_mlp(hidden_dim * 2, hidden_dim, hidden_dim, dropout)
+            self.prediction_head = _make_mlp(hidden_dim, hidden_dim, output_dim, dropout)
         elif mode == "film":
             self.visual_to_gamma_beta = _make_mlp(visual_dim, hidden_dim, ts_dim * 2, dropout)
             self.prediction_head = _make_mlp(ts_dim, hidden_dim, output_dim, dropout)
         elif mode == "residual_feature":
             self.visual_residual = _make_mlp(visual_dim, hidden_dim, ts_dim, dropout)
+            self.prediction_head = _make_mlp(ts_dim, hidden_dim, output_dim, dropout)
+        elif mode == "gated_residual_feature":
+            # 保守 feature residual：视觉分支只通过门控残差修正 h_ts；但最终仍接
+            # feature-level prediction head，不具备 patchtst_residual_visual 的 baseline 等价初始化。
+            self.visual_residual = _make_mlp(visual_dim, hidden_dim, ts_dim, dropout)
+            self.feature_residual_gate = _make_mlp(ts_dim + visual_dim, hidden_dim, ts_dim, dropout)
             self.prediction_head = _make_mlp(ts_dim, hidden_dim, output_dim, dropout)
         elif mode == "visual_residual":
             self.visual_delta = _make_mlp(visual_dim, hidden_dim, output_dim, dropout)
@@ -110,6 +125,13 @@ class DualBranchFusionHead(nn.Module):
             hidden = self.fusion(torch.cat([h_ts, h_vis], dim=-1))
             return self.prediction_head(hidden).reshape_as(y_patchtst)
 
+        if self.mode == "feature_gate":
+            z_ts = self.ts_projection(h_ts)
+            z_vis = self.visual_projection(h_vis)
+            gate = torch.sigmoid(self.feature_gate(torch.cat([z_ts, z_vis], dim=-1)))
+            h_fused = gate * z_ts + (1.0 - gate) * z_vis
+            return self.prediction_head(h_fused).reshape_as(y_patchtst)
+
         if self.mode == "film":
             gamma_beta = self.visual_to_gamma_beta(h_vis)
             gamma, beta = torch.chunk(gamma_beta, chunks=2, dim=-1)
@@ -119,6 +141,12 @@ class DualBranchFusionHead(nn.Module):
 
         if self.mode == "residual_feature":
             h_fused = h_ts + self.visual_residual(h_vis)
+            return self.prediction_head(h_fused).reshape_as(y_patchtst)
+
+        if self.mode == "gated_residual_feature":
+            residual = self.visual_residual(h_vis)
+            gate = torch.sigmoid(self.feature_residual_gate(torch.cat([h_ts, h_vis], dim=-1)))
+            h_fused = h_ts + self.residual_scale * gate * residual
             return self.prediction_head(h_fused).reshape_as(y_patchtst)
 
         if self.mode == "visual_residual":
@@ -152,7 +180,9 @@ def build_fusion_head(
     """函数功能：对外提供字符串 mode 到融合头实例的统一构造入口。"""
     valid_modes = {
         "feature_concat",
+        "feature_gate",
         "film",
+        "gated_residual_feature",
         "residual_feature",
         "visual_residual",
         "pred_gate",
