@@ -1,0 +1,129 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 11:17:48 CST",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/summarize_visual_router_v2_round2_staged_validation.py",
+  "script_version": "visual_router_v2_round2_staged_summary_v1",
+  "commit_hash": "f4aa02dc2368cd972c6b93b9f8e445f5e9d3c498",
+  "run_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice",
+  "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/inputs/round2_staged_smoke_sample_manifest.csv",
+  "sample_scale": "smoke",
+  "layouts": [
+    "spatial_panel_3view",
+    "current_rgb_3view"
+  ],
+  "seeds": [
+    16
+  ],
+  "backend": "film_mean_patch_aux",
+  "report_schema_sections": [
+    "overall",
+    "strata",
+    "tail",
+    "router_behavior",
+    "per_seed_metrics"
+  ],
+  "checks": {
+    "feature_manifest": {
+      "passed": true,
+      "path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_feature_manifest.csv",
+      "row_count": 8,
+      "layouts": [
+        "current_rgb_3view",
+        "spatial_panel_3view"
+      ],
+      "expected_layouts": [
+        "spatial_panel_3view",
+        "current_rgb_3view"
+      ],
+      "missing_shard_count": 0,
+      "missing_shards_preview": [],
+      "coverage": [
+        {
+          "layout_name": "current_rgb_3view",
+          "sample_set": "staged_diagnostic",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "current_rgb_3view",
+          "sample_set": "staged_selection",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "current_rgb_3view",
+          "sample_set": "staged_test",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "current_rgb_3view",
+          "sample_set": "staged_train",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "spatial_panel_3view",
+          "sample_set": "staged_diagnostic",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "spatial_panel_3view",
+          "sample_set": "staged_selection",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "spatial_panel_3view",
+          "sample_set": "staged_test",
+          "sample_count": 32
+        },
+        {
+          "layout_name": "spatial_panel_3view",
+          "sample_set": "staged_train",
+          "sample_count": 32
+        }
+      ]
+    },
+    "prediction_lookup": {
+      "passed": true,
+      "path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/prediction_index_round2_layout_subset.sqlite",
+      "sample_count": 128,
+      "record_count": 640,
+      "expected_records": 640,
+      "unique_samples": 128,
+      "per_model": [
+        {
+          "model_name": "CrossFormer",
+          "n": 128
+        },
+        {
+          "model_name": "DLinear",
+          "n": 128
+        },
+        {
+          "model_name": "ES",
+          "n": 128
+        },
+        {
+          "model_name": "NaiveForecaster",
+          "n": 128
+        },
+        {
+          "model_name": "PatchTST",
+          "n": 128
+        }
+      ]
+    }
+  },
+  "constraints": {
+    "not_1m_run": true,
+    "not_116m_full_scale_run": true,
+    "loaded_116m_prediction_manifest_to_memory": false,
+    "saved_pseudo_image_tensor": false,
+    "test_used_for_training_or_selection": false
+  },
+  "outputs": {
+    "overall": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_overall_report.csv",
+    "strata": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_strata_report.csv",
+    "tail": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_tail_report.csv",
+    "router_behavior": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_router_behavior_report.csv",
+    "metadata": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_metadata.json",
+    "summary": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/round2_staged_fullscale_validation_summary.md"
+  }
+}

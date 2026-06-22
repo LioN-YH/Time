@@ -1,0 +1,181 @@
+{
+  "status": "completed",
+  "round2_stage": "layout_feature_cache_and_fixed_film_screening",
+  "generated_at": "2026-06-22 11:17:47 CST",
+  "artifact_prefix": "round2_staged_fullscale",
+  "summary_title": "Visual Router V2 Round2 Staged Full-Scale smoke Summary",
+  "script": "/home/shiyuhong/Time-visual-router-v2/visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round2_layout_film.py",
+  "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+  "commit_hash": "f4aa02dc2368cd972c6b93b9f8e445f5e9d3c498",
+  "output_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice",
+  "summary_copy_dir": "/home/shiyuhong/Time-visual-router-v2/experiment_summaries/visual_router_v2_round2/staged_fullscale_validation",
+  "inputs": {
+    "sample_manifest": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/inputs/round2_staged_smoke_sample_manifest.csv",
+    "feature_dir": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice",
+    "oracle_labels_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/oracle_labels_full_scale_2026-06-16/window_oracle_labels.parquet",
+    "prediction_manifest_path": "/data2/syh/Time/run_outputs/2026-06-15_stage1_96_48_s_full_scale/prediction_cache_full_scale_launcher/merged_cache/manifest.csv",
+    "prediction_index": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/prediction_index_round2_layout_subset.sqlite"
+  },
+  "layouts": [
+    "spatial_panel_3view",
+    "current_rgb_3view"
+  ],
+  "layouts_screened": [
+    "spatial_panel_3view",
+    "current_rgb_3view"
+  ],
+  "deferred_layouts": [
+    "period_soft_mixture",
+    "independent_view_encoder"
+  ],
+  "seeds": [
+    16
+  ],
+  "train_sample_set": "staged_train",
+  "selection_sample_set": "staged_selection",
+  "diagnostic_sample_set": "staged_diagnostic",
+  "test_sample_set": "staged_test",
+  "backend_style": "film_mean_patch_aux",
+  "backend_fixed_to": "film_mean_patch_aux_style",
+  "trained_model": true,
+  "built_feature_cache": true,
+  "ran_vit": true,
+  "saved_pseudo_image_tensor": false,
+  "used_frozen_test_for_selection": false,
+  "loaded_116m_prediction_manifest_to_memory": false,
+  "layout_registry_used": true,
+  "changed_router_head": false,
+  "changed_loss": false,
+  "changed_selection_rule": false,
+  "changed_sample_split": false,
+  "devices_requested": "cuda:0,cuda:1,cuda:2,cuda:3",
+  "devices_used": [
+    "cuda:0",
+    "cuda:1"
+  ],
+  "parallel_backend": "process_per_layout_and_seed",
+  "single_task_output_isolated": true,
+  "feature_cache_parallel_used": true,
+  "training_parallel_used": true,
+  "next_step_recommendation": "Upgrade spatial_panel_3view to Round2 mainline and expand to P0/P2a scale.",
+  "constraints": {
+    "only_variable_is_layout": true,
+    "base_visual_input": "mean_patch_embedding",
+    "condition_input": "revin_aux",
+    "used_film": true,
+    "used_concat_aux": false,
+    "searched_head_loss_film_dim_dropout_calibration": false,
+    "staged_selection_used_for_selection": true,
+    "staged_diagnostic_used_for_selection": false,
+    "staged_test_used_for_selection": false,
+    "parallel_launcher_used": true,
+    "parallel_backend": "process_per_layout_and_seed",
+    "devices_requested": "cuda:0,cuda:1,cuda:2,cuda:3",
+    "devices_used": [
+      "cuda:0",
+      "cuda:1"
+    ],
+    "single_task_output_isolated": true,
+    "feature_cache_parallel_used": true,
+    "training_parallel_used": true
+  },
+  "best_layout": {
+    "best_layout": "spatial_panel_3view",
+    "backend_style": "film_mean_patch_aux",
+    "selection_basis": "staged_selection raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+    "selected_from_sample_set": "staged_selection",
+    "staged_diagnostic_used_for_selection": false,
+    "staged_test_used_for_selection": false,
+    "best_row": {
+      "sample_set": "staged_selection",
+      "variant": "spatial_panel_3view",
+      "method": "spatial_panel_3view_raw_soft_fusion",
+      "seed_count": 1,
+      "sample_count_per_seed": 32,
+      "MAE_mean": 0.069376723262394,
+      "MAE_std": 0.0,
+      "MSE_mean": 0.0106791281066591,
+      "MSE_std": 0.0,
+      "regret_to_oracle_mean": 0.0171953542558185,
+      "regret_to_oracle_std": 0.0,
+      "oracle_label_accuracy_mean": 0.15625,
+      "oracle_label_accuracy_std": 0.0,
+      "weight_entropy_mean": 1.5132333859801292,
+      "weight_entropy_std": 0.0,
+      "normalized_weight_entropy_mean": 0.940224751830101,
+      "normalized_weight_entropy_std": 0.0,
+      "mean_max_weight_mean": 0.3213737173937261,
+      "mean_max_weight_std": 0.0
+    }
+  },
+  "task_metadata": [
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 11:16:26 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "spatial_panel_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:0",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/tasks/spatial_panel_3view_seed16/checkpoint_spatial_panel_3view_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.060231685638427734,
+        "final_train_loss": 0.060231685638427734,
+        "final_huber_loss": 0.059086959809064865,
+        "final_kl_loss": 0.11447275429964066,
+        "train_weight_entropy": 1.5765841007232666,
+        "train_normalized_weight_entropy": 0.9795867800712585,
+        "train_mean_max_weight": 0.277178019285202
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "frozen_test_used_for_selection": false,
+        "train_sample_set": "staged_train",
+        "selection_sample_set": "staged_selection",
+        "diagnostic_sample_set": "staged_diagnostic",
+        "test_sample_set": "staged_test",
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    },
+    {
+      "status": "completed",
+      "generated_at": "2026-06-22 11:16:26 CST",
+      "script_version": "visual_router_v2_round2c_layout_film_screening_v1",
+      "layout_name": "current_rgb_3view",
+      "backend_style": "film_mean_patch_aux",
+      "seed": 16,
+      "device": "cuda:1",
+      "checkpoint_path": "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice/tasks/current_rgb_3view_seed16/checkpoint_current_rgb_3view_seed16.pt",
+      "train_metadata": {
+        "initial_train_loss": 0.060300543904304504,
+        "final_train_loss": 0.060300543904304504,
+        "final_huber_loss": 0.059199556708335876,
+        "final_kl_loss": 0.11009854078292847,
+        "train_weight_entropy": 1.5841871500015259,
+        "train_normalized_weight_entropy": 0.9843108057975769,
+        "train_mean_max_weight": 0.25975877046585083
+      },
+      "constraints": {
+        "only_variable_is_layout": true,
+        "base_visual_input": "mean_patch_embedding",
+        "condition_input": "revin_aux",
+        "used_film": true,
+        "used_concat_aux": false,
+        "frozen_test_used_for_selection": false,
+        "train_sample_set": "staged_train",
+        "selection_sample_set": "staged_selection",
+        "diagnostic_sample_set": "staged_diagnostic",
+        "test_sample_set": "staged_test",
+        "trained_vit": false,
+        "saved_pseudo_image_tensor": false,
+        "single_task_output_isolated": true
+      }
+    }
+  ]
+}
