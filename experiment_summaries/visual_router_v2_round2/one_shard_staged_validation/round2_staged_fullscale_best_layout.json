@@ -1,0 +1,29 @@
+{
+  "best_layout": "spatial_panel_3view",
+  "backend_style": "film_mean_patch_aux",
+  "selection_basis": "staged_selection raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+  "selected_from_sample_set": "staged_selection",
+  "staged_diagnostic_used_for_selection": false,
+  "staged_test_used_for_selection": false,
+  "best_row": {
+    "sample_set": "staged_selection",
+    "variant": "spatial_panel_3view",
+    "method": "spatial_panel_3view_raw_soft_fusion",
+    "seed_count": 1,
+    "sample_count_per_seed": 512,
+    "MAE_mean": 0.1850043992249084,
+    "MAE_std": 0.0,
+    "MSE_mean": 0.0996170959980626,
+    "MSE_std": 0.0,
+    "regret_to_oracle_mean": 0.0123150874801467,
+    "regret_to_oracle_std": 0.0,
+    "oracle_label_accuracy_mean": 0.859375,
+    "oracle_label_accuracy_std": 0.0,
+    "weight_entropy_mean": 0.7188897318555973,
+    "weight_entropy_std": 0.0,
+    "normalized_weight_entropy_mean": 0.4466713004003395,
+    "normalized_weight_entropy_std": 0.0,
+    "mean_max_weight_mean": 0.6985452938824892,
+    "mean_max_weight_std": 0.0
+  }
+}

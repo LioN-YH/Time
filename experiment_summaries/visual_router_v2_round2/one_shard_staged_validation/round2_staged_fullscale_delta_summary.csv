@@ -1,0 +1,10 @@
+delta_name,sample_set,method_kind,left_variant,right_variant,left_MAE_mean,right_MAE_mean,delta_MAE_mean,left_MSE_mean,right_MSE_mean,delta_MSE_mean,status
+spatial_panel_3view - current_rgb_3view,staged_selection,raw_soft_fusion,spatial_panel_3view,current_rgb_3view,0.1850043992249084,0.1871763558673365,-0.0021719566424280856,0.0996170959980626,0.1009244526993431,-0.0013073567012805015,ok
+line_only - current_rgb_3view,,,,,,,,,,,missing_reference
+line_difference_band - line_only,,,,,,,,,,,missing_reference
+line_difference_band - current_rgb_3view,,,,,,,,,,,missing_reference
+fft_absolute_energy - current_rgb_3view,,,,,,,,,,,missing_reference
+top3fold_period_layout - current_rgb_3view,,,,,,,,,,,missing_reference
+top3fold_period_layout - fft_absolute_energy,,,,,,,,,,,missing_reference
+spatial_panel_3view - film_mean_patch_aux,staged_selection,raw_soft_fusion,spatial_panel_3view,film_mean_patch_aux,0.1850043992249084,0.3003931976794061,-0.11538879845449768,0.0996170959980626,1.28987162021779,-1.1902545242197273,ok
+spatial_panel_3view - Round0 TimeFuse,staged_selection,raw_soft_fusion,spatial_panel_3view,Round0 TimeFuse,0.1850043992249084,0.3175300871360582,-0.13252568791114977,0.0996170959980626,1.370166538406871,-1.2705494424088084,ok
