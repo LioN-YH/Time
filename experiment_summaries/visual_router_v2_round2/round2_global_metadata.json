@@ -1,0 +1,102 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 09:31:55 CST",
+  "summary_scope": "Visual Router V2 Round2 global summary and mainline recommendation",
+  "branch": "exp/visual-router-v2-pilot",
+  "no_new_training": true,
+  "no_vit_run": true,
+  "no_feature_cache_generated": true,
+  "no_new_samples_created": true,
+  "no_imageization_or_router_head_logic_changed": true,
+  "backend_fixed": "film_mean_patch_aux",
+  "main_metrics": [
+    "raw_soft_MAE",
+    "raw_soft_MSE",
+    "raw_soft_regret"
+  ],
+  "explanation_only_metrics": [
+    "hard_top1",
+    "oracle_label_accuracy"
+  ],
+  "round2_commits": {
+    "round2a_small_samples_layout_candidates": "00d4a7b",
+    "round2b_layout_gpu_tensor_imageization_smoke": "7680f16",
+    "round2c_35k_layout_screening": "c395e54",
+    "round2d_period_continuity_diagnostic": "36741ef",
+    "round2d_spatial_continuity_addendum": "9c2284f",
+    "round2e_a_65k_expanded_samples": "fede2be",
+    "round2e_b_65k_expanded_layout_validation": "449b43a",
+    "round2f_p0_spatial_panel_validation": "db0cd06"
+  },
+  "sample_sets": {
+    "35k_small": [
+      "round2_selection_small",
+      "round2_diagnostic_balanced_small",
+      "round2_test_small"
+    ],
+    "65k_expanded": [
+      "round2_selection_expanded",
+      "round2_diagnostic_balanced_expanded",
+      "round2_test_expanded"
+    ],
+    "p0_scale": [
+      "pilot_selection",
+      "diagnostic_balanced",
+      "pilot_test"
+    ]
+  },
+  "layouts": {
+    "mainline_candidate": "spatial_panel_3view",
+    "round2_registry_baseline": "current_rgb_3view",
+    "period_side_branch_candidate": "top3fold_period_layout",
+    "not_recommended_as_current_mainline": [
+      "line_only",
+      "line_difference_band",
+      "fft_absolute_energy"
+    ]
+  },
+  "recommendation": {
+    "current_round2_mainline_candidate": {
+      "layout": "spatial_panel_3view",
+      "backend": "film_mean_patch_aux",
+      "fusion": "raw_soft_fusion"
+    },
+    "important_fallback": "Round1 film_mean_patch_aux",
+    "important_round2_baseline": "current_rgb_3view + film_mean_patch_aux",
+    "next_step": "Visual Router V2 Round2 full-scale validation planning",
+    "do_not_continue_unbounded_small_layout_branching": true
+  },
+  "key_results": {
+    "35k_selection_spatial_panel_raw_soft_MAE": 0.310385,
+    "35k_test_small_spatial_panel_raw_soft_MAE": 0.398598,
+    "65k_selection_spatial_panel_raw_soft_MAE": 0.307233,
+    "65k_test_expanded_spatial_panel_raw_soft_MAE": 0.394336,
+    "p0_selection_spatial_panel_raw_soft_MAE": 0.300227,
+    "p0_frozen_pilot_test_spatial_panel_raw_soft_MAE": 0.413558,
+    "round1_fallback_frozen_pilot_test_raw_soft_MAE": 0.417824,
+    "p0_delta_vs_round1_fallback_MAE": -0.004266,
+    "p0_delta_vs_round1_fallback_MSE": -0.582819,
+    "p0_delta_vs_round1_fallback_regret": -0.004266
+  },
+  "deferred_directions": [
+    "resize/interpolation systematic ablation",
+    "padding mask as input",
+    "richer value/difference bands",
+    "absolute FFT energy redesign",
+    "period_soft_mixture",
+    "period tokens",
+    "independent view encoder",
+    "panel-wise / view-region pooling",
+    "current layout equivalence check"
+  ],
+  "source_summary_files": [
+    "experiment_summaries/visual_router_v2_round2/small_samples/round2_small_screening_summary.md",
+    "experiment_summaries/visual_router_v2_round2/layout_imageization_smoke/round2_layout_imageization_summary.md",
+    "experiment_summaries/visual_router_v2_round2/layout_screening/round2_layout_screening_summary.md",
+    "experiment_summaries/visual_router_v2_round2/period_continuity/round2_period_continuity_summary.md",
+    "experiment_summaries/visual_router_v2_round2/period_continuity_addendum/round2_period_continuity_addendum_summary.md",
+    "experiment_summaries/visual_router_v2_round2/expanded_samples/round2_expanded_sample_summary.md",
+    "experiment_summaries/visual_router_v2_round2/expanded_layout_validation/round2_expanded_layout_validation_summary.md",
+    "experiment_summaries/visual_router_v2_round2/p0_spatial_panel_mainline/round2_p0_spatial_summary.md"
+  ]
+}
