@@ -94,6 +94,8 @@ def build_markdown_summary(summary: pd.DataFrame) -> str:
         [
             "# PatchTST + Visual Dual-Branch 汇总",
             "",
+            "说明：新版本单 run 的 test 指标使用 best validation checkpoint；旧历史 metrics 若缺少 `test_checkpoint` 字段，应按对应 run 的 `config.json`/`training_log.txt` 复核后再混合解读。",
+            "",
             "## 结论",
             "",
             *_beat_lines(mae_beats, "mae"),

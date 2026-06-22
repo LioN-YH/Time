@@ -28,6 +28,7 @@ import torch
 from torch import nn
 
 from visual_router_experiments.dual_branch_fusion.cache_dataset import (
+    AlignedDualBranchCache,
     DualBranchTensorDataset,
     align_patchtst_and_visual_cache,
     split_indices,
@@ -67,6 +68,64 @@ def make_loader(
     generator = torch.Generator()
     generator.manual_seed(int(seed))
     return torch.utils.data.DataLoader(dataset, batch_size=int(batch_size), shuffle=shuffle, generator=generator)
+
+
+def fit_train_standardizer(features: np.ndarray, train_idx: np.ndarray) -> Dict[str, np.ndarray]:
+    """
+    函数功能：
+        只使用 train split 拟合逐维标准化参数。
+
+    关键约束：
+        val/test 不能参与 mean/std 估计；极小方差维度使用 1.0 作为 std，避免除零。
+    """
+    train_features = np.asarray(features)[train_idx]
+    mean = train_features.mean(axis=0, dtype=np.float64).astype(np.float32)
+    std = train_features.std(axis=0, dtype=np.float64).astype(np.float32)
+    std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
+    return {"mean": mean, "std": std}
+
+
+def transform_features(features: np.ndarray, scaler: Dict[str, np.ndarray]) -> np.ndarray:
+    """函数功能：使用 train-only scaler 变换任意 split 的特征。"""
+    return ((np.asarray(features, dtype=np.float32) - scaler["mean"]) / scaler["std"]).astype(np.float32, copy=False)
+
+
+def apply_train_only_standardization(
+    cache: AlignedDualBranchCache,
+    *,
+    train_idx: np.ndarray,
+    enabled: bool,
+) -> tuple[AlignedDualBranchCache, Dict[str, object]]:
+    """
+    函数功能：
+        对 h_ts 和 h_vis 应用 train-only feature standardization，并返回可写入 config 的摘要。
+    """
+    if not enabled:
+        return cache, {"enabled": False}
+
+    h_ts_scaler = fit_train_standardizer(cache.h_ts, train_idx)
+    h_vis_scaler = fit_train_standardizer(cache.h_vis, train_idx)
+    standardized = AlignedDualBranchCache(
+        sample_key=cache.sample_key,
+        split=cache.split,
+        h_ts=transform_features(cache.h_ts, h_ts_scaler),
+        h_vis=transform_features(cache.h_vis, h_vis_scaler),
+        y_patchtst=cache.y_patchtst,
+        y_true=cache.y_true,
+    )
+    return standardized, {
+        "enabled": True,
+        "fit_split": "train_split",
+        "h_ts_dim": int(cache.h_ts.shape[1]),
+        "h_vis_dim": int(cache.h_vis.shape[1]),
+        "h_ts_train_mean_abs_max_after_transform": float(np.max(np.abs(standardized.h_ts[train_idx].mean(axis=0)))),
+        "h_vis_train_mean_abs_max_after_transform": float(np.max(np.abs(standardized.h_vis[train_idx].mean(axis=0)))),
+    }
+
+
+def clone_state_dict_to_cpu(model: nn.Module) -> Dict[str, torch.Tensor]:
+    """函数功能：复制当前模型权重到 CPU，避免后续 optimizer step 原地修改 best checkpoint。"""
+    return {name: tensor.detach().cpu().clone() for name, tensor in model.state_dict().items()}
 
 
 def run_epoch(
@@ -148,6 +207,8 @@ def format_summary(metrics: Dict[str, object], config: Dict[str, object], histor
             f"- train/val/test split：{config['train_split']} / {config['val_split']} / {config['test_split']}",
             f"- 视觉编码：fixed cache，不生成图像，不运行 ViT",
             f"- PatchTST：frozen cache baseline，不在本入口重新训练",
+            f"- test checkpoint：best validation checkpoint (epoch={metrics['best_val_epoch']}, val_loss={metrics['best_val_loss']:.8f})",
+            f"- feature standardization：train-only scaler enabled={config['feature_standardization']['enabled']}",
             "",
             "## 对比指标",
             "",
@@ -170,7 +231,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patchtst_cache", type=Path, required=True)
     parser.add_argument(
         "--fusion_mode",
-        choices=["feature_concat", "film", "residual_feature", "visual_residual", "pred_gate"],
+        choices=[
+            "feature_concat",
+            "film",
+            "residual_feature",
+            "visual_residual",
+            "pred_gate",
+            "patchtst_residual_visual",
+        ],
         required=True,
     )
     parser.add_argument("--train_split", default="train")
@@ -182,6 +250,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--residual_scale", type=float, default=0.1)
+    parser.add_argument(
+        "--disable_feature_standardization",
+        action="store_true",
+        help="默认启用 train-only h_ts/h_vis 标准化；该开关仅用于 ablation/debug。",
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output_dir", type=Path, required=True)
@@ -209,6 +283,11 @@ def main() -> None:
     train_idx = split_indices(cache, args.train_split)
     val_idx = split_indices(cache, args.val_split)
     test_idx = split_indices(cache, args.test_split)
+    cache, standardization_config = apply_train_only_standardization(
+        cache,
+        train_idx=train_idx,
+        enabled=not bool(args.disable_feature_standardization),
+    )
 
     train_loader = make_loader(
         DualBranchTensorDataset(cache, train_idx),
@@ -244,14 +323,20 @@ def main() -> None:
         output_dim=output_dim,
         hidden_dim=args.hidden_dim,
         dropout=args.dropout,
+        residual_scale=args.residual_scale,
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
     criterion = nn.MSELoss()
 
     history: List[Dict[str, float]] = []
+    best_val_loss = float("inf")
+    best_val_epoch = 0
+    best_state_dict = clone_state_dict_to_cpu(model)
     log_lines = [
         f"start_time={display_time()}",
         f"train_samples={len(train_idx)} val_samples={len(val_idx)} test_samples={len(test_idx)}",
+        f"feature_standardization_enabled={standardization_config['enabled']}",
+        "test_checkpoint=best_validation_checkpoint",
         f"patchtst_mae={patchtst_baseline['patchtst_mae']:.8f} patchtst_mse={patchtst_baseline['patchtst_mse']:.8f}",
     ]
     for epoch in range(1, int(args.epochs) + 1):
@@ -260,7 +345,15 @@ def main() -> None:
             val_loss = run_epoch(model=model, loader=val_loader, criterion=criterion, device=device, optimizer=None)
         row = {"epoch": float(epoch), "train_loss": float(train_loss), "val_loss": float(val_loss)}
         history.append(row)
-        log_lines.append(f"epoch={epoch} train_loss={train_loss:.8f} val_loss={val_loss:.8f}")
+        is_best = val_loss < best_val_loss
+        if is_best:
+            best_val_loss = float(val_loss)
+            best_val_epoch = int(epoch)
+            best_state_dict = clone_state_dict_to_cpu(model)
+        log_lines.append(f"epoch={epoch} train_loss={train_loss:.8f} val_loss={val_loss:.8f} best={str(is_best).lower()}")
+
+    # test 必须使用 validation loss 最优的 checkpoint，而不是最后一轮权重。
+    model.load_state_dict(best_state_dict)
 
     y_dual_test = predict(model=model, loader=test_loader, device=device)
     y_dual_test = y_dual_test.reshape(y_true_test.shape)
@@ -272,6 +365,9 @@ def main() -> None:
             "train_samples": int(len(train_idx)),
             "val_samples": int(len(val_idx)),
             "test_samples": int(len(test_idx)),
+            "best_val_epoch": int(best_val_epoch),
+            "best_val_loss": float(best_val_loss),
+            "test_checkpoint": "best_validation_checkpoint",
         }
     )
 
@@ -291,6 +387,11 @@ def main() -> None:
         "weight_decay": float(args.weight_decay),
         "hidden_dim": int(args.hidden_dim),
         "dropout": float(args.dropout),
+        "residual_scale": float(args.residual_scale),
+        "feature_standardization": standardization_config,
+        "test_checkpoint": "best_validation_checkpoint",
+        "best_val_epoch": int(best_val_epoch),
+        "best_val_loss": float(best_val_loss),
         "seed": int(args.seed),
         "device": str(device),
         "ts_dim": int(cache.h_ts.shape[1]),

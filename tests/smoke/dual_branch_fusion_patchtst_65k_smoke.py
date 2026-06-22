@@ -10,8 +10,8 @@
     临时目录中的 config/metrics/predictions/training_log/summary，并在标准输出打印中文检查日志。
 
 关键约束：
-    smoke 不访问 /data2，不生成图像，不运行 ViT，不训练 PatchTST；只验证四个第一批
-    轻量融合变体可以 forward、跑 1-2 个 mini train step 并写出验收产物。
+    smoke 不访问 /data2，不生成图像，不运行 ViT，不训练 PatchTST；验证四个第一批
+    轻量融合变体和 residual-safe mode 可以 forward、跑 1-2 个 mini train step 并写出验收产物。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-FUSION_MODES = ("feature_concat", "film", "residual_feature", "visual_residual")
+FUSION_MODES = ("feature_concat", "film", "residual_feature", "visual_residual", "patchtst_residual_visual")
 
 
 def build_synthetic_cache(cache_dir: Path) -> tuple[Path, Path]:
@@ -97,6 +97,8 @@ def run_one_mode(tmp_dir: Path, patchtst_cache: Path, visual_cache: Path, mode: 
         "16",
         "--dropout",
         "0.0",
+        "--residual_scale",
+        "0.1",
         "--seed",
         "7",
         "--device",
@@ -123,9 +125,18 @@ def run_one_mode(tmp_dir: Path, patchtst_cache: Path, visual_cache: Path, mode: 
         "delta_mse_vs_patchtst",
         "beats_patchtst_mae",
         "beats_patchtst_mse",
+        "best_val_epoch",
+        "best_val_loss",
+        "test_checkpoint",
     ):
         if key not in metrics:
             raise AssertionError(f"{mode} metrics.json 缺少 {key}")
+    if metrics["test_checkpoint"] != "best_validation_checkpoint":
+        raise AssertionError(f"{mode} 未使用 best validation checkpoint")
+
+    config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
+    if config.get("feature_standardization", {}).get("enabled") is not True:
+        raise AssertionError(f"{mode} config.json 未记录默认启用 train-only feature standardization")
 
     with np.load(output_dir / "predictions.npz", allow_pickle=False) as data:
         y_patchtst = data["y_patchtst"]
@@ -142,18 +153,20 @@ def run_one_mode(tmp_dir: Path, patchtst_cache: Path, visual_cache: Path, mode: 
     summary = (output_dir / "summary.md").read_text(encoding="utf-8")
     if "PatchTST MAE" not in summary or "Dual-branch MAE" not in summary or "delta_mae" not in summary:
         raise AssertionError(f"{mode} summary.md 未包含核心对比指标")
+    if "best validation checkpoint" not in summary:
+        raise AssertionError(f"{mode} summary.md 未明确 best-val checkpoint")
     print(f"通过：{mode} forward/mini-train/metrics/summary")
 
 
 def main() -> None:
-    """函数功能：执行四个硬性 fusion mode 的 smoke。"""
+    """函数功能：执行四个原始 fusion mode 和新增 residual-safe mode 的 smoke。"""
     print("开始 PatchTST + Visual dual-branch 65k synthetic smoke")
     tmp_dir = Path(tempfile.mkdtemp(prefix="dual_branch_fusion_smoke_"))
     try:
         patchtst_cache, visual_cache = build_synthetic_cache(tmp_dir)
         for mode in FUSION_MODES:
             run_one_mode(tmp_dir, patchtst_cache, visual_cache, mode)
-        print("完成：四个第一批 fusion mode 均通过 synthetic smoke")
+        print("完成：四个第一批 fusion mode 与 residual-safe mode 均通过 synthetic smoke")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
