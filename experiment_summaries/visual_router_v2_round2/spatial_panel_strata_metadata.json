@@ -1,0 +1,69 @@
+{
+  "status": "completed",
+  "generated_at": "2026-06-22 10:01:11 CST",
+  "script": "visual_router_experiments/stage1_vali_test_router/analyze_visual_router_v2_round2_spatial_panel_strata.py",
+  "analysis_scope": "Read-only Round1/Round2f pilot_test strata and error-tail analysis.",
+  "boundaries": {
+    "trained_model": false,
+    "ran_vit": false,
+    "generated_feature_cache": false,
+    "generated_new_samples": false,
+    "modified_imageization": false,
+    "modified_router_head": false,
+    "used_test_for_training_or_selection": false
+  },
+  "round1_system": "film_mean_patch_aux",
+  "round2_system": "spatial_panel_3view + film_mean_patch_aux",
+  "seeds": [
+    16,
+    17,
+    18
+  ],
+  "sample_set": "pilot_test",
+  "sample_count_per_seed": {
+    "round1": 75000,
+    "round2": 75000
+  },
+  "prediction_sources": {
+    "round1_film_mean_patch_aux": [
+      "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film_final_test_extension/tasks/film_mean_patch_aux_seed16/predictions_film_mean_patch_aux_seed16_pilot_test.csv",
+      "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film_final_test_extension/tasks/film_mean_patch_aux_seed17/predictions_film_mean_patch_aux_seed17_pilot_test.csv",
+      "/data2/syh/Time/run_outputs/2026-06-21_visual_router_v2_round1_film_final_test_extension/tasks/film_mean_patch_aux_seed18/predictions_film_mean_patch_aux_seed18_pilot_test.csv"
+    ],
+    "round2_spatial_panel_3view": [
+      "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/tasks/spatial_panel_3view_seed16/predictions_spatial_panel_3view_seed16_pilot_test.csv",
+      "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/tasks/spatial_panel_3view_seed17/predictions_spatial_panel_3view_seed17_pilot_test.csv",
+      "/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_p0_spatial_panel_mainline/tasks/spatial_panel_3view_seed18/predictions_spatial_panel_3view_seed18_pilot_test.csv"
+    ]
+  },
+  "summary_sources": [
+    "experiment_summaries/visual_router_v2_round1/p2e_film/round1_film_variant_seed_results.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension/round1_film_final_test_extension_variant_seed_results.csv",
+    "experiment_summaries/visual_router_v2_round1/p2e_film_final_test_extension/round1_film_final_test_extension_stratified_summary.csv",
+    "experiment_summaries/visual_router_v2_round2/p0_spatial_panel_mainline/round2_p0_spatial_variant_seed_results.csv",
+    "experiment_summaries/visual_router_v2_round2/p0_spatial_panel_mainline/round2_p0_spatial_stratified_summary.csv"
+  ],
+  "output_files": [
+    "experiment_summaries/visual_router_v2_round2/spatial_panel_strata_metrics.csv",
+    "experiment_summaries/visual_router_v2_round2/spatial_panel_error_tail_metrics.csv",
+    "experiment_summaries/visual_router_v2_round2/spatial_panel_strata_metadata.json"
+  ],
+  "strata_columns": [
+    "oracle_model",
+    "dataset_name",
+    "group_name",
+    "error_gap_quantile",
+    "forecastability_cat",
+    "season_strength_cat",
+    "trend_strength_cat",
+    "cv_cat",
+    "missing_ratio_cat"
+  ],
+  "tail_definitions": [
+    "top 1% soft_fusion_mae",
+    "top 5% soft_fusion_mae",
+    "top 1% soft_fusion_regret",
+    "top 5% soft_fusion_regret"
+  ],
+  "aggregation_note": "逐样本 prediction CSV 先按 sample_key 聚合三 seed 均值；selected_model 使用 seed mode，selected ratio 使用逐 seed 行计数。"
+}
