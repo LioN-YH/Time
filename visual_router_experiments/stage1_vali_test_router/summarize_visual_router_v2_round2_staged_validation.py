@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 文件功能：
-    汇总 Visual Router V2 Round2 staged full-scale validation thin slice 输出。
+    汇总 Visual Router V2 Round2 staged full-scale validation thin slice / 1M gate 输出。
 
 核心职责：
     - 复核 feature manifest、prediction SQLite、训练聚合 summary 是否存在；
@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-prefix", default=DEFAULT_ARTIFACT_PREFIX)
     parser.add_argument("--layouts", default="spatial_panel_3view,current_rgb_3view")
     parser.add_argument("--seeds", default="16")
-    parser.add_argument("--sample-scale", choices=["smoke", "one_shard"], default="smoke")
+    parser.add_argument("--sample-scale", choices=["smoke", "one_shard", "one_million"], default="smoke")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -371,14 +371,31 @@ def write_summary_md(run_dir: Path, output_paths: Mapping[str, Path], checks: Ma
     overall = pd.read_csv(output_paths["overall"])
     tail = pd.read_csv(output_paths["tail"])
     behavior = pd.read_csv(output_paths["router_behavior"])
+    sample_scale = str(metadata.get("sample_scale", "smoke"))
+    if sample_scale == "one_million":
+        title = "# Visual Router V2 Round2 1M Staged Seed16 Gate"
+        scope_line = "- 本次是 1M staged gate，不是 116M fullscale 正式结论。"
+        next_steps = [
+            "1. 若 staged_selection / staged_test 无灾难性退化，可启动 `spatial_panel_3view + film_mean_patch_aux` fullscale seed16。",
+            "2. fullscale 完成后与 TimeFuse fullscale 做 single-seed first pass MAE/MSE 对比。",
+            "3. 后续再补 `current_rgb_3view` fullscale baseline 或 seeds 17/18。",
+        ]
+    else:
+        title = "# Visual Router V2 Round2 Staged Full-Scale Validation Thin Slice"
+        scope_line = "- 本次是 staged thin slice，不是 1M 或 116M 正式长跑。"
+        next_steps = [
+            "1. `--sample-scale one_shard`：从同一 full-scale shard 扩到每集合 512 或更高，验证单 shard cache/lookup/report 稳定性。",
+            "2. 1M staged planning：增加 shard list 参数，按 shard 生成 feature cache 与 subset SQLite，保持 train/selection/diagnostic/test 分离。",
+            "3. near-full scale：只在 selection 冻结后做 test frozen eval，不用 test 选择 variant、seed、epoch 或超参。",
+        ]
     lines = [
-        "# Visual Router V2 Round2 Staged Full-Scale Validation Thin Slice",
+        title,
         "",
         f"生成时间：{metadata['generated_at']}",
         "",
         "## 结论",
         "",
-        "- 本次是 staged thin slice，不是 1M 或 116M 正式长跑。",
+        scope_line,
         "- pipeline 已覆盖 staged sample manifest、shard-aware feature cache、subset SQLite prediction lookup、fixed FiLM train/eval aggregation 和 report schema。",
         "- 当前只比较 `spatial_panel_3view` 与 `current_rgb_3view`，后端固定 `film_mean_patch_aux`。",
         "",
@@ -401,9 +418,7 @@ def write_summary_md(run_dir: Path, output_paths: Mapping[str, Path], checks: Ma
         "",
         "## 下一步扩大方案",
         "",
-        "1. `--sample-scale one_shard`：从同一 full-scale shard 扩到每集合 512 或更高，验证单 shard cache/lookup/report 稳定性。",
-        "2. 1M staged planning：增加 shard list 参数，按 shard 生成 feature cache 与 subset SQLite，保持 train/selection/diagnostic/test 分离。",
-        "3. near-full scale：只在 selection 冻结后做 test frozen eval，不用 test 选择 variant、seed、epoch 或超参。",
+        *next_steps,
     ]
     (run_dir / "round2_staged_fullscale_validation_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -460,7 +475,8 @@ def main() -> None:
         "report_schema_sections": ["overall", "strata", "tail", "router_behavior", "per_seed_metrics"],
         "checks": checks,
         "constraints": {
-            "not_1m_run": True,
+            "not_1m_run": str(args.sample_scale) != "one_million",
+            "is_1m_staged_gate": str(args.sample_scale) == "one_million",
             "not_116m_full_scale_run": True,
             "loaded_116m_prediction_manifest_to_memory": False,
             "saved_pseudo_image_tensor": False,

@@ -1,0 +1,32 @@
+{
+  "best_layout": "spatial_panel_3view",
+  "backend_style": "film_mean_patch_aux",
+  "selection_basis": "staged_selection raw-soft MAE_mean; tie-breakers MAE_std, MSE_mean, regret_to_oracle_mean, weight_entropy_std, mean_max_weight_std",
+  "selected_from_sample_set": "staged_selection",
+  "staged_diagnostic_used_for_selection": false,
+  "staged_test_used_for_selection": false,
+  "best_row": {
+    "variant": "spatial_panel_3view",
+    "visual_input_mode": "mean_patch",
+    "visual_dim": 768,
+    "seed_count": 1,
+    "sample_set": "staged_selection",
+    "method_kind": "raw_soft_fusion",
+    "method": "spatial_panel_3view_raw_soft_fusion",
+    "sample_count_per_seed": 262144,
+    "MAE_mean": 0.2998578451288766,
+    "MAE_std": 0.0,
+    "MSE_mean": 1.186940034708284,
+    "MSE_std": 0.0,
+    "regret_to_oracle_mean": 0.0338153726784321,
+    "regret_to_oracle_std": 0.0,
+    "oracle_label_accuracy_mean": 0.3836212158203125,
+    "oracle_label_accuracy_std": 0.0,
+    "weight_entropy_mean": 1.145170020853503,
+    "weight_entropy_std": 0.0,
+    "normalized_weight_entropy_mean": 0.7115341268802278,
+    "normalized_weight_entropy_std": 0.0,
+    "mean_max_weight_mean": 0.5029305896064216,
+    "mean_max_weight_std": 0.0
+  }
+}

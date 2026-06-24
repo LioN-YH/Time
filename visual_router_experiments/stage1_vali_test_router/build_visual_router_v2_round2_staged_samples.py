@@ -2,10 +2,10 @@
 """
 文件功能：
     从 Stage 1 full-scale sample shards 中构建 Visual Router V2 Round2 staged
-    full-scale validation 的小规模样本 manifest。
+    full-scale validation / 1M gate 的样本 manifest。
 
 核心约束：
-    - 只读取指定 sample shard 的 CSV，不读取 116M prediction manifest；
+    - 只读取 full-scale sample shard CSV，不读取 116M prediction manifest；
     - train / selection / diagnostic / test 通过 sample_set 严格分离；
     - 只用 oracle parquet 补齐审计标签，不把 oracle label 当作可部署特征；
     - 输出 manifest 继续复用现有 Round2 feature builder 和 fixed FiLM trainer。
@@ -47,6 +47,7 @@ DEFAULT_FULL_SCALE_SAMPLE_SHARDS = (
 DEFAULT_OUTPUT_DIR = DATA2_RUN_OUTPUT_ROOT / "2026-06-22_visual_router_v2_round2_staged_fullscale_validation_thin_slice"
 SCRIPT_VERSION = "visual_router_v2_round2_staged_samples_v1"
 SAMPLE_SETS = ("staged_train", "staged_selection", "staged_diagnostic", "staged_test")
+ONE_MILLION_COUNT_PER_SET = 262_144
 
 
 def display_time() -> str:
@@ -60,11 +61,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full-scale-sample-shard-dir", type=Path, default=DEFAULT_FULL_SCALE_SAMPLE_SHARDS)
     parser.add_argument("--oracle-labels-path", type=Path, default=DEFAULT_ORACLE_LABELS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--sample-scale", choices=["smoke", "one_shard"], default="smoke")
+    parser.add_argument("--sample-scale", choices=["smoke", "one_shard", "one_million"], default="smoke")
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=64)
     parser.add_argument("--smoke-count-per-set", type=int, default=32)
     parser.add_argument("--one-shard-count-per-set", type=int, default=512)
+    parser.add_argument("--one-million-count-per-set", type=int, default=ONE_MILLION_COUNT_PER_SET)
     parser.add_argument("--parquet-batch-rows", type=int, default=250_000)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -107,6 +109,8 @@ def _take_split_rows(frame: pd.DataFrame, split: str, start: int, count: int) ->
 
 def build_base_manifest(args: argparse.Namespace) -> pd.DataFrame:
     """函数功能：构建 train/selection/diagnostic/test 四个 staged sample_set。"""
+    if str(args.sample_scale) == "one_million":
+        return build_one_million_manifest(args)
     path = shard_path(args)
     if not path.exists():
         raise FileNotFoundError(f"找不到 full-scale sample shard：{path}")
@@ -132,6 +136,77 @@ def build_base_manifest(args: argparse.Namespace) -> pd.DataFrame:
     if manifest["sample_key"].astype(str).duplicated().any():
         dup = manifest.loc[manifest["sample_key"].astype(str).duplicated(), "sample_key"].head(10).tolist()
         raise ValueError(f"staged sample sets 之间存在重复 sample_key：{dup}")
+    return manifest
+
+
+def _full_scale_shard_paths(args: argparse.Namespace) -> List[Path]:
+    """函数功能：按 shard 编号返回 1M gate 需要顺序扫描的 full-scale sample shard。"""
+    return [
+        Path(args.full_scale_sample_shard_dir) / f"sample_shard_{idx:04d}_of_{int(args.shard_count):04d}.csv"
+        for idx in range(int(args.shard_count))
+    ]
+
+
+def _collect_split_rows(args: argparse.Namespace, split: str, need_count: int) -> pd.DataFrame:
+    """
+    函数功能：
+        从 full-scale sample shards 中按稳定 shard 顺序收集指定 split 的前 need_count 行。
+
+    说明：
+        1M gate 目标是验证多 shard pipeline 和吞吐，不做最终代表性结论；因此使用
+        full-scale shard 的既有稳定顺序，避免全量排序和不必要内存占用。
+    """
+    parts: List[pd.DataFrame] = []
+    remaining = int(need_count)
+    for path in _full_scale_shard_paths(args):
+        if not path.exists():
+            raise FileNotFoundError(f"找不到 full-scale sample shard：{path}")
+        frame = pd.read_csv(path)
+        required = {"sample_key", "config_name", "split", "dataset_name", "item_id", "channel_id", "window_index"}
+        missing = sorted(required - set(frame.columns))
+        if missing:
+            raise ValueError(f"{path} 缺少必要字段：{missing}")
+        part = frame[frame["split"].astype(str) == str(split)].copy()
+        if part.empty:
+            continue
+        take = min(int(remaining), int(len(part)))
+        parts.append(part.iloc[:take].copy())
+        remaining -= take
+        if remaining <= 0:
+            break
+    if remaining > 0:
+        raise ValueError(f"split={split} 可用样本不足：need={need_count} missing={remaining}")
+    return pd.concat(parts, ignore_index=True)
+
+
+def build_one_million_manifest(args: argparse.Namespace) -> pd.DataFrame:
+    """
+    函数功能：
+        构建约 1M staged gate manifest，四个 sample_set 各 262144 行。
+
+    约束：
+        staged_train / staged_selection / staged_diagnostic 全部来自 vali split 且互不重叠；
+        staged_test 只来自 test split，只做 frozen eval，不参与选择。
+    """
+    count = int(args.one_million_count_per_set)
+    vali = _collect_split_rows(args, "vali", count * 3)
+    test = _collect_split_rows(args, "test", count)
+    slices = {
+        "staged_train": vali.iloc[:count].copy(),
+        "staged_selection": vali.iloc[count : count * 2].copy(),
+        "staged_diagnostic": vali.iloc[count * 2 : count * 3].copy(),
+        "staged_test": test.iloc[:count].copy(),
+    }
+    rows: List[pd.DataFrame] = []
+    for sample_set, part in slices.items():
+        part = part.reset_index(drop=True).copy()
+        part.insert(0, "order_index", np.arange(len(part), dtype=np.int64))
+        part.insert(0, "sample_set", sample_set)
+        rows.append(part)
+    manifest = pd.concat(rows, ignore_index=True)
+    if manifest["sample_key"].astype(str).duplicated().any():
+        dup = manifest.loc[manifest["sample_key"].astype(str).duplicated(), "sample_key"].head(10).tolist()
+        raise ValueError(f"1M staged sample sets 之间存在重复 sample_key：{dup}")
     return manifest
 
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 文件功能：
-    Visual Router V2 Round2 staged full-scale validation thin slice launcher。
+    Visual Router V2 Round2 staged full-scale validation / 1M gate launcher。
 
 执行边界：
-    - 本脚本只编排 smoke / one_shard staged validation，不启动 1M 或 116M 长跑；
+    - 本脚本编排 smoke / one_shard / one_million staged validation，不启动 116M fullscale 长跑；
     - layout 仅支持 `spatial_panel_3view` 与 `current_rgb_3view` 等显式传入集合；
     - 后端固定为 `film_mean_patch_aux`，训练和评估复用现有 Round2 fixed FiLM 入口；
     - prediction lookup 通过 subset SQLite 预构建，避免 worker 并行扫描全量 manifest。
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--summary-copy-dir", type=Path, default=DEFAULT_SUMMARY_DIR)
     parser.add_argument("--sample-manifest", type=Path, default=None, help="若省略，则先运行 staged sample builder。")
-    parser.add_argument("--sample-scale", choices=["smoke", "one_shard"], default="smoke")
+    parser.add_argument("--sample-scale", choices=["smoke", "one_shard", "one_million"], default="smoke")
     parser.add_argument("--layouts", default=",".join(DEFAULT_LAYOUTS))
     parser.add_argument("--backend", choices=["film_mean_patch_aux"], default="film_mean_patch_aux")
     parser.add_argument("--devices", default="cuda:0,cuda:1,cuda:2,cuda:3")
@@ -78,6 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--feature-shard-size", type=int, default=64)
     parser.add_argument("--embedding-batch-size", type=int, default=8)
+    parser.add_argument("--feature-by-sample-set", action="store_true", help="按 layout×sample_set 启动 feature worker，提高 1M gate 多 GPU 利用率。")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--eval-batch-size", type=int, default=128)
@@ -154,12 +155,27 @@ def train_flags(args: argparse.Namespace, sample_manifest: Path) -> List[str]:
     ]
 
 
-def feature_command(args: argparse.Namespace, sample_manifest: Path, layout: str, device: str) -> List[str]:
+def feature_command(args: argparse.Namespace, sample_manifest: Path, layout: str, device: str, sample_set: str | None = None) -> List[str]:
     """函数功能：构造单 layout feature worker 命令。"""
+    flags = feature_flags(args, sample_manifest)
+    if sample_set is not None:
+        # 1M gate 中按 sample_set worker 拆分，避免单 layout 串行处理四个集合。
+        flags = [
+            "--sample-manifest",
+            str(sample_manifest),
+            "--output-dir",
+            str(args.output_dir),
+            "--layouts",
+            str(args.layouts),
+            "--sample-sets",
+            str(sample_set),
+            "--artifact-prefix",
+            ARTIFACT_PREFIX,
+        ]
     cmd = [
         str(args.python),
         str(FEATURE_SCRIPT),
-        *feature_flags(args, sample_manifest),
+        *flags,
         "--layout",
         layout,
         "--device",
@@ -169,6 +185,8 @@ def feature_command(args: argparse.Namespace, sample_manifest: Path, layout: str
         "--embedding-batch-size",
         str(args.embedding_batch_size),
     ]
+    if sample_set is not None:
+        cmd.append("--sample-set-worker")
     if args.max_samples_per_set is not None:
         cmd.extend(["--max-samples-per-set", str(args.max_samples_per_set)])
     if args.local_files_only:
@@ -371,7 +389,8 @@ def main() -> None:
         "devices_requested": devices,
         "sample_sets": list(STAGED_SAMPLE_SETS),
         "constraints": {
-            "not_1m_run": True,
+            "not_1m_run": str(args.sample_scale) != "one_million",
+            "is_1m_staged_gate": str(args.sample_scale) == "one_million",
             "not_116m_full_scale_run": True,
             "loaded_116m_prediction_manifest_to_memory": False,
             "saved_pseudo_image_tensor": False,
@@ -395,9 +414,25 @@ def main() -> None:
             run_command(sample_command(args), log_path=output_dir / "sample_builder.log")
         if not args.train_only:
             feature_tasks: List[Tuple[str, str, List[str], Path]] = []
-            for idx, layout in enumerate(layouts):
-                device = devices[idx % len(devices)]
-                feature_tasks.append((layout, device, feature_command(args, sample_manifest, layout, device), output_dir / "feature_logs" / f"{layout}.log"))
+            if args.feature_by_sample_set:
+                task_idx = 0
+                for layout in layouts:
+                    for sample_set in STAGED_SAMPLE_SETS:
+                        device = devices[task_idx % len(devices)]
+                        task_name = f"{layout}_{sample_set}"
+                        feature_tasks.append(
+                            (
+                                task_name,
+                                device,
+                                feature_command(args, sample_manifest, layout, device, sample_set=sample_set),
+                                output_dir / "feature_logs" / f"{task_name}.log",
+                            )
+                        )
+                        task_idx += 1
+            else:
+                for idx, layout in enumerate(layouts):
+                    device = devices[idx % len(devices)]
+                    feature_tasks.append((layout, device, feature_command(args, sample_manifest, layout, device), output_dir / "feature_logs" / f"{layout}.log"))
             run_parallel(args, feature_tasks, phase="feature")
             run_command(feature_aggregate_command(args, sample_manifest), log_path=output_dir / "feature_aggregation.log")
         if not args.feature_only:

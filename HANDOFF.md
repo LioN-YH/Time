@@ -1,86 +1,147 @@
-# Visual Router V2 Round2e-b Expanded Layout Validation Handoff
+# Handoff: Visual Router V2 Round2 1M gate passed, fullscale shard00 completed
 
-## 最新状态（2026-06-22 04:26:29 CST）
+日志日期：2026-06-24 07:01:24 CST
 
-当前目标 `Visual Router V2 Round2e-b 65k expanded layout validation` 已完成并通过验收。
+## 当前目标
 
-## 关键路径
+Visual Router V2 Round2 fullscale 主线：先完成 `spatial_panel_3view,current_rgb_3view + film_mean_patch_aux` 的 1M staged seed16 gate；若 gate 无明显失败，启动 `spatial_panel_3view + film_mean_patch_aux` fullscale seed16，用于后续和 TimeFuse fullscale 做 single-seed first pass 对比。
 
-| 项目 | 路径 |
-| --- | --- |
-| worktree | `/home/shiyuhong/Time-visual-router-v2` |
-| branch | `exp/visual-router-v2-pilot` |
-| conda python | `/home/shiyuhong/application/miniconda3/envs/quito/bin/python` |
-| 用户目标文件 | `/home/shiyuhong/.codex-tianyu/attachments/b841a4a9-c37e-4f2a-a4ff-3cb3921f7e77/pasted-text-1.txt` |
-| expanded sample manifest | `/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_samples/round2_expanded_sample_manifest.csv` |
-| 正式输出目录 | `/data2/syh/Time/run_outputs/2026-06-22_visual_router_v2_round2_expanded_layout_validation/` |
-| 轻量 summary 目录 | `experiment_summaries/visual_router_v2_round2/expanded_layout_validation/` |
-| 启动日志 | `experiment_logs/2026-06-22_visual_router_v2_round2_expanded_layout_validation_launch.md` |
-| 完成日志 | `experiment_logs/2026-06-22_visual_router_v2_round2_expanded_layout_validation_completion.md` |
+当前上下文已经超过项目规范的 handoff 阈值。本文件是强制交接点，后续建议在新窗口继续，不要依赖当前对话上下文。
 
-## 已完成内容
+## 已完成
 
-1. 参数化并修复 Round2 layout feature builder：
-   - `--artifact-prefix`
-   - `--layout` worker 不再写 unified manifest，避免并行写冲突
-   - `Round2HistoryWindowLoader` 使用 Quito `id_mask` 直接定位 item/channel 行，去掉 expanded shard 内 `deepcopy + select_user_data` 瓶颈
-2. 参数化 fixed FiLM training/aggregation：
-   - 支持 expanded sample set 参数
-   - 支持 `round2_expanded_layout_*` 输出前缀
-   - summary 回答用户目标的 9 个问题
-3. 新增 expanded 专用 launcher：
-   - `visual_router_experiments/stage1_vali_test_router/launch_visual_router_v2_round2_expanded_validation_parallel.py`
-   - 支持 `--devices`、`--layouts`、`--feature-only`、`--train-only`、`--aggregate-only`、`--overwrite`
-4. py_compile 通过。
-5. fast-loader feature smoke 通过。
-6. 正式任务完成：
-   - 3 layouts × 65,000 feature rows
-   - prediction subset SQLite `records=325000`
-   - 9 个 layout×seed fixed FiLM task 全部 completed
-   - aggregation completed
-   - 轻量 summary 已复制到仓库
+- 已读取用户任务文件：
+  `/home/shiyuhong/.codex-tianyu/attachments/01c25011-06bf-4489-812d-d1b1633bce95/pasted-text-1.txt`
+- 1M staged seed16 gate 已完成并通过：
+  - summary: `experiment_summaries/visual_router_v2_round2/1m_staged_seed16_gate/round2_staged_fullscale_validation_summary.md`
+  - best layout: `spatial_panel_3view`
+  - feature manifest: passed
+  - prediction lookup: `5242880/5242880`
+  - `staged_test` 未用于选择。
+- 已新增/修改 fullscale streaming FiLM 入口：
+  `visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round2_fullscale_streaming_film.py`
+- fullscale seed16 `spatial_panel_3view + film_mean_patch_aux` shard00/64 已完成：
+  - run dir: `/data2/syh/Time/run_outputs/2026-06-24_visual_router_v2_round2_fullscale_streaming_film_seed16_shard00_of64`
+  - status: `completed/done`
+  - checkpoint: `checkpoints/round2_film_seed16_epoch0001.pt`
+  - prediction index: `prediction_manifest_index.sqlite`
+  - predictions: `visual_router_predictions.csv`
+  - soft fusion predictions: `visual_router_soft_fusion_predictions.csv`
+  - summary: `visual_router_round2_fullscale_summary.csv`
+  - metadata: `visual_router_metadata.json`
 
-## 验收结果
+## 关键结果快照
 
-完整验收脚本输出：
+1M staged gate 的 selection 基准：
 
 ```text
-expanded_layout_validation_verification=passed
-best_layout spatial_panel_3view
-selection_raw_soft_best_MAE 0.3072330755222998
-test_raw_soft_best_MAE 0.3943355328734411
+best_layout=spatial_panel_3view
+backend_style=film_mean_patch_aux
+selected_from_sample_set=staged_selection
+staged_selection raw_soft_MAE=0.2998578451288766
+staged_selection raw_soft_MSE=1.186940034708284
+staged_selection raw_soft_regret=0.0338153726784321
 ```
 
-验收覆盖：
+1M staged gate 的 staged_test 对比：
 
-- 必需输出文件全部存在；
-- feature manifest 覆盖 `spatial_panel_3view`、`current_rgb_3view`、`top3fold_period_layout` 和四个 expanded sample sets；
-- 每个 layout 样本数为 train 30,000、selection 10,000、diagnostic 10,000、test 15,000；
-- 99 个 feature shards 的 required fields、shape、finite 和 order_index 检查通过；
-- 9 个 task 均 `status=completed`；
-- 每个 task 均生成 selection/diagnostic/test_expanded prediction CSV；
-- metadata 记录 only variable 是 layout、base visual input 是 `mean_patch_embedding`、condition input 是 `revin_aux`、使用 FiLM、不 concat aux、不用 test 选择、不保存 pseudo image tensor、不使用 DataParallel/DDP；
-- summary 回答目标中的 9 个问题；
-- 轻量 summary 已复制到 `experiment_summaries/visual_router_v2_round2/expanded_layout_validation/`。
+```text
+spatial_panel_3view raw_soft_MAE=0.4128115751322085
+current_rgb_3view   raw_soft_MAE=0.4208501357718179
+```
 
-## 正式结论
+fullscale seed16 shard00/64 test 结果：
 
-- 65k selection best：`spatial_panel_3view`
-  - raw-soft MAE = 0.307233
-  - raw-soft MSE = 2.043914
-- 65k `round2_test_expanded` best：`spatial_panel_3view`
-  - raw-soft MAE = 0.394336
-  - raw-soft MSE = 2.008546
-- selection best 与 test best 一致。
-- `spatial_panel_3view` 仍优于 `current_rgb_3view`。
-- `top3fold_period_layout` 的 continuity / diagnostic 价值未转化为 expanded 主指标优势。
-- 35k 结论在 65k 上稳定。
-- 建议把 `spatial_panel_3view + film_mean_patch_aux` 升级为 Round2 主线。
-- 下一步建议扩大到 P0/P2a 规模；`period_soft_mixture` / period tokens 作为后续独立实验，不作为前置门槛。
+```text
+sample_count=217573
+raw_soft_MAE=0.4651163217929314
+raw_soft_MSE=191.82048624897772
+raw_soft_regret=0.1186626195232913
+hard_top1_MAE=0.4882601586607196
+hard_top1_MSE=191.94987953017548
+hard_top1_regret=0.1418064563910796
+oracle_label_accuracy=0.5146686399507292
+weight_entropy=1.295631112864455
+mean_max_weight=0.42796135904762694
+```
 
-## 后续建议
+注意：shard00/64 不是完整 fullscale 汇总，不能当作最终 fullscale 结论；它只说明 fullscale shard 链路和一片数据已跑通。
 
-1. 基于 `spatial_panel_3view + film_mean_patch_aux` 设计 P0/P2a 规模扩展。
-2. 保留 `current_rgb_3view` 为 baseline。
-3. 保留 `top3fold_period_layout` 为 period diagnostic 对照。
-4. 不提交 `/data2` 中的 feature cache、checkpoint、SQLite 或逐样本 prediction CSV。
+## 正在运行
+
+有一个局部 TimeFuse/统计对比任务仍在运行：
+
+```text
+pid=509709
+cmd=/home/shiyuhong/application/miniconda3/envs/quito/bin/python visual_router_experiments/stage1_vali_test_router/compare_p0_275k_spatial_timefuse_statistical.py --overwrite --device auto --batch-size 2048 --output-dir /data2/syh/Time/run_outputs/2026-06-24_p0_275k_spatial_timefuse_statistical_comparison
+output_dir=/data2/syh/Time/run_outputs/2026-06-24_p0_275k_spatial_timefuse_statistical_comparison
+status_json=/data2/syh/Time/run_outputs/2026-06-24_p0_275k_spatial_timefuse_statistical_comparison/status.json
+latest_status=running, stage=load_timefuse_features, updated_at=2026-06-24 07:00:42 CST
+partial_output=p0_275k_statistical_policy_mapping.partial.csv
+```
+
+监控命令：
+
+```text
+ps -p 509709 -o pid,ppid,pgid,stat,etime,pcpu,pmem,cmd
+cat /data2/syh/Time/run_outputs/2026-06-24_p0_275k_spatial_timefuse_statistical_comparison/status.json
+find /data2/syh/Time/run_outputs/2026-06-24_p0_275k_spatial_timefuse_statistical_comparison -maxdepth 2 -type f | sort
+```
+
+停止命令（仅在用户要求或确认需要停止时使用）：
+
+```text
+kill -TERM 509709
+```
+
+## fullscale shard00 复核命令
+
+```text
+cat /data2/syh/Time/run_outputs/2026-06-24_visual_router_v2_round2_fullscale_streaming_film_seed16_shard00_of64/status.json
+cat /data2/syh/Time/run_outputs/2026-06-24_visual_router_v2_round2_fullscale_streaming_film_seed16_shard00_of64/visual_router_round2_fullscale_summary.csv
+cat /data2/syh/Time/run_outputs/2026-06-24_visual_router_v2_round2_fullscale_streaming_film_seed16_shard00_of64/visual_router_metadata.json
+tail -120 /data2/syh/Time/run_outputs/2026-06-24_visual_router_v2_round2_fullscale_streaming_film_seed16_shard00_of64/main.log
+```
+
+## 当前工作树
+
+当前有未提交改动，包含实验脚本、结构文档和中文实验日志。不要还原这些改动，除非用户明确要求。
+
+```text
+M HANDOFF.md
+M WORKSPACE_STRUCTURE.md
+M experiment_logs/README.md
+M visual_router_experiments/stage1_vali_test_router/build_visual_router_v2_round2_staged_samples.py
+M visual_router_experiments/stage1_vali_test_router/launch_visual_router_v2_round2_staged_validation_parallel.py
+M visual_router_experiments/stage1_vali_test_router/summarize_visual_router_v2_round2_staged_validation.py
+?? experiment_logs/2026-06-24_one_shard_staged_validation_local_history_check.md
+?? experiment_logs/2026-06-24_spatial_panel_timefuse_subset_comparison_check.md
+?? experiment_logs/2026-06-24_visual_router_v2_round2_1m_staged_seed16_gate.md
+?? experiment_logs/2026-06-24_visual_router_v2_round2_fullscale_streaming_film_launch.md
+?? experiment_summaries/visual_router_v2_round2/1m_staged_seed16_gate/
+?? visual_router_experiments/stage1_vali_test_router/compare_p0_275k_spatial_timefuse_statistical.py
+?? visual_router_experiments/stage1_vali_test_router/train_visual_router_v2_round2_fullscale_streaming_film.py
+```
+
+## 下一步建议
+
+1. 在新窗口先检查 `p0_275k_spatial_timefuse_statistical_comparison` 是否完成；若完成，记录其输出指标并补中文实验日志/README。
+2. 复核 fullscale shard00 输出，确认 `visual_router_metadata.json` 中：
+   - `stream_shard_index=0`
+   - `stream_shard_count=64`
+   - `embedding_storage=batch_runtime_only_not_saved`
+   - `pseudo_image_tensor_storage=not_saved`
+   - `train_sample_count=146102`
+   - `test_sample_count=217573`
+3. 若 shard00 结果和资源状态可接受，再写或启动多 shard launcher，扩展到 64 shards；每个 shard 应避免重复扫描 116M manifest，优先复用/优化 subset index 或预分 shard-specific keys。
+4. 完整 fullscale 完成后再聚合 all-shard summary，并输出 overall / strata / tail / router behavior / metadata / 中文 summary。
+5. fullscale 完成后再与 TimeFuse fullscale 做第一版 MAE/MSE 对比；目前 shard00 指标不能作为 fullscale 对比结论。
+
+## 边界条件
+
+- 不新建分支、不切分支、不合并其他分支。
+- 不做新的 layout search。
+- 不加入 period branch、panel-wise pooling、calibration，也不改 router head 或 imageization 语义。
+- 不把 1M staged gate 写成最终 fullscale 结论。
+- 不把 shard00/64 写成完整 fullscale 结论。
+- `test` 只能做 frozen eval，不用于选择 layout、seed、epoch 或超参。
